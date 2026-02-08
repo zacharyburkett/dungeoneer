@@ -47,6 +47,10 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.corridors = NULL;
     map->metadata.corridor_count = 0;
     map->metadata.corridor_capacity = 0;
+    map->metadata.room_adjacency = NULL;
+    map->metadata.room_adjacency_count = 0;
+    map->metadata.room_neighbors = NULL;
+    map->metadata.room_neighbor_count = 0;
     map->metadata.seed = 0;
     map->metadata.algorithm_id = -1;
     map->metadata.walkable_tile_count = 0;
@@ -134,12 +138,18 @@ void dg_map_clear_metadata(dg_map_t *map)
 
     free(map->metadata.rooms);
     free(map->metadata.corridors);
+    free(map->metadata.room_adjacency);
+    free(map->metadata.room_neighbors);
     map->metadata.rooms = NULL;
     map->metadata.room_count = 0;
     map->metadata.room_capacity = 0;
     map->metadata.corridors = NULL;
     map->metadata.corridor_count = 0;
     map->metadata.corridor_capacity = 0;
+    map->metadata.room_adjacency = NULL;
+    map->metadata.room_adjacency_count = 0;
+    map->metadata.room_neighbors = NULL;
+    map->metadata.room_neighbor_count = 0;
     map->metadata.seed = 0;
     map->metadata.algorithm_id = -1;
     map->metadata.walkable_tile_count = 0;

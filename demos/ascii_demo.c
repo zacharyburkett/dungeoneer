@@ -70,6 +70,7 @@ int main(int argc, char **argv)
     int special_interval;
     size_t total_tiles;
     float floor_coverage;
+    double average_room_degree;
 
     mode = (argc > 1) ? argv[1] : "rooms";
     width = (argc > 2) ? atoi(argv[2]) : 80;
@@ -118,6 +119,10 @@ int main(int argc, char **argv)
 
     total_tiles = (size_t)map.width * (size_t)map.height;
     floor_coverage = (float)map.metadata.walkable_tile_count / (float)total_tiles;
+    average_room_degree = 0.0;
+    if (map.metadata.room_count > 0) {
+        average_room_degree = (double)map.metadata.room_neighbor_count / (double)map.metadata.room_count;
+    }
 
     fprintf(stdout, "\n");
     fprintf(stdout, "algorithm: %s\n", mode);
@@ -129,6 +134,9 @@ int main(int argc, char **argv)
     fprintf(stdout, "corridors: %zu (total length: %zu)\n",
             map.metadata.corridor_count,
             map.metadata.corridor_total_length);
+    fprintf(stdout, "room adjacency entries: %zu (avg degree: %.2f)\n",
+            map.metadata.room_neighbor_count,
+            average_room_degree);
     fprintf(stdout, "walkable tiles: %zu (coverage: %.2f%%)\n",
             map.metadata.walkable_tile_count, (double)(floor_coverage * 100.0f));
     fprintf(stdout, "components: %zu (largest: %zu, connected: %s)\n",

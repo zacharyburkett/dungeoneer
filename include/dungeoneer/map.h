@@ -25,6 +25,16 @@ typedef struct dg_corridor_metadata {
     int length;
 } dg_corridor_metadata_t;
 
+typedef struct dg_room_neighbor {
+    int room_id;
+    int corridor_index;
+} dg_room_neighbor_t;
+
+typedef struct dg_room_adjacency_span {
+    size_t start_index;
+    size_t count;
+} dg_room_adjacency_span_t;
+
 typedef struct dg_map_metadata {
     uint64_t seed;
     int algorithm_id;
@@ -36,6 +46,16 @@ typedef struct dg_map_metadata {
     dg_corridor_metadata_t *corridors;
     size_t corridor_count;
     size_t corridor_capacity;
+
+    /*
+     * Room graph represented as adjacency spans into `room_neighbors`.
+     * For room i, neighbors are in:
+     *   room_neighbors[room_adjacency[i].start_index ... +count)
+     */
+    dg_room_adjacency_span_t *room_adjacency;
+    size_t room_adjacency_count;
+    dg_room_neighbor_t *room_neighbors;
+    size_t room_neighbor_count;
 
     size_t walkable_tile_count;
     size_t wall_tile_count;

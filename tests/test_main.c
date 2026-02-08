@@ -207,6 +207,43 @@ static bool is_connected(const dg_map_t *map)
     return true;
 }
 
+static bool has_reverse_neighbor(
+    const dg_map_t *map,
+    int from_room_id,
+    int to_room_id,
+    int corridor_index
+)
+{
+    size_t i;
+    const dg_room_adjacency_span_t *span;
+
+    if (map == NULL) {
+        return false;
+    }
+
+    if (from_room_id < 0 || to_room_id < 0) {
+        return false;
+    }
+
+    if ((size_t)from_room_id >= map->metadata.room_adjacency_count) {
+        return false;
+    }
+
+    span = &map->metadata.room_adjacency[from_room_id];
+    if (span->start_index + span->count > map->metadata.room_neighbor_count) {
+        return false;
+    }
+
+    for (i = span->start_index; i < span->start_index + span->count; ++i) {
+        const dg_room_neighbor_t *neighbor = &map->metadata.room_neighbors[i];
+        if (neighbor->room_id == to_room_id && neighbor->corridor_index == corridor_index) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static int test_map_basics(void)
 {
     dg_map_t map = {0};
@@ -280,6 +317,27 @@ static int test_rooms_and_corridors_generation(void)
     ASSERT_TRUE(map.metadata.corridor_total_length >= map.metadata.corridor_count);
     ASSERT_TRUE(map.metadata.leaf_room_count >= 2);
     ASSERT_TRUE(map.metadata.leaf_room_count <= map.metadata.room_count);
+    ASSERT_TRUE(map.metadata.room_adjacency_count == map.metadata.room_count);
+    ASSERT_TRUE(map.metadata.room_neighbor_count == map.metadata.corridor_count * 2);
+
+    {
+        size_t leaf_from_adjacency;
+        size_t degree_sum;
+        leaf_from_adjacency = 0;
+        degree_sum = 0;
+
+        for (size_t i = 0; i < map.metadata.room_adjacency_count; ++i) {
+            const dg_room_adjacency_span_t *span = &map.metadata.room_adjacency[i];
+            ASSERT_TRUE(span->start_index + span->count <= map.metadata.room_neighbor_count);
+            degree_sum += span->count;
+            if (span->count == 1) {
+                leaf_from_adjacency += 1;
+            }
+        }
+
+        ASSERT_TRUE(degree_sum == map.metadata.room_neighbor_count);
+        ASSERT_TRUE(leaf_from_adjacency == map.metadata.leaf_room_count);
+    }
 
     for (size_t i = 0; i < map.metadata.corridor_count; ++i) {
         const dg_corridor_metadata_t *corridor = &map.metadata.corridors[i];
@@ -288,6 +346,18 @@ static int test_rooms_and_corridors_generation(void)
         ASSERT_TRUE((size_t)corridor->from_room_id < map.metadata.room_count);
         ASSERT_TRUE((size_t)corridor->to_room_id < map.metadata.room_count);
         ASSERT_TRUE(corridor->length >= 1);
+        ASSERT_TRUE(has_reverse_neighbor(
+            &map,
+            corridor->from_room_id,
+            corridor->to_room_id,
+            (int)i
+        ));
+        ASSERT_TRUE(has_reverse_neighbor(
+            &map,
+            corridor->to_room_id,
+            corridor->from_room_id,
+            (int)i
+        ));
     }
 
     special_rooms = count_special_rooms(&map);
@@ -324,6 +394,8 @@ static int test_organic_cave_generation(void)
     ASSERT_TRUE(map.metadata.special_room_count == 0);
     ASSERT_TRUE(map.metadata.leaf_room_count == 0);
     ASSERT_TRUE(map.metadata.corridor_total_length == 0);
+    ASSERT_TRUE(map.metadata.room_adjacency_count == 0);
+    ASSERT_TRUE(map.metadata.room_neighbor_count == 0);
     ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ORGANIC_CAVE);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.connected_floor);

@@ -24,6 +24,7 @@ Owns map storage and metadata:
 - Tile read/write helpers
 - Room metadata collection
 - Corridor metadata collection
+- Explicit room adjacency graph (spans + neighbor list)
 - Runtime metadata diagnostics (coverage/connectivity/attempts/room-graph metrics)
 
 ### `rng.h` + `src/rng.c`

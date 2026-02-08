@@ -29,6 +29,7 @@ Build a standalone C library for 2D procedural dungeon generation that can later
   - Retry attempts
 - Metadata baseline:
   - Room + corridor records
+  - Explicit room adjacency graph
   - Room-graph metrics (leaf rooms, corridor lengths)
   - Coverage and connectivity diagnostics
   - Effective seed and attempt count
