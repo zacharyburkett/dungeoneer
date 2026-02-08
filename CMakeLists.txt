@@ -10,7 +10,13 @@ add_library(dungeoneer
     src/core.c
     src/map.c
     src/rng.c
-    src/generator.c
+    src/generator/api.c
+    src/generator/primitives.c
+    src/generator/connectivity.c
+    src/generator/constraints.c
+    src/generator/metadata.c
+    src/generator/rooms_corridors.c
+    src/generator/organic_cave.c
 )
 add_library(dungeoneer::dungeoneer ALIAS dungeoneer)
 

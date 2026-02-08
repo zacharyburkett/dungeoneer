@@ -33,7 +33,7 @@ Deterministic PRNG wrapper:
 - Integer and float random values
 - Range generation helper
 
-### `generator.h` + `src/generator.c`
+### `generator.h` + `src/generator/`
 
 Generation entrypoint and method configs:
 - `DG_ALGORITHM_ROOMS_AND_CORRIDORS`
@@ -45,6 +45,15 @@ Generation entrypoint and method configs:
   - Forbidden (no-carve) regions
   - Retry attempts
 - Room classification callback for special-room tagging
+- Internal module split:
+  - `src/generator/api.c`: Public generation API and attempt orchestration
+  - `src/generator/primitives.c`: Shared math, geometry, and low-level tile helpers
+  - `src/generator/connectivity.c`: Connectivity analysis, enforcement, and smoothing
+  - `src/generator/constraints.c`: Constraint validation and forbidden-region enforcement
+  - `src/generator/metadata.c`: Runtime metadata population and map-state initialization
+  - `src/generator/rooms_corridors.c`: Rooms+corridors implementation
+  - `src/generator/organic_cave.c`: Organic cave implementation
+  - `src/generator/internal.h`: Internal contracts between generator modules
 
 ## Data flow
 
@@ -55,7 +64,7 @@ Generation entrypoint and method configs:
 
 ## Extensibility direction
 
-- New algorithms should be added as new config structures and dispatch paths in `generator.c`.
+- New algorithms should be added as dedicated files under `src/generator/` and dispatched from `src/generator/api.c`.
 - Metadata can grow via `dg_map_metadata_t` while keeping backward-compatible defaults.
 - Special room behavior is currently callback-based and can evolve into richer hook stages.
 
