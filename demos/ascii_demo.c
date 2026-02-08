@@ -18,7 +18,7 @@ static char tile_glyph(dg_tile_t tile)
 {
     switch (tile) {
     case DG_TILE_WALL:
-        return '#';
+        return ' ';
     case DG_TILE_FLOOR:
         return '.';
     case DG_TILE_DOOR:
@@ -29,6 +29,75 @@ static char tile_glyph(dg_tile_t tile)
     }
 }
 
+static bool point_in_room(const dg_room_metadata_t *room, int x, int y)
+{
+    if (room == NULL) {
+        return false;
+    }
+
+    return x >= room->bounds.x &&
+           y >= room->bounds.y &&
+           x < room->bounds.x + room->bounds.width &&
+           y < room->bounds.y + room->bounds.height;
+}
+
+static const dg_room_metadata_t *find_room_at(const dg_map_t *map, int x, int y)
+{
+    size_t i;
+
+    if (map == NULL) {
+        return NULL;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_room_metadata_t *room = &map->metadata.rooms[i];
+        if (point_in_room(room, x, y)) {
+            return room;
+        }
+    }
+
+    return NULL;
+}
+
+static char room_glyph(const dg_room_metadata_t *room)
+{
+    if (room == NULL) {
+        return '.';
+    }
+
+    switch (room->role) {
+    case DG_ROOM_ROLE_ENTRANCE:
+        return 'E';
+    case DG_ROOM_ROLE_EXIT:
+        return 'X';
+    case DG_ROOM_ROLE_BOSS:
+        return 'B';
+    case DG_ROOM_ROLE_TREASURE:
+        return 'T';
+    case DG_ROOM_ROLE_SHOP:
+        return 'S';
+    case DG_ROOM_ROLE_NONE:
+    default:
+        return (room->flags & DG_ROOM_FLAG_SPECIAL) != 0u ? '*' : 'r';
+    }
+}
+
+static char map_glyph_at(const dg_map_t *map, int x, int y)
+{
+    dg_tile_t tile;
+    const dg_room_metadata_t *room;
+
+    tile = dg_map_get_tile(map, x, y);
+    if (tile == DG_TILE_FLOOR) {
+        room = find_room_at(map, x, y);
+        if (room != NULL) {
+            return room_glyph(room);
+        }
+    }
+
+    return tile_glyph(tile);
+}
+
 static void print_map(const dg_map_t *map)
 {
     int x;
@@ -36,10 +105,15 @@ static void print_map(const dg_map_t *map)
 
     for (y = 0; y < map->height; ++y) {
         for (x = 0; x < map->width; ++x) {
-            putchar(tile_glyph(dg_map_get_tile(map, x, y)));
+            putchar(map_glyph_at(map, x, y));
         }
         putchar('\n');
     }
+}
+
+static void print_room_legend(void)
+{
+    fprintf(stdout, "legend: E=entrance X=exit B=boss T=treasure S=shop r=room *=special room .=corridor (space)=wall\n");
 }
 
 static dg_room_flags_t demo_classify_room(int room_index, const dg_rect_t *bounds, void *user_data)
@@ -97,7 +171,14 @@ int main(int argc, char **argv)
         special_interval = 4;
         request.params.rooms.classify_room = demo_classify_room;
         request.params.rooms.classify_room_user_data = &special_interval;
-        request.constraints.min_room_count = 4;
+        request.constraints.min_room_count = 6;
+        request.constraints.required_entrance_rooms = 1;
+        request.constraints.required_exit_rooms = 1;
+        request.constraints.required_boss_rooms = 1;
+        request.constraints.required_treasure_rooms = 1;
+        request.constraints.required_shop_rooms = 1;
+        request.constraints.min_entrance_exit_distance = 2;
+        request.constraints.require_boss_on_leaf = true;
     }
 
     map = (dg_map_t){0};
@@ -109,6 +190,9 @@ int main(int argc, char **argv)
     }
 
     print_map(&map);
+    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
+        print_room_legend();
+    }
 
     special_rooms = 0;
     for (i = 0; i < map.metadata.room_count; ++i) {
@@ -131,6 +215,13 @@ int main(int argc, char **argv)
     fprintf(stdout, "attempts: %zu\n", map.metadata.generation_attempts);
     fprintf(stdout, "rooms: %zu (special: %zu)\n", map.metadata.room_count, special_rooms);
     fprintf(stdout, "rooms (leaf): %zu\n", map.metadata.leaf_room_count);
+    fprintf(stdout, "roles: entrance=%zu exit=%zu boss=%zu treasure=%zu shop=%zu\n",
+            map.metadata.entrance_room_count,
+            map.metadata.exit_room_count,
+            map.metadata.boss_room_count,
+            map.metadata.treasure_room_count,
+            map.metadata.shop_room_count);
+    fprintf(stdout, "entrance-exit room distance: %d\n", map.metadata.entrance_exit_distance);
     fprintf(stdout, "corridors: %zu (total length: %zu)\n",
             map.metadata.corridor_count,
             map.metadata.corridor_total_length);

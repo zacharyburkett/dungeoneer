@@ -12,10 +12,20 @@ typedef uint32_t dg_room_flags_t;
 #define DG_ROOM_FLAG_NONE ((dg_room_flags_t)0u)
 #define DG_ROOM_FLAG_SPECIAL ((dg_room_flags_t)1u)
 
+typedef enum dg_room_role {
+    DG_ROOM_ROLE_NONE = 0,
+    DG_ROOM_ROLE_ENTRANCE = 1,
+    DG_ROOM_ROLE_EXIT = 2,
+    DG_ROOM_ROLE_BOSS = 3,
+    DG_ROOM_ROLE_TREASURE = 4,
+    DG_ROOM_ROLE_SHOP = 5
+} dg_room_role_t;
+
 typedef struct dg_room_metadata {
     int id;
     dg_rect_t bounds;
     dg_room_flags_t flags;
+    dg_room_role_t role;
 } dg_room_metadata_t;
 
 typedef struct dg_corridor_metadata {
@@ -60,8 +70,14 @@ typedef struct dg_map_metadata {
     size_t walkable_tile_count;
     size_t wall_tile_count;
     size_t special_room_count;
+    size_t entrance_room_count;
+    size_t exit_room_count;
+    size_t boss_room_count;
+    size_t treasure_room_count;
+    size_t shop_room_count;
     size_t leaf_room_count;
     size_t corridor_total_length;
+    int entrance_exit_distance;
     size_t connected_component_count;
     size_t largest_component_size;
     bool connected_floor;

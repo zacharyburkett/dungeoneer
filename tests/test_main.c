@@ -60,6 +60,21 @@ static size_t count_special_rooms(const dg_map_t *map)
     return count;
 }
 
+static size_t count_rooms_with_role(const dg_map_t *map, dg_room_role_t role)
+{
+    size_t i;
+    size_t count;
+
+    count = 0;
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (map->metadata.rooms[i].role == role) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
 static bool region_is_non_walkable(const dg_map_t *map, const dg_rect_t *region)
 {
     int x;
@@ -260,6 +275,7 @@ static int test_map_basics(void)
     ASSERT_TRUE(map.metadata.corridor_count == 1);
     ASSERT_TRUE(map.metadata.corridors[0].length == 3);
     ASSERT_TRUE((map.metadata.rooms[0].flags & DG_ROOM_FLAG_SPECIAL) != 0);
+    ASSERT_TRUE(map.metadata.rooms[0].role == DG_ROOM_ROLE_NONE);
 
     dg_map_destroy(&map);
     return 0;
@@ -317,6 +333,12 @@ static int test_rooms_and_corridors_generation(void)
     ASSERT_TRUE(map.metadata.corridor_total_length >= map.metadata.corridor_count);
     ASSERT_TRUE(map.metadata.leaf_room_count >= 2);
     ASSERT_TRUE(map.metadata.leaf_room_count <= map.metadata.room_count);
+    ASSERT_TRUE(map.metadata.entrance_room_count == 0);
+    ASSERT_TRUE(map.metadata.exit_room_count == 0);
+    ASSERT_TRUE(map.metadata.boss_room_count == 0);
+    ASSERT_TRUE(map.metadata.treasure_room_count == 0);
+    ASSERT_TRUE(map.metadata.shop_room_count == 0);
+    ASSERT_TRUE(map.metadata.entrance_exit_distance == -1);
     ASSERT_TRUE(map.metadata.room_adjacency_count == map.metadata.room_count);
     ASSERT_TRUE(map.metadata.room_neighbor_count == map.metadata.corridor_count * 2);
 
@@ -396,11 +418,89 @@ static int test_organic_cave_generation(void)
     ASSERT_TRUE(map.metadata.corridor_total_length == 0);
     ASSERT_TRUE(map.metadata.room_adjacency_count == 0);
     ASSERT_TRUE(map.metadata.room_neighbor_count == 0);
+    ASSERT_TRUE(map.metadata.entrance_room_count == 0);
+    ASSERT_TRUE(map.metadata.exit_room_count == 0);
+    ASSERT_TRUE(map.metadata.boss_room_count == 0);
+    ASSERT_TRUE(map.metadata.treasure_room_count == 0);
+    ASSERT_TRUE(map.metadata.shop_room_count == 0);
+    ASSERT_TRUE(map.metadata.entrance_exit_distance == -1);
     ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ORGANIC_CAVE);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.connected_floor);
 
     dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_room_role_constraints(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t entrance_count;
+    size_t exit_count;
+    size_t boss_count;
+    size_t treasure_count;
+    size_t shop_count;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 90, 45, 2026u);
+    request.params.rooms.min_rooms = 10;
+    request.params.rooms.max_rooms = 14;
+    request.constraints.required_entrance_rooms = 1;
+    request.constraints.required_exit_rooms = 1;
+    request.constraints.required_boss_rooms = 1;
+    request.constraints.required_treasure_rooms = 1;
+    request.constraints.required_shop_rooms = 1;
+    request.constraints.require_boss_on_leaf = true;
+    request.constraints.min_entrance_exit_distance = 3;
+    request.constraints.max_generation_attempts = 5;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    entrance_count = count_rooms_with_role(&map, DG_ROOM_ROLE_ENTRANCE);
+    exit_count = count_rooms_with_role(&map, DG_ROOM_ROLE_EXIT);
+    boss_count = count_rooms_with_role(&map, DG_ROOM_ROLE_BOSS);
+    treasure_count = count_rooms_with_role(&map, DG_ROOM_ROLE_TREASURE);
+    shop_count = count_rooms_with_role(&map, DG_ROOM_ROLE_SHOP);
+
+    ASSERT_TRUE(entrance_count >= 1);
+    ASSERT_TRUE(exit_count >= 1);
+    ASSERT_TRUE(boss_count >= 1);
+    ASSERT_TRUE(treasure_count >= 1);
+    ASSERT_TRUE(shop_count >= 1);
+    ASSERT_TRUE(map.metadata.entrance_room_count == entrance_count);
+    ASSERT_TRUE(map.metadata.exit_room_count == exit_count);
+    ASSERT_TRUE(map.metadata.boss_room_count == boss_count);
+    ASSERT_TRUE(map.metadata.treasure_room_count == treasure_count);
+    ASSERT_TRUE(map.metadata.shop_room_count == shop_count);
+    ASSERT_TRUE(map.metadata.entrance_exit_distance >= request.constraints.min_entrance_exit_distance);
+
+    for (i = 0; i < map.metadata.room_count; ++i) {
+        if (map.metadata.rooms[i].role == DG_ROOM_ROLE_BOSS) {
+            ASSERT_TRUE(map.metadata.room_adjacency[i].count == 1);
+        }
+    }
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_impossible_role_constraints_fail(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 40, 24, 777u);
+    request.params.rooms.min_rooms = 3;
+    request.params.rooms.max_rooms = 4;
+    request.constraints.required_entrance_rooms = 2;
+    request.constraints.required_exit_rooms = 2;
+    request.constraints.required_boss_rooms = 2;
+    request.constraints.required_treasure_rooms = 2;
+    request.constraints.required_shop_rooms = 2;
+    request.constraints.max_generation_attempts = 3;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_GENERATION_FAILED);
     return 0;
 }
 
@@ -469,6 +569,10 @@ static int test_invalid_constraints_fail_fast(void)
     request.constraints.max_floor_coverage = 0.2f;
 
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 11u);
+    request.constraints.min_entrance_exit_distance = 4;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
     return 0;
 }
 
@@ -487,8 +591,10 @@ int main(void)
         {"rng_reproducibility", test_rng_reproducibility},
         {"rooms_and_corridors_generation", test_rooms_and_corridors_generation},
         {"organic_cave_generation", test_organic_cave_generation},
+        {"room_role_constraints", test_room_role_constraints},
         {"forbidden_regions_constraint", test_forbidden_regions_constraint},
         {"impossible_constraints_fail", test_impossible_constraints_fail},
+        {"impossible_role_constraints_fail", test_impossible_role_constraints_fail},
         {"invalid_constraints_fail_fast", test_invalid_constraints_fail_fast},
     };
 

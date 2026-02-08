@@ -54,6 +54,13 @@ void dg_default_generate_request(
     request->constraints.min_room_count = 0;
     request->constraints.max_room_count = 0;
     request->constraints.min_special_rooms = 0;
+    request->constraints.required_entrance_rooms = 0;
+    request->constraints.required_exit_rooms = 0;
+    request->constraints.required_boss_rooms = 0;
+    request->constraints.required_treasure_rooms = 0;
+    request->constraints.required_shop_rooms = 0;
+    request->constraints.min_entrance_exit_distance = 0;
+    request->constraints.require_boss_on_leaf = false;
     request->constraints.forbidden_regions = NULL;
     request->constraints.forbidden_region_count = 0;
     request->constraints.max_generation_attempts = 1;
@@ -82,7 +89,9 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     if (
         out_map->tiles != NULL ||
         out_map->metadata.rooms != NULL ||
-        out_map->metadata.corridors != NULL
+        out_map->metadata.corridors != NULL ||
+        out_map->metadata.room_adjacency != NULL ||
+        out_map->metadata.room_neighbors != NULL
     ) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -148,6 +157,7 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         }
 
         status = dg_populate_runtime_metadata(
+            request,
             &generated,
             attempt_seed,
             (int)request->algorithm,

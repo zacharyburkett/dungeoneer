@@ -23,6 +23,7 @@ Owns map storage and metadata:
 - Tile buffer allocation and lifecycle
 - Tile read/write helpers
 - Room metadata collection
+- Room role tagging
 - Corridor metadata collection
 - Explicit room adjacency graph (spans + neighbor list)
 - Runtime metadata diagnostics (coverage/connectivity/attempts/room-graph metrics)
@@ -43,6 +44,8 @@ Generation entrypoint and method configs:
   - Connectivity + outer walls
   - Floor coverage bounds
   - Room/special-room count bounds
+  - Required room-role counts and entrance-exit graph distance
+  - Boss-on-leaf constraints
   - Forbidden (no-carve) regions
   - Retry attempts
 - Room classification callback for special-room tagging

@@ -25,12 +25,14 @@ Build a standalone C library for 2D procedural dungeon generation that can later
 - Constraint system baseline:
   - Floor coverage bounds
   - Room/special-room bounds
+  - Role-count and graph-distance constraints
   - Forbidden regions
   - Retry attempts
 - Metadata baseline:
   - Room + corridor records
   - Explicit room adjacency graph
-  - Room-graph metrics (leaf rooms, corridor lengths)
+  - Room role tagging and role counts
+  - Room-graph metrics (leaf rooms, corridor lengths, entrance-exit distance)
   - Coverage and connectivity diagnostics
   - Effective seed and attempt count
 

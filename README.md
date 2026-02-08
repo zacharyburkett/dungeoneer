@@ -9,8 +9,9 @@ Current baseline includes:
   - Organic cave carving
 - Rich map metadata:
   - Room + corridor metadata
+  - Room role tagging (entrance/exit/boss/treasure/shop)
   - Explicit room adjacency graph (neighbors per room)
-  - Room-graph metrics (leaf rooms, total corridor length)
+  - Room-graph metrics (leaf rooms, total corridor length, entrance-exit distance)
   - Tile coverage counts
   - Connectivity diagnostics
   - Generation attempts and effective seed
@@ -18,6 +19,7 @@ Current baseline includes:
   - Connectivity and outer walls
   - Min/max floor coverage
   - Min/max room count and min special-room count
+  - Required role counts, entrance-exit distance, boss-on-leaf rule
   - Forbidden (no-carve) regions
   - Retry budget for constraint satisfaction
 - Deterministic RNG (seed-based generation)

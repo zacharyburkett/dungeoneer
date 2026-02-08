@@ -53,6 +53,27 @@ typedef struct dg_generation_constraints {
     int min_special_rooms;
 
     /*
+     * Role counts are minimum required counts.
+     * Roles are assigned using room graph metadata when these are non-zero.
+     */
+    int required_entrance_rooms;
+    int required_exit_rooms;
+    int required_boss_rooms;
+    int required_treasure_rooms;
+    int required_shop_rooms;
+
+    /*
+     * Minimum graph distance (in room-to-room hops) between entrance and exit
+     * when both are required.
+     */
+    int min_entrance_exit_distance;
+
+    /*
+     * If true, all required boss rooms must be leaf rooms in the room graph.
+     */
+    bool require_boss_on_leaf;
+
+    /*
      * Any tiles in forbidden regions are forced to walls in the final result.
      * Regions are non-owning pointers and must remain valid for dg_generate.
      */

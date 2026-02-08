@@ -56,8 +56,14 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
+    map->metadata.entrance_room_count = 0;
+    map->metadata.exit_room_count = 0;
+    map->metadata.boss_room_count = 0;
+    map->metadata.treasure_room_count = 0;
+    map->metadata.shop_room_count = 0;
     map->metadata.leaf_room_count = 0;
     map->metadata.corridor_total_length = 0;
+    map->metadata.entrance_exit_distance = -1;
     map->metadata.connected_component_count = 0;
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
@@ -155,8 +161,14 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
+    map->metadata.entrance_room_count = 0;
+    map->metadata.exit_room_count = 0;
+    map->metadata.boss_room_count = 0;
+    map->metadata.treasure_room_count = 0;
+    map->metadata.shop_room_count = 0;
     map->metadata.leaf_room_count = 0;
     map->metadata.corridor_total_length = 0;
+    map->metadata.entrance_exit_distance = -1;
     map->metadata.connected_component_count = 0;
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
@@ -219,6 +231,7 @@ dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flag
     room->id = (int)map->metadata.room_count;
     room->bounds = *bounds;
     room->flags = flags;
+    room->role = DG_ROOM_ROLE_NONE;
     map->metadata.room_count += 1;
 
     return DG_STATUS_OK;

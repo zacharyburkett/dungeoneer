@@ -46,6 +46,7 @@ void dg_apply_forbidden_regions(const dg_generation_constraints_t *constraints, 
 bool dg_forbidden_regions_are_clear(const dg_map_t *map, const dg_generation_constraints_t *constraints);
 
 dg_status_t dg_populate_runtime_metadata(
+    const dg_generate_request_t *request,
     dg_map_t *map,
     uint64_t seed,
     int algorithm_id,
