@@ -28,6 +28,13 @@ Owns map storage and metadata:
 - Explicit room adjacency graph (spans + neighbor list)
 - Runtime metadata diagnostics (coverage/connectivity/attempts/room-graph metrics)
 
+### `io.h` + `src/io.c`
+
+Versioned binary map persistence:
+- Save full map snapshots (tiles + metadata)
+- Load full map snapshots
+- Format validation with explicit unsupported-format errors
+
 ### `rng.h` + `src/rng.c`
 
 Deterministic PRNG wrapper:

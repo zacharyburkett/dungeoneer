@@ -11,6 +11,10 @@ const char *dg_status_string(dg_status_t status)
         return "allocation failed";
     case DG_STATUS_GENERATION_FAILED:
         return "generation failed";
+    case DG_STATUS_IO_ERROR:
+        return "io error";
+    case DG_STATUS_UNSUPPORTED_FORMAT:
+        return "unsupported format";
     default:
         return "unknown status";
     }

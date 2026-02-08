@@ -13,7 +13,9 @@ typedef enum dg_status {
     DG_STATUS_OK = 0,
     DG_STATUS_INVALID_ARGUMENT = 1,
     DG_STATUS_ALLOCATION_FAILED = 2,
-    DG_STATUS_GENERATION_FAILED = 3
+    DG_STATUS_GENERATION_FAILED = 3,
+    DG_STATUS_IO_ERROR = 4,
+    DG_STATUS_UNSUPPORTED_FORMAT = 5
 } dg_status_t;
 
 typedef struct dg_point {

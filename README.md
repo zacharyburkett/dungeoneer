@@ -53,6 +53,14 @@ ctest --test-dir build --output-on-failure
 
 The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).
 
+## Map Serialization
+
+Binary map snapshots can be saved and loaded through:
+- `dg_map_save_file(const dg_map_t *map, const char *path)`
+- `dg_map_load_file(const char *path, dg_map_t *out_map)`
+
+The format is versioned and includes tiles plus runtime metadata, which makes it suitable for editor/GUI workflows (generate, save, reload, inspect).
+
 ## Role placement tuning
 
 Role assignment can be tuned per role with weighted scoring:

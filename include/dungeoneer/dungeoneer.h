@@ -2,6 +2,7 @@
 #define DUNGEONEER_DUNGEONEER_H
 
 #include "dungeoneer/generator.h"
+#include "dungeoneer/io.h"
 #include "dungeoneer/map.h"
 #include "dungeoneer/rng.h"
 #include "dungeoneer/types.h"

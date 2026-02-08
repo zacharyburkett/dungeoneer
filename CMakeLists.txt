@@ -8,6 +8,7 @@ option(DUNGEONEER_BUILD_DEMOS "Build dungeoneer demos" ON)
 
 add_library(dungeoneer
     src/core.c
+    src/io.c
     src/map.c
     src/rng.c
     src/generator/api.c

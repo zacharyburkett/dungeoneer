@@ -62,6 +62,92 @@ static bool maps_have_same_tiles(const dg_map_t *a, const dg_map_t *b)
     return memcmp(a->tiles, b->tiles, cell_count * sizeof(dg_tile_t)) == 0;
 }
 
+static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
+{
+    size_t i;
+
+    if (a == NULL || b == NULL) {
+        return false;
+    }
+
+    if (a->metadata.seed != b->metadata.seed ||
+        a->metadata.algorithm_id != b->metadata.algorithm_id ||
+        a->metadata.room_count != b->metadata.room_count ||
+        a->metadata.corridor_count != b->metadata.corridor_count ||
+        a->metadata.room_adjacency_count != b->metadata.room_adjacency_count ||
+        a->metadata.room_neighbor_count != b->metadata.room_neighbor_count ||
+        a->metadata.walkable_tile_count != b->metadata.walkable_tile_count ||
+        a->metadata.wall_tile_count != b->metadata.wall_tile_count ||
+        a->metadata.special_room_count != b->metadata.special_room_count ||
+        a->metadata.entrance_room_count != b->metadata.entrance_room_count ||
+        a->metadata.exit_room_count != b->metadata.exit_room_count ||
+        a->metadata.boss_room_count != b->metadata.boss_room_count ||
+        a->metadata.treasure_room_count != b->metadata.treasure_room_count ||
+        a->metadata.shop_room_count != b->metadata.shop_room_count ||
+        a->metadata.leaf_room_count != b->metadata.leaf_room_count ||
+        a->metadata.corridor_total_length != b->metadata.corridor_total_length ||
+        a->metadata.entrance_exit_distance != b->metadata.entrance_exit_distance ||
+        a->metadata.connected_component_count != b->metadata.connected_component_count ||
+        a->metadata.largest_component_size != b->metadata.largest_component_size ||
+        a->metadata.connected_floor != b->metadata.connected_floor ||
+        a->metadata.generation_attempts != b->metadata.generation_attempts) {
+        return false;
+    }
+
+    if ((a->metadata.room_count > 0 && (a->metadata.rooms == NULL || b->metadata.rooms == NULL)) ||
+        (a->metadata.corridor_count > 0 &&
+         (a->metadata.corridors == NULL || b->metadata.corridors == NULL)) ||
+        (a->metadata.room_adjacency_count > 0 &&
+         (a->metadata.room_adjacency == NULL || b->metadata.room_adjacency == NULL)) ||
+        (a->metadata.room_neighbor_count > 0 &&
+         (a->metadata.room_neighbors == NULL || b->metadata.room_neighbors == NULL))) {
+        return false;
+    }
+
+    for (i = 0; i < a->metadata.room_count; ++i) {
+        const dg_room_metadata_t *ra = &a->metadata.rooms[i];
+        const dg_room_metadata_t *rb = &b->metadata.rooms[i];
+        if (ra->id != rb->id ||
+            ra->bounds.x != rb->bounds.x ||
+            ra->bounds.y != rb->bounds.y ||
+            ra->bounds.width != rb->bounds.width ||
+            ra->bounds.height != rb->bounds.height ||
+            ra->flags != rb->flags ||
+            ra->role != rb->role) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.corridor_count; ++i) {
+        const dg_corridor_metadata_t *ca = &a->metadata.corridors[i];
+        const dg_corridor_metadata_t *cb = &b->metadata.corridors[i];
+        if (ca->from_room_id != cb->from_room_id ||
+            ca->to_room_id != cb->to_room_id ||
+            ca->width != cb->width ||
+            ca->length != cb->length) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.room_adjacency_count; ++i) {
+        const dg_room_adjacency_span_t *sa = &a->metadata.room_adjacency[i];
+        const dg_room_adjacency_span_t *sb = &b->metadata.room_adjacency[i];
+        if (sa->start_index != sb->start_index || sa->count != sb->count) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.room_neighbor_count; ++i) {
+        const dg_room_neighbor_t *na = &a->metadata.room_neighbors[i];
+        const dg_room_neighbor_t *nb = &b->metadata.room_neighbors[i];
+        if (na->room_id != nb->room_id || na->corridor_index != nb->corridor_index) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static size_t count_special_rooms(const dg_map_t *map)
 {
     size_t i;
@@ -756,6 +842,57 @@ static int test_corridor_routing_modes_affect_layout(void)
     return 0;
 }
 
+static int test_map_serialization_roundtrip(void)
+{
+    const char *path;
+    dg_generate_request_t request;
+    dg_map_t original = {0};
+    dg_map_t loaded = {0};
+
+    path = "dungeoneer_test_roundtrip.dgmap";
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 88, 48, 6060u);
+    request.params.rooms.min_rooms = 10;
+    request.params.rooms.max_rooms = 12;
+    request.params.rooms.corridor_routing = DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
+    request.constraints.required_entrance_rooms = 1;
+    request.constraints.required_exit_rooms = 1;
+    request.constraints.required_boss_rooms = 1;
+    request.constraints.required_treasure_rooms = 1;
+    request.constraints.required_shop_rooms = 1;
+    request.constraints.max_generation_attempts = 4;
+
+    ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_load_file(path, &loaded), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&original, &loaded));
+    ASSERT_TRUE(maps_have_same_metadata(&original, &loaded));
+
+    dg_map_destroy(&original);
+    dg_map_destroy(&loaded);
+    (void)remove(path);
+    return 0;
+}
+
+static int test_map_load_rejects_invalid_magic(void)
+{
+    const char *path;
+    FILE *file;
+    dg_map_t loaded = {0};
+    const char bad_data[] = "NOT_DGMP";
+
+    path = "dungeoneer_test_bad_magic.dgmap";
+    file = fopen(path, "wb");
+    ASSERT_TRUE(file != NULL);
+    ASSERT_TRUE(fwrite(bad_data, 1, sizeof(bad_data), file) == sizeof(bad_data));
+    ASSERT_TRUE(fclose(file) == 0);
+
+    ASSERT_STATUS(dg_map_load_file(path, &loaded), DG_STATUS_UNSUPPORTED_FORMAT);
+    (void)remove(path);
+    return 0;
+}
+
 static int test_impossible_role_constraints_fail(void)
 {
     dg_generate_request_t request;
@@ -891,6 +1028,8 @@ int main(void)
         {"role_weights_leaf_vs_hub", test_role_weights_leaf_vs_hub},
         {"role_weights_treasure_prefers_far_distance", test_role_weights_treasure_prefers_far_distance},
         {"corridor_routing_modes_affect_layout", test_corridor_routing_modes_affect_layout},
+        {"map_serialization_roundtrip", test_map_serialization_roundtrip},
+        {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"forbidden_regions_constraint", test_forbidden_regions_constraint},
         {"impossible_constraints_fail", test_impossible_constraints_fail},
         {"impossible_role_constraints_fail", test_impossible_role_constraints_fail},
