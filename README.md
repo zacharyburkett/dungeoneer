@@ -24,6 +24,8 @@ Current baseline includes:
   - Per-role placement weights (distance/degree/leaf bonus)
   - Forbidden (no-carve) regions
   - Retry budget for constraint satisfaction
+- Algorithm config validation:
+  - Invalid per-algorithm parameters fail fast with `DG_STATUS_INVALID_ARGUMENT`
 - Deterministic RNG (seed-based generation)
 - Unit tests and an ASCII visualization demo
 

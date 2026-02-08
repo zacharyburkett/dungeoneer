@@ -52,10 +52,10 @@ Generation entrypoint and method configs:
   - Retry attempts
 - Room classification callback for special-room tagging
 - Internal module split:
-  - `src/generator/api.c`: Public generation API and attempt orchestration
+  - `src/generator/api.c`: Public generation API, attempt orchestration, and algorithm-specific config validation
   - `src/generator/primitives.c`: Shared math, geometry, and low-level tile helpers
   - `src/generator/connectivity.c`: Connectivity analysis, enforcement, and smoothing
-  - `src/generator/constraints.c`: Constraint validation and forbidden-region enforcement
+  - `src/generator/constraints.c`: Shared constraint validation and forbidden-region enforcement
   - `src/generator/metadata.c`: Runtime metadata population, room-role assignment, and map-state initialization
   - `src/generator/rooms_corridors.c`: Rooms+corridors implementation
   - `src/generator/organic_cave.c`: Organic cave implementation

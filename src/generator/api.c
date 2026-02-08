@@ -2,6 +2,91 @@
 
 #include <string.h>
 
+static bool dg_corridor_routing_is_valid(dg_corridor_routing_t routing)
+{
+    return routing == DG_CORRIDOR_ROUTING_RANDOM ||
+           routing == DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST ||
+           routing == DG_CORRIDOR_ROUTING_VERTICAL_FIRST;
+}
+
+static dg_status_t dg_validate_rooms_corridors_config(const dg_rooms_corridors_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->min_rooms < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_rooms < config->min_rooms) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_min_size < 3) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_max_size < config->room_min_size) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_placement_attempts < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->corridor_width < 1 || config->corridor_width > 9) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (!dg_corridor_routing_is_valid(config->corridor_routing)) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_validate_organic_cave_config(const dg_organic_cave_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->walk_steps < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->brush_radius < 0 || config->brush_radius > 6) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->smoothing_passes < 0 || config->smoothing_passes > 8) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->target_floor_coverage < 0.0f || config->target_floor_coverage > 0.9f) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_validate_algorithm_config(const dg_generate_request_t *request)
+{
+    if (request == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    switch (request->algorithm) {
+    case DG_ALGORITHM_ROOMS_AND_CORRIDORS:
+        return dg_validate_rooms_corridors_config(&request->params.rooms);
+    case DG_ALGORITHM_ORGANIC_CAVE:
+        return dg_validate_organic_cave_config(&request->params.organic);
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+}
+
 void dg_default_rooms_corridors_config(dg_rooms_corridors_config_t *config)
 {
     if (config == NULL) {
@@ -113,6 +198,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     }
 
     status = dg_validate_constraints(&request->constraints);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_validate_algorithm_config(request);
     if (status != DG_STATUS_OK) {
         return status;
     }

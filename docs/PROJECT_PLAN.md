@@ -40,6 +40,7 @@ Build a standalone C library for 2D procedural dungeon generation that can later
 ### Phase 1: Generator maturity
 
 - Corridor routing mode controls for rooms+corridors (random/horizontal-first/vertical-first)
+- Fail-fast algorithm-specific config validation in public generate entrypoint
 - Improve room layout quality and corridor routing options
 - Add algorithm-specific validation and diagnostics
 - Expand metadata (connectivity graph, entry/exit points, tags)

@@ -844,6 +844,31 @@ static int test_invalid_constraints_fail_fast(void)
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 11u);
     request.constraints.min_entrance_exit_distance = 4;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 12u);
+    request.params.rooms.corridor_width = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 13u);
+    request.params.rooms.corridor_routing = (dg_corridor_routing_t)99;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 14u);
+    request.params.rooms.room_min_size = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ORGANIC_CAVE, 60, 30, 15u);
+    request.params.organic.walk_steps = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ORGANIC_CAVE, 60, 30, 16u);
+    request.params.organic.target_floor_coverage = 0.95f;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ORGANIC_CAVE, 60, 30, 17u);
+    request.params.organic.brush_radius = 7;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     return 0;
 }
 
