@@ -18,10 +18,31 @@ typedef struct dg_room_metadata {
     dg_room_flags_t flags;
 } dg_room_metadata_t;
 
+typedef struct dg_corridor_metadata {
+    int from_room_id;
+    int to_room_id;
+    int width;
+} dg_corridor_metadata_t;
+
 typedef struct dg_map_metadata {
+    uint64_t seed;
+    int algorithm_id;
+
     dg_room_metadata_t *rooms;
     size_t room_count;
     size_t room_capacity;
+
+    dg_corridor_metadata_t *corridors;
+    size_t corridor_count;
+    size_t corridor_capacity;
+
+    size_t walkable_tile_count;
+    size_t wall_tile_count;
+    size_t special_room_count;
+    size_t connected_component_count;
+    size_t largest_component_size;
+    bool connected_floor;
+    size_t generation_attempts;
 } dg_map_metadata_t;
 
 typedef struct dg_map {
@@ -41,6 +62,7 @@ bool dg_map_in_bounds(const dg_map_t *map, int x, int y);
 
 void dg_map_clear_metadata(dg_map_t *map);
 dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flags_t flags);
+dg_status_t dg_map_add_corridor(dg_map_t *map, int from_room_id, int to_room_id, int width);
 
 #ifdef __cplusplus
 }

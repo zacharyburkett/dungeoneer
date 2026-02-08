@@ -22,6 +22,15 @@ Build a standalone C library for 2D procedural dungeon generation that can later
 - Deterministic RNG
 - Two starter algorithms
 - Test harness and ASCII demo
+- Constraint system baseline:
+  - Floor coverage bounds
+  - Room/special-room bounds
+  - Forbidden regions
+  - Retry attempts
+- Metadata baseline:
+  - Room + corridor records
+  - Coverage and connectivity diagnostics
+  - Effective seed and attempt count
 
 ### Phase 1: Generator maturity
 

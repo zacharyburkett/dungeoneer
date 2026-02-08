@@ -45,6 +45,60 @@ static size_t count_walkable_tiles(const dg_map_t *map)
     return count;
 }
 
+static size_t count_special_rooms(const dg_map_t *map)
+{
+    size_t i;
+    size_t count;
+
+    count = 0;
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if ((map->metadata.rooms[i].flags & DG_ROOM_FLAG_SPECIAL) != 0u) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+static bool region_is_non_walkable(const dg_map_t *map, const dg_rect_t *region)
+{
+    int x;
+    int y;
+    int x0;
+    int y0;
+    int x1;
+    int y1;
+
+    if (region->width <= 0 || region->height <= 0) {
+        return true;
+    }
+
+    x0 = region->x < 0 ? 0 : region->x;
+    y0 = region->y < 0 ? 0 : region->y;
+    x1 = region->x + region->width;
+    y1 = region->y + region->height;
+    if (x1 > map->width) {
+        x1 = map->width;
+    }
+    if (y1 > map->height) {
+        y1 = map->height;
+    }
+
+    if (x0 >= x1 || y0 >= y1) {
+        return true;
+    }
+
+    for (y = y0; y < y1; ++y) {
+        for (x = x0; x < x1; ++x) {
+            if (is_walkable(dg_map_get_tile(map, x, y))) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 static bool has_outer_walls(const dg_map_t *map)
 {
     int x;
@@ -164,7 +218,9 @@ static int test_map_basics(void)
     ASSERT_STATUS(dg_map_set_tile(&map, 3, 3, DG_TILE_FLOOR), DG_STATUS_OK);
     ASSERT_TRUE(dg_map_get_tile(&map, 3, 3) == DG_TILE_FLOOR);
     ASSERT_STATUS(dg_map_add_room(&map, &room, DG_ROOM_FLAG_SPECIAL), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_add_corridor(&map, 0, 0, 1), DG_STATUS_OK);
     ASSERT_TRUE(map.metadata.room_count == 1);
+    ASSERT_TRUE(map.metadata.corridor_count == 1);
     ASSERT_TRUE((map.metadata.rooms[0].flags & DG_ROOM_FLAG_SPECIAL) != 0);
 
     dg_map_destroy(&map);
@@ -199,7 +255,6 @@ static int test_rooms_and_corridors_generation(void)
     dg_map_t map = {0};
     size_t floors;
     size_t special_rooms;
-    size_t i;
 
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 80, 40, 42u);
     request.params.rooms.min_rooms = 8;
@@ -213,13 +268,17 @@ static int test_rooms_and_corridors_generation(void)
     ASSERT_TRUE(map.metadata.room_count >= 2);
     ASSERT_TRUE(is_connected(&map));
     ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(map.metadata.corridor_count == map.metadata.room_count - 1);
+    ASSERT_TRUE(map.metadata.seed == 42u);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ROOMS_AND_CORRIDORS);
+    ASSERT_TRUE(map.metadata.generation_attempts == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.wall_tile_count > 0);
 
-    special_rooms = 0;
-    for (i = 0; i < map.metadata.room_count; ++i) {
-        if ((map.metadata.rooms[i].flags & DG_ROOM_FLAG_SPECIAL) != 0) {
-            special_rooms += 1;
-        }
-    }
+    special_rooms = count_special_rooms(&map);
+    ASSERT_TRUE(map.metadata.special_room_count == special_rooms);
     if (map.metadata.room_count >= 3) {
         ASSERT_TRUE(special_rooms >= 1);
     }
@@ -247,8 +306,82 @@ static int test_organic_cave_generation(void)
     ASSERT_TRUE(floors > total / 10);
     ASSERT_TRUE(is_connected(&map));
     ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.special_room_count == 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ORGANIC_CAVE);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.connected_floor);
 
     dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_forbidden_regions_constraint(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_rect_t forbidden[2];
+    size_t floors;
+    size_t total;
+    float coverage;
+
+    forbidden[0].x = 28;
+    forbidden[0].y = 10;
+    forbidden[0].width = 12;
+    forbidden[0].height = 8;
+    forbidden[1].x = -5;
+    forbidden[1].y = -5;
+    forbidden[1].width = 4;
+    forbidden[1].height = 4;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ORGANIC_CAVE, 70, 35, 77u);
+    request.params.organic.walk_steps = 3000;
+    request.constraints.min_floor_coverage = 0.08f;
+    request.constraints.max_floor_coverage = 0.80f;
+    request.constraints.forbidden_regions = forbidden;
+    request.constraints.forbidden_region_count = 2;
+    request.constraints.max_generation_attempts = 6;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(region_is_non_walkable(&map, &forbidden[0]));
+    ASSERT_TRUE(region_is_non_walkable(&map, &forbidden[1]));
+
+    floors = count_walkable_tiles(&map);
+    total = (size_t)map.width * (size_t)map.height;
+    coverage = (float)floors / (float)total;
+    ASSERT_TRUE(coverage >= request.constraints.min_floor_coverage);
+    ASSERT_TRUE(coverage <= request.constraints.max_floor_coverage);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_impossible_constraints_fail(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 99u);
+    request.params.rooms.min_rooms = 2;
+    request.params.rooms.max_rooms = 3;
+    request.constraints.min_room_count = 10;
+    request.constraints.max_generation_attempts = 2;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_GENERATION_FAILED);
+    return 0;
+}
+
+static int test_invalid_constraints_fail_fast(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 60, 30, 10u);
+    request.constraints.min_floor_coverage = 0.8f;
+    request.constraints.max_floor_coverage = 0.2f;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
     return 0;
 }
 
@@ -267,6 +400,9 @@ int main(void)
         {"rng_reproducibility", test_rng_reproducibility},
         {"rooms_and_corridors_generation", test_rooms_and_corridors_generation},
         {"organic_cave_generation", test_organic_cave_generation},
+        {"forbidden_regions_constraint", test_forbidden_regions_constraint},
+        {"impossible_constraints_fail", test_impossible_constraints_fail},
+        {"invalid_constraints_fail_fast", test_invalid_constraints_fail_fast},
     };
 
     failures = 0;

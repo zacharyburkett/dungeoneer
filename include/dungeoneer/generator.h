@@ -36,6 +36,34 @@ typedef struct dg_organic_cave_config {
 typedef struct dg_generation_constraints {
     bool require_connected_floor;
     bool enforce_outer_walls;
+
+    /*
+     * Coverage bounds are expressed in [0.0, 1.0].
+     * Set to 0.0 / 1.0 for "no extra bound".
+     */
+    float min_floor_coverage;
+    float max_floor_coverage;
+
+    /*
+     * Room constraints only apply to algorithms that emit room metadata.
+     * Set to 0 to disable.
+     */
+    int min_room_count;
+    int max_room_count;
+    int min_special_rooms;
+
+    /*
+     * Any tiles in forbidden regions are forced to walls in the final result.
+     * Regions are non-owning pointers and must remain valid for dg_generate.
+     */
+    const dg_rect_t *forbidden_regions;
+    size_t forbidden_region_count;
+
+    /*
+     * Number of generation attempts before failing constraint validation.
+     * Must be >= 1; defaults to 1.
+     */
+    int max_generation_attempts;
 } dg_generation_constraints_t;
 
 typedef struct dg_generate_request {

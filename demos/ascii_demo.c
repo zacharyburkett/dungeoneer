@@ -68,6 +68,8 @@ int main(int argc, char **argv)
     size_t i;
     size_t special_rooms;
     int special_interval;
+    size_t total_tiles;
+    float floor_coverage;
 
     mode = (argc > 1) ? argv[1] : "rooms";
     width = (argc > 2) ? atoi(argv[2]) : 80;
@@ -89,18 +91,15 @@ int main(int argc, char **argv)
     }
 
     dg_default_generate_request(&request, algorithm, width, height, seed);
+    request.constraints.max_generation_attempts = 3;
     if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
         special_interval = 4;
         request.params.rooms.classify_room = demo_classify_room;
         request.params.rooms.classify_room_user_data = &special_interval;
+        request.constraints.min_room_count = 4;
     }
 
-    map.width = 0;
-    map.height = 0;
-    map.tiles = NULL;
-    map.metadata.rooms = NULL;
-    map.metadata.room_count = 0;
-    map.metadata.room_capacity = 0;
+    map = (dg_map_t){0};
 
     status = dg_generate(&request, &map);
     if (status != DG_STATUS_OK) {
@@ -117,11 +116,22 @@ int main(int argc, char **argv)
         }
     }
 
+    total_tiles = (size_t)map.width * (size_t)map.height;
+    floor_coverage = (float)map.metadata.walkable_tile_count / (float)total_tiles;
+
     fprintf(stdout, "\n");
     fprintf(stdout, "algorithm: %s\n", mode);
     fprintf(stdout, "size: %dx%d\n", map.width, map.height);
-    fprintf(stdout, "seed: %" PRIu64 "\n", seed);
+    fprintf(stdout, "seed: %" PRIu64 " (actual: %" PRIu64 ")\n", seed, map.metadata.seed);
+    fprintf(stdout, "attempts: %zu\n", map.metadata.generation_attempts);
     fprintf(stdout, "rooms: %zu (special: %zu)\n", map.metadata.room_count, special_rooms);
+    fprintf(stdout, "corridors: %zu\n", map.metadata.corridor_count);
+    fprintf(stdout, "walkable tiles: %zu (coverage: %.2f%%)\n",
+            map.metadata.walkable_tile_count, (double)(floor_coverage * 100.0f));
+    fprintf(stdout, "components: %zu (largest: %zu, connected: %s)\n",
+            map.metadata.connected_component_count,
+            map.metadata.largest_component_size,
+            map.metadata.connected_floor ? "yes" : "no");
 
     dg_map_destroy(&map);
     return 0;

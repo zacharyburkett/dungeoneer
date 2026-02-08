@@ -7,7 +7,17 @@ Current baseline includes:
 - Two generation strategies:
   - Rooms + corridors
   - Organic cave carving
-- Room metadata (including special-room flags via callback)
+- Rich map metadata:
+  - Room + corridor metadata
+  - Tile coverage counts
+  - Connectivity diagnostics
+  - Generation attempts and effective seed
+- Constraint controls:
+  - Connectivity and outer walls
+  - Min/max floor coverage
+  - Min/max room count and min special-room count
+  - Forbidden (no-carve) regions
+  - Retry budget for constraint satisfaction
 - Deterministic RNG (seed-based generation)
 - Unit tests and an ASCII visualization demo
 
@@ -30,6 +40,8 @@ ctest --test-dir build --output-on-failure
 ./build/dungeoneer_ascii_demo rooms 80 40 42
 ./build/dungeoneer_ascii_demo organic 80 40 42
 ```
+
+The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).
 
 ## Project docs
 

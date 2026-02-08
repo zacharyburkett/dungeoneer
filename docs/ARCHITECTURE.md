@@ -23,6 +23,8 @@ Owns map storage and metadata:
 - Tile buffer allocation and lifecycle
 - Tile read/write helpers
 - Room metadata collection
+- Corridor metadata collection
+- Runtime metadata diagnostics (coverage/connectivity/attempts)
 
 ### `rng.h` + `src/rng.c`
 
@@ -36,7 +38,12 @@ Deterministic PRNG wrapper:
 Generation entrypoint and method configs:
 - `DG_ALGORITHM_ROOMS_AND_CORRIDORS`
 - `DG_ALGORITHM_ORGANIC_CAVE`
-- Shared constraints (connectivity + outer walls)
+- Shared constraints:
+  - Connectivity + outer walls
+  - Floor coverage bounds
+  - Room/special-room count bounds
+  - Forbidden (no-carve) regions
+  - Retry attempts
 - Room classification callback for special-room tagging
 
 ## Data flow

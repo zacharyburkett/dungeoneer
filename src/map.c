@@ -44,6 +44,18 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.rooms = NULL;
     map->metadata.room_count = 0;
     map->metadata.room_capacity = 0;
+    map->metadata.corridors = NULL;
+    map->metadata.corridor_count = 0;
+    map->metadata.corridor_capacity = 0;
+    map->metadata.seed = 0;
+    map->metadata.algorithm_id = -1;
+    map->metadata.walkable_tile_count = 0;
+    map->metadata.wall_tile_count = 0;
+    map->metadata.special_room_count = 0;
+    map->metadata.connected_component_count = 0;
+    map->metadata.largest_component_size = 0;
+    map->metadata.connected_floor = false;
+    map->metadata.generation_attempts = 0;
 
     for (i = 0; i < cell_count; ++i) {
         map->tiles[i] = initial_tile;
@@ -119,9 +131,22 @@ void dg_map_clear_metadata(dg_map_t *map)
     }
 
     free(map->metadata.rooms);
+    free(map->metadata.corridors);
     map->metadata.rooms = NULL;
     map->metadata.room_count = 0;
     map->metadata.room_capacity = 0;
+    map->metadata.corridors = NULL;
+    map->metadata.corridor_count = 0;
+    map->metadata.corridor_capacity = 0;
+    map->metadata.seed = 0;
+    map->metadata.algorithm_id = -1;
+    map->metadata.walkable_tile_count = 0;
+    map->metadata.wall_tile_count = 0;
+    map->metadata.special_room_count = 0;
+    map->metadata.connected_component_count = 0;
+    map->metadata.largest_component_size = 0;
+    map->metadata.connected_floor = false;
+    map->metadata.generation_attempts = 0;
 }
 
 dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flags_t flags)
@@ -181,6 +206,55 @@ dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flag
     room->bounds = *bounds;
     room->flags = flags;
     map->metadata.room_count += 1;
+
+    return DG_STATUS_OK;
+}
+
+dg_status_t dg_map_add_corridor(dg_map_t *map, int from_room_id, int to_room_id, int width)
+{
+    size_t new_capacity;
+    dg_corridor_metadata_t *expanded_corridors;
+    dg_corridor_metadata_t *corridor;
+
+    if (map == NULL || map->tiles == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (width <= 0 || from_room_id < 0 || to_room_id < 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (map->metadata.corridor_count == map->metadata.corridor_capacity) {
+        if (map->metadata.corridor_capacity == 0) {
+            new_capacity = 8;
+        } else {
+            if (map->metadata.corridor_capacity > (SIZE_MAX / 2)) {
+                return DG_STATUS_ALLOCATION_FAILED;
+            }
+            new_capacity = map->metadata.corridor_capacity * 2;
+        }
+
+        if (new_capacity > (SIZE_MAX / sizeof(dg_corridor_metadata_t))) {
+            return DG_STATUS_ALLOCATION_FAILED;
+        }
+
+        expanded_corridors = (dg_corridor_metadata_t *)realloc(
+            map->metadata.corridors,
+            new_capacity * sizeof(dg_corridor_metadata_t)
+        );
+        if (expanded_corridors == NULL) {
+            return DG_STATUS_ALLOCATION_FAILED;
+        }
+
+        map->metadata.corridors = expanded_corridors;
+        map->metadata.corridor_capacity = new_capacity;
+    }
+
+    corridor = &map->metadata.corridors[map->metadata.corridor_count];
+    corridor->from_room_id = from_room_id;
+    corridor->to_room_id = to_room_id;
+    corridor->width = width;
+    map->metadata.corridor_count += 1;
 
     return DG_STATUS_OK;
 }
