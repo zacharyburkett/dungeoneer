@@ -14,6 +14,7 @@ void dg_default_rooms_corridors_config(dg_rooms_corridors_config_t *config)
     config->room_max_size = 10;
     config->max_placement_attempts = 500;
     config->corridor_width = 1;
+    config->corridor_routing = DG_CORRIDOR_ROUTING_RANDOM;
     config->classify_room = NULL;
     config->classify_room_user_data = NULL;
 }

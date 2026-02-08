@@ -5,6 +5,18 @@ static int dg_abs_int(int value)
     return value < 0 ? -value : value;
 }
 
+static dg_corridor_routing_t dg_normalize_corridor_routing(dg_corridor_routing_t routing)
+{
+    switch (routing) {
+    case DG_CORRIDOR_ROUTING_RANDOM:
+    case DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST:
+    case DG_CORRIDOR_ROUTING_VERTICAL_FIRST:
+        return routing;
+    default:
+        return DG_CORRIDOR_ROUTING_RANDOM;
+    }
+}
+
 static void dg_carve_room(dg_map_t *map, const dg_rect_t *room)
 {
     int x;
@@ -91,11 +103,31 @@ static void dg_carve_vertical_path(dg_map_t *map, int x, int y0, int y1, int cor
     }
 }
 
-static void dg_connect_points(dg_map_t *map, dg_rng_t *rng, dg_point_t a, dg_point_t b, int corridor_width)
+static bool dg_route_horizontal_first(dg_rng_t *rng, dg_corridor_routing_t routing)
+{
+    switch (routing) {
+    case DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST:
+        return true;
+    case DG_CORRIDOR_ROUTING_VERTICAL_FIRST:
+        return false;
+    case DG_CORRIDOR_ROUTING_RANDOM:
+    default:
+        return (dg_rng_next_u32(rng) & 1u) != 0u;
+    }
+}
+
+static void dg_connect_points(
+    dg_map_t *map,
+    dg_rng_t *rng,
+    dg_point_t a,
+    dg_point_t b,
+    int corridor_width,
+    dg_corridor_routing_t routing
+)
 {
     bool horizontal_first;
 
-    horizontal_first = (dg_rng_next_u32(rng) & 1u) != 0u;
+    horizontal_first = dg_route_horizontal_first(rng, routing);
     if (horizontal_first) {
         dg_carve_horizontal_path(map, a.x, b.x, a.y, corridor_width);
         dg_carve_vertical_path(map, b.x, a.y, b.y, corridor_width);
@@ -118,6 +150,7 @@ dg_status_t dg_generate_rooms_and_corridors_impl(
     int room_max_size;
     int max_attempts;
     int corridor_width;
+    dg_corridor_routing_t corridor_routing;
     int target_rooms;
     int attempt;
     int max_room_extent;
@@ -140,6 +173,7 @@ dg_status_t dg_generate_rooms_and_corridors_impl(
     room_max_size = dg_max_int(config.room_max_size, room_min_size);
     max_attempts = dg_max_int(config.max_placement_attempts, max_rooms * 8);
     corridor_width = dg_clamp_int(config.corridor_width, 1, 9);
+    corridor_routing = dg_normalize_corridor_routing(config.corridor_routing);
     max_room_extent = dg_min_int(map->width - 2, map->height - 2);
 
     if (max_room_extent < room_min_size) {
@@ -198,7 +232,7 @@ dg_status_t dg_generate_rooms_and_corridors_impl(
 
             a = dg_room_center(&map->metadata.rooms[i - 1].bounds);
             b = dg_room_center(&map->metadata.rooms[i].bounds);
-            dg_connect_points(map, rng, a, b, corridor_width);
+            dg_connect_points(map, rng, a, b, corridor_width, corridor_routing);
 
             corridor_length = dg_abs_int(a.x - b.x) + dg_abs_int(a.y - b.y) + 1;
 

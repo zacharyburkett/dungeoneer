@@ -7,6 +7,7 @@ Current baseline includes:
 - Two generation strategies:
   - Rooms + corridors
   - Organic cave carving
+  - Corridor routing controls for rooms (`random`, `horizontal-first`, `vertical-first`)
 - Rich map metadata:
   - Room + corridor metadata
   - Room role tagging (entrance/exit/boss/treasure/shop)
@@ -44,6 +45,8 @@ ctest --test-dir build --output-on-failure
 ```sh
 ./build/dungeoneer_ascii_demo rooms 80 40 42
 ./build/dungeoneer_ascii_demo organic 80 40 42
+./build/dungeoneer_ascii_demo rooms 80 40 42 horizontal-first
+./build/dungeoneer_ascii_demo rooms 80 40 42 vertical-first
 ```
 
 The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).

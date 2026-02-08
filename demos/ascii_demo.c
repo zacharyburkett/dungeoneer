@@ -9,8 +9,12 @@ static void print_usage(const char *program_name)
 {
     fprintf(
         stderr,
-        "Usage: %s [rooms|organic] [width] [height] [seed]\n",
+        "Usage: %s [rooms|organic] [width] [height] [seed] [routing]\n",
         program_name
+    );
+    fprintf(
+        stderr,
+        "  routing (rooms only): random | horizontal-first | vertical-first\n"
     );
 }
 
@@ -129,13 +133,50 @@ static dg_room_flags_t demo_classify_room(int room_index, const dg_rect_t *bound
     return ((room_index + 1) % interval == 0) ? DG_ROOM_FLAG_SPECIAL : DG_ROOM_FLAG_NONE;
 }
 
+static const char *routing_mode_name(dg_corridor_routing_t routing)
+{
+    switch (routing) {
+    case DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST:
+        return "horizontal-first";
+    case DG_CORRIDOR_ROUTING_VERTICAL_FIRST:
+        return "vertical-first";
+    case DG_CORRIDOR_ROUTING_RANDOM:
+    default:
+        return "random";
+    }
+}
+
+static bool parse_routing_mode(const char *value, dg_corridor_routing_t *out_routing)
+{
+    if (value == NULL || out_routing == NULL) {
+        return false;
+    }
+
+    if (strcmp(value, "random") == 0) {
+        *out_routing = DG_CORRIDOR_ROUTING_RANDOM;
+        return true;
+    }
+    if (strcmp(value, "horizontal-first") == 0 || strcmp(value, "hfirst") == 0) {
+        *out_routing = DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
+        return true;
+    }
+    if (strcmp(value, "vertical-first") == 0 || strcmp(value, "vfirst") == 0) {
+        *out_routing = DG_CORRIDOR_ROUTING_VERTICAL_FIRST;
+        return true;
+    }
+
+    return false;
+}
+
 int main(int argc, char **argv)
 {
     const char *mode;
+    const char *routing_arg;
     int width;
     int height;
     uint64_t seed;
     dg_algorithm_t algorithm;
+    dg_corridor_routing_t corridor_routing;
     dg_generate_request_t request;
     dg_map_t map;
     dg_status_t status;
@@ -150,6 +191,8 @@ int main(int argc, char **argv)
     width = (argc > 2) ? atoi(argv[2]) : 80;
     height = (argc > 3) ? atoi(argv[3]) : 40;
     seed = (argc > 4) ? (uint64_t)strtoull(argv[4], NULL, 10) : 1337u;
+    routing_arg = (argc > 5) ? argv[5] : "random";
+    corridor_routing = DG_CORRIDOR_ROUTING_RANDOM;
 
     if (strcmp(mode, "rooms") == 0) {
         algorithm = DG_ALGORITHM_ROOMS_AND_CORRIDORS;
@@ -165,10 +208,18 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS &&
+        !parse_routing_mode(routing_arg, &corridor_routing)) {
+        fprintf(stderr, "invalid routing mode: %s\n", routing_arg);
+        print_usage(argv[0]);
+        return 2;
+    }
+
     dg_default_generate_request(&request, algorithm, width, height, seed);
     request.constraints.max_generation_attempts = 3;
     if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
         special_interval = 4;
+        request.params.rooms.corridor_routing = corridor_routing;
         request.params.rooms.classify_room = demo_classify_room;
         request.params.rooms.classify_room_user_data = &special_interval;
         request.constraints.min_room_count = 6;
@@ -210,6 +261,9 @@ int main(int argc, char **argv)
 
     fprintf(stdout, "\n");
     fprintf(stdout, "algorithm: %s\n", mode);
+    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
+        fprintf(stdout, "corridor routing: %s\n", routing_mode_name(corridor_routing));
+    }
     fprintf(stdout, "size: %dx%d\n", map.width, map.height);
     fprintf(stdout, "seed: %" PRIu64 " (actual: %" PRIu64 ")\n", seed, map.metadata.seed);
     fprintf(stdout, "attempts: %zu\n", map.metadata.generation_attempts);

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define ASSERT_TRUE(condition)                                                      \
     do {                                                                            \
@@ -43,6 +44,22 @@ static size_t count_walkable_tiles(const dg_map_t *map)
     }
 
     return count;
+}
+
+static bool maps_have_same_tiles(const dg_map_t *a, const dg_map_t *b)
+{
+    size_t cell_count;
+
+    if (a == NULL || b == NULL || a->tiles == NULL || b->tiles == NULL) {
+        return false;
+    }
+
+    if (a->width != b->width || a->height != b->height) {
+        return false;
+    }
+
+    cell_count = (size_t)a->width * (size_t)a->height;
+    return memcmp(a->tiles, b->tiles, cell_count * sizeof(dg_tile_t)) == 0;
 }
 
 static size_t count_special_rooms(const dg_map_t *map)
@@ -688,6 +705,57 @@ static int test_role_weights_treasure_prefers_far_distance(void)
     return 0;
 }
 
+static int test_corridor_routing_modes_affect_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 900u; seed < 940u; ++seed) {
+        dg_generate_request_t request;
+        dg_map_t horizontal_map = {0};
+        dg_map_t horizontal_repeat_map = {0};
+        dg_map_t vertical_map = {0};
+
+        dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 90, 50, seed);
+        request.params.rooms.min_rooms = 10;
+        request.params.rooms.max_rooms = 10;
+        request.constraints.max_generation_attempts = 4;
+        request.params.rooms.corridor_routing = DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
+        ASSERT_STATUS(dg_generate(&request, &horizontal_map), DG_STATUS_OK);
+
+        dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 90, 50, seed);
+        request.params.rooms.min_rooms = 10;
+        request.params.rooms.max_rooms = 10;
+        request.constraints.max_generation_attempts = 4;
+        request.params.rooms.corridor_routing = DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
+        ASSERT_STATUS(dg_generate(&request, &horizontal_repeat_map), DG_STATUS_OK);
+        ASSERT_TRUE(maps_have_same_tiles(&horizontal_map, &horizontal_repeat_map));
+
+        dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 90, 50, seed);
+        request.params.rooms.min_rooms = 10;
+        request.params.rooms.max_rooms = 10;
+        request.constraints.max_generation_attempts = 4;
+        request.params.rooms.corridor_routing = DG_CORRIDOR_ROUTING_VERTICAL_FIRST;
+        ASSERT_STATUS(dg_generate(&request, &vertical_map), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&horizontal_map, &vertical_map)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&horizontal_map);
+        dg_map_destroy(&horizontal_repeat_map);
+        dg_map_destroy(&vertical_map);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
 static int test_impossible_role_constraints_fail(void)
 {
     dg_generate_request_t request;
@@ -797,6 +865,7 @@ int main(void)
         {"room_role_constraints", test_room_role_constraints},
         {"role_weights_leaf_vs_hub", test_role_weights_leaf_vs_hub},
         {"role_weights_treasure_prefers_far_distance", test_role_weights_treasure_prefers_far_distance},
+        {"corridor_routing_modes_affect_layout", test_corridor_routing_modes_affect_layout},
         {"forbidden_regions_constraint", test_forbidden_regions_constraint},
         {"impossible_constraints_fail", test_impossible_constraints_fail},
         {"impossible_role_constraints_fail", test_impossible_role_constraints_fail},

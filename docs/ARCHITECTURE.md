@@ -40,6 +40,7 @@ Deterministic PRNG wrapper:
 Generation entrypoint and method configs:
 - `DG_ALGORITHM_ROOMS_AND_CORRIDORS`
 - `DG_ALGORITHM_ORGANIC_CAVE`
+- Rooms+corridors tuning includes room sizing, corridor width, and corridor routing mode
 - Shared constraints:
   - Connectivity + outer walls
   - Floor coverage bounds

@@ -13,6 +13,12 @@ typedef enum dg_algorithm {
     DG_ALGORITHM_ORGANIC_CAVE = 1
 } dg_algorithm_t;
 
+typedef enum dg_corridor_routing {
+    DG_CORRIDOR_ROUTING_RANDOM = 0,
+    DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST = 1,
+    DG_CORRIDOR_ROUTING_VERTICAL_FIRST = 2
+} dg_corridor_routing_t;
+
 typedef dg_room_flags_t (*dg_room_classifier_fn)(int room_index, const dg_rect_t *bounds, void *user_data);
 
 typedef struct dg_rooms_corridors_config {
@@ -22,6 +28,10 @@ typedef struct dg_rooms_corridors_config {
     int room_max_size;
     int max_placement_attempts;
     int corridor_width;
+    /*
+     * Controls orientation of L-shaped corridor carving between room centers.
+     */
+    dg_corridor_routing_t corridor_routing;
     dg_room_classifier_fn classify_room;
     void *classify_room_user_data;
 } dg_rooms_corridors_config_t;
