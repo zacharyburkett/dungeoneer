@@ -52,6 +52,8 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
+    map->metadata.leaf_room_count = 0;
+    map->metadata.corridor_total_length = 0;
     map->metadata.connected_component_count = 0;
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
@@ -143,6 +145,8 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
+    map->metadata.leaf_room_count = 0;
+    map->metadata.corridor_total_length = 0;
     map->metadata.connected_component_count = 0;
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
@@ -210,7 +214,13 @@ dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flag
     return DG_STATUS_OK;
 }
 
-dg_status_t dg_map_add_corridor(dg_map_t *map, int from_room_id, int to_room_id, int width)
+dg_status_t dg_map_add_corridor(
+    dg_map_t *map,
+    int from_room_id,
+    int to_room_id,
+    int width,
+    int length
+)
 {
     size_t new_capacity;
     dg_corridor_metadata_t *expanded_corridors;
@@ -220,7 +230,7 @@ dg_status_t dg_map_add_corridor(dg_map_t *map, int from_room_id, int to_room_id,
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (width <= 0 || from_room_id < 0 || to_room_id < 0) {
+    if (width <= 0 || length <= 0 || from_room_id < 0 || to_room_id < 0) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
@@ -254,6 +264,7 @@ dg_status_t dg_map_add_corridor(dg_map_t *map, int from_room_id, int to_room_id,
     corridor->from_room_id = from_room_id;
     corridor->to_room_id = to_room_id;
     corridor->width = width;
+    corridor->length = length;
     map->metadata.corridor_count += 1;
 
     return DG_STATUS_OK;

@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <stdlib.h>
+
 dg_status_t dg_populate_runtime_metadata(
     dg_map_t *map,
     uint64_t seed,
@@ -12,6 +14,9 @@ dg_status_t dg_populate_runtime_metadata(
     size_t walkable_tile_count;
     size_t wall_tile_count;
     size_t special_room_count;
+    size_t leaf_room_count;
+    size_t corridor_total_length;
+    int *room_degrees;
     dg_connectivity_stats_t connectivity;
     dg_status_t status;
 
@@ -38,6 +43,41 @@ dg_status_t dg_populate_runtime_metadata(
         }
     }
 
+    leaf_room_count = 0;
+    corridor_total_length = 0;
+    room_degrees = NULL;
+    if (map->metadata.room_count > 0) {
+        room_degrees = (int *)calloc(map->metadata.room_count, sizeof(int));
+        if (room_degrees == NULL) {
+            return DG_STATUS_ALLOCATION_FAILED;
+        }
+    }
+
+    for (i = 0; i < map->metadata.corridor_count; ++i) {
+        const dg_corridor_metadata_t *corridor = &map->metadata.corridors[i];
+        if (corridor->length > 0) {
+            corridor_total_length += (size_t)corridor->length;
+        }
+
+        if (room_degrees != NULL) {
+            if (corridor->from_room_id >= 0 && (size_t)corridor->from_room_id < map->metadata.room_count) {
+                room_degrees[corridor->from_room_id] += 1;
+            }
+            if (corridor->to_room_id >= 0 && (size_t)corridor->to_room_id < map->metadata.room_count) {
+                room_degrees[corridor->to_room_id] += 1;
+            }
+        }
+    }
+
+    if (room_degrees != NULL) {
+        for (i = 0; i < map->metadata.room_count; ++i) {
+            if (room_degrees[i] == 1) {
+                leaf_room_count += 1;
+            }
+        }
+        free(room_degrees);
+    }
+
     status = dg_analyze_connectivity(map, &connectivity);
     if (status != DG_STATUS_OK) {
         return status;
@@ -48,6 +88,8 @@ dg_status_t dg_populate_runtime_metadata(
     map->metadata.walkable_tile_count = walkable_tile_count;
     map->metadata.wall_tile_count = wall_tile_count;
     map->metadata.special_room_count = special_room_count;
+    map->metadata.leaf_room_count = leaf_room_count;
+    map->metadata.corridor_total_length = corridor_total_length;
     map->metadata.connected_component_count = connectivity.component_count;
     map->metadata.largest_component_size = connectivity.largest_component_size;
     map->metadata.connected_floor = connectivity.connected_floor;
@@ -76,6 +118,8 @@ void dg_init_empty_map(dg_map_t *map)
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
+    map->metadata.leaf_room_count = 0;
+    map->metadata.corridor_total_length = 0;
     map->metadata.connected_component_count = 0;
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;

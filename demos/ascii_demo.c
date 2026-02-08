@@ -125,7 +125,10 @@ int main(int argc, char **argv)
     fprintf(stdout, "seed: %" PRIu64 " (actual: %" PRIu64 ")\n", seed, map.metadata.seed);
     fprintf(stdout, "attempts: %zu\n", map.metadata.generation_attempts);
     fprintf(stdout, "rooms: %zu (special: %zu)\n", map.metadata.room_count, special_rooms);
-    fprintf(stdout, "corridors: %zu\n", map.metadata.corridor_count);
+    fprintf(stdout, "rooms (leaf): %zu\n", map.metadata.leaf_room_count);
+    fprintf(stdout, "corridors: %zu (total length: %zu)\n",
+            map.metadata.corridor_count,
+            map.metadata.corridor_total_length);
     fprintf(stdout, "walkable tiles: %zu (coverage: %.2f%%)\n",
             map.metadata.walkable_tile_count, (double)(floor_coverage * 100.0f));
     fprintf(stdout, "components: %zu (largest: %zu, connected: %s)\n",

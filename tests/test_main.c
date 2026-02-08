@@ -218,9 +218,10 @@ static int test_map_basics(void)
     ASSERT_STATUS(dg_map_set_tile(&map, 3, 3, DG_TILE_FLOOR), DG_STATUS_OK);
     ASSERT_TRUE(dg_map_get_tile(&map, 3, 3) == DG_TILE_FLOOR);
     ASSERT_STATUS(dg_map_add_room(&map, &room, DG_ROOM_FLAG_SPECIAL), DG_STATUS_OK);
-    ASSERT_STATUS(dg_map_add_corridor(&map, 0, 0, 1), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_add_corridor(&map, 0, 0, 1, 3), DG_STATUS_OK);
     ASSERT_TRUE(map.metadata.room_count == 1);
     ASSERT_TRUE(map.metadata.corridor_count == 1);
+    ASSERT_TRUE(map.metadata.corridors[0].length == 3);
     ASSERT_TRUE((map.metadata.rooms[0].flags & DG_ROOM_FLAG_SPECIAL) != 0);
 
     dg_map_destroy(&map);
@@ -276,6 +277,18 @@ static int test_rooms_and_corridors_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.wall_tile_count > 0);
+    ASSERT_TRUE(map.metadata.corridor_total_length >= map.metadata.corridor_count);
+    ASSERT_TRUE(map.metadata.leaf_room_count >= 2);
+    ASSERT_TRUE(map.metadata.leaf_room_count <= map.metadata.room_count);
+
+    for (size_t i = 0; i < map.metadata.corridor_count; ++i) {
+        const dg_corridor_metadata_t *corridor = &map.metadata.corridors[i];
+        ASSERT_TRUE(corridor->from_room_id >= 0);
+        ASSERT_TRUE(corridor->to_room_id >= 0);
+        ASSERT_TRUE((size_t)corridor->from_room_id < map.metadata.room_count);
+        ASSERT_TRUE((size_t)corridor->to_room_id < map.metadata.room_count);
+        ASSERT_TRUE(corridor->length >= 1);
+    }
 
     special_rooms = count_special_rooms(&map);
     ASSERT_TRUE(map.metadata.special_room_count == special_rooms);
@@ -309,6 +322,8 @@ static int test_organic_cave_generation(void)
     ASSERT_TRUE(map.metadata.room_count == 0);
     ASSERT_TRUE(map.metadata.corridor_count == 0);
     ASSERT_TRUE(map.metadata.special_room_count == 0);
+    ASSERT_TRUE(map.metadata.leaf_room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_total_length == 0);
     ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ORGANIC_CAVE);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.connected_floor);

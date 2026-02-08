@@ -1,5 +1,10 @@
 #include "internal.h"
 
+static int dg_abs_int(int value)
+{
+    return value < 0 ? -value : value;
+}
+
 static void dg_carve_room(dg_map_t *map, const dg_rect_t *room)
 {
     int x;
@@ -189,16 +194,20 @@ dg_status_t dg_generate_rooms_and_corridors_impl(
         for (i = 1; i < map->metadata.room_count; ++i) {
             dg_point_t a;
             dg_point_t b;
+            int corridor_length;
 
             a = dg_room_center(&map->metadata.rooms[i - 1].bounds);
             b = dg_room_center(&map->metadata.rooms[i].bounds);
             dg_connect_points(map, rng, a, b, corridor_width);
 
+            corridor_length = dg_abs_int(a.x - b.x) + dg_abs_int(a.y - b.y) + 1;
+
             status = dg_map_add_corridor(
                 map,
                 map->metadata.rooms[i - 1].id,
                 map->metadata.rooms[i].id,
-                corridor_width
+                corridor_width,
+                corridor_length
             );
             if (status != DG_STATUS_OK) {
                 return status;

@@ -9,6 +9,7 @@ Current baseline includes:
   - Organic cave carving
 - Rich map metadata:
   - Room + corridor metadata
+  - Room-graph metrics (leaf rooms, total corridor length)
   - Tile coverage counts
   - Connectivity diagnostics
   - Generation attempts and effective seed
