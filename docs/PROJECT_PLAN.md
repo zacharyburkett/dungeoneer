@@ -26,6 +26,7 @@ Build a standalone C library for 2D procedural dungeon generation that can later
   - Floor coverage bounds
   - Room/special-room bounds
   - Role-count and graph-distance constraints
+  - Per-role weighted room-role placement controls
   - Forbidden regions
   - Retry attempts
 - Metadata baseline:

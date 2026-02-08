@@ -33,6 +33,12 @@ typedef struct dg_organic_cave_config {
     float target_floor_coverage;
 } dg_organic_cave_config_t;
 
+typedef struct dg_role_placement_weights {
+    int distance_weight;
+    int degree_weight;
+    int leaf_bonus;
+} dg_role_placement_weights_t;
+
 typedef struct dg_generation_constraints {
     bool require_connected_floor;
     bool enforce_outer_walls;
@@ -72,6 +78,23 @@ typedef struct dg_generation_constraints {
      * If true, all required boss rooms must be leaf rooms in the room graph.
      */
     bool require_boss_on_leaf;
+
+    /*
+     * Scoring model for room-role placement:
+     * score = (distance_weight * graph_distance_from_entrance)
+     *       + (degree_weight * room_degree)
+     *       + (leaf_bonus if room is leaf, else 0)
+     *
+     * Each role can be tuned independently.
+     * When both entrance and exit are required, the first entrance/exit pair
+     * is chosen by maximum pairwise graph distance; these weights are applied
+     * for any remaining entrance/exit slots and all other roles.
+     */
+    dg_role_placement_weights_t entrance_weights;
+    dg_role_placement_weights_t exit_weights;
+    dg_role_placement_weights_t boss_weights;
+    dg_role_placement_weights_t treasure_weights;
+    dg_role_placement_weights_t shop_weights;
 
     /*
      * Any tiles in forbidden regions are forced to walls in the final result.

@@ -443,6 +443,41 @@ static int dg_pick_room_by_score(
     return -1;
 }
 
+static int dg_score_room_for_role(
+    int distance_from_entrance,
+    int room_degree,
+    bool is_leaf,
+    const dg_role_placement_weights_t *weights
+)
+{
+    long long score;
+    long long leaf_term;
+
+    if (weights == NULL) {
+        return 0;
+    }
+
+    if (distance_from_entrance < 0) {
+        distance_from_entrance = 0;
+    }
+    if (room_degree < 0) {
+        room_degree = 0;
+    }
+
+    leaf_term = is_leaf ? weights->leaf_bonus : 0;
+    score = ((long long)weights->distance_weight * (long long)distance_from_entrance) +
+            ((long long)weights->degree_weight * (long long)room_degree) +
+            leaf_term;
+
+    if (score > INT_MAX) {
+        return INT_MAX;
+    }
+    if (score < INT_MIN) {
+        return INT_MIN;
+    }
+    return (int)score;
+}
+
 static bool dg_assign_role_to_room(
     dg_map_t *map,
     unsigned char *taken,
@@ -741,7 +776,17 @@ static dg_status_t dg_assign_room_roles(
     }
 
     for (i = 0; i < room_count; ++i) {
-        scores[i] = (int)map->metadata.room_adjacency[i].count;
+        int degree;
+        bool is_leaf;
+
+        degree = (int)map->metadata.room_adjacency[i].count;
+        is_leaf = map->metadata.room_adjacency[i].count == 1;
+        scores[i] = dg_score_room_for_role(
+            0,
+            degree,
+            is_leaf,
+            &constraints->entrance_weights
+        );
     }
     while (need_entrance > 0) {
         int room_id = dg_pick_room_by_score(map, taken, scores, false, false);
@@ -767,17 +812,27 @@ static dg_status_t dg_assign_room_roles(
             free(queue);
             return status;
         }
-        for (i = 0; i < room_count; ++i) {
-            scores[i] = distances[i];
-        }
     } else {
         for (i = 0; i < room_count; ++i) {
-            scores[i] = (int)map->metadata.room_adjacency[i].count;
+            distances[i] = -1;
         }
     }
 
+    for (i = 0; i < room_count; ++i) {
+        int degree;
+        bool is_leaf;
+        degree = (int)map->metadata.room_adjacency[i].count;
+        is_leaf = map->metadata.room_adjacency[i].count == 1;
+        scores[i] = dg_score_room_for_role(
+            distances[i],
+            degree,
+            is_leaf,
+            &constraints->exit_weights
+        );
+    }
+
     while (need_exit > 0) {
-        int room_id = dg_pick_room_by_score(map, taken, scores, true, false);
+        int room_id = dg_pick_room_by_score(map, taken, scores, false, false);
         if (room_id < 0 || !dg_assign_role_to_room(map, taken, room_id, DG_ROOM_ROLE_EXIT)) {
             free(taken);
             free(scores);
@@ -799,14 +854,20 @@ static dg_status_t dg_assign_room_roles(
 
     for (i = 0; i < room_count; ++i) {
         int degree;
-        int distance_score;
+        bool is_leaf;
+
         degree = (int)map->metadata.room_adjacency[i].count;
-        distance_score = distances[i] >= 0 ? distances[i] : 0;
-        scores[i] = (distance_score * 16) + degree;
+        is_leaf = map->metadata.room_adjacency[i].count == 1;
+        scores[i] = dg_score_room_for_role(
+            distances[i],
+            degree,
+            is_leaf,
+            &constraints->boss_weights
+        );
     }
 
     while (need_boss > 0) {
-        int room_id = dg_pick_room_by_score(map, taken, scores, true, constraints->require_boss_on_leaf);
+        int room_id = dg_pick_room_by_score(map, taken, scores, false, constraints->require_boss_on_leaf);
         if (room_id < 0 || !dg_assign_role_to_room(map, taken, room_id, DG_ROOM_ROLE_BOSS)) {
             free(taken);
             free(scores);
@@ -818,12 +879,20 @@ static dg_status_t dg_assign_room_roles(
     }
 
     for (i = 0; i < room_count; ++i) {
-        int distance_score;
-        distance_score = distances[i] >= 0 ? distances[i] : 0;
-        scores[i] = distance_score;
+        int degree;
+        bool is_leaf;
+
+        degree = (int)map->metadata.room_adjacency[i].count;
+        is_leaf = map->metadata.room_adjacency[i].count == 1;
+        scores[i] = dg_score_room_for_role(
+            distances[i],
+            degree,
+            is_leaf,
+            &constraints->treasure_weights
+        );
     }
     while (need_treasure > 0) {
-        int room_id = dg_pick_room_by_score(map, taken, scores, true, false);
+        int room_id = dg_pick_room_by_score(map, taken, scores, false, false);
         if (room_id < 0 || !dg_assign_role_to_room(map, taken, room_id, DG_ROOM_ROLE_TREASURE)) {
             free(taken);
             free(scores);
@@ -837,9 +906,15 @@ static dg_status_t dg_assign_room_roles(
     for (i = 0; i < room_count; ++i) {
         int degree;
         bool is_leaf;
+
         degree = (int)map->metadata.room_adjacency[i].count;
         is_leaf = map->metadata.room_adjacency[i].count == 1;
-        scores[i] = (degree * 8) + (is_leaf ? -1 : 1);
+        scores[i] = dg_score_room_for_role(
+            distances[i],
+            degree,
+            is_leaf,
+            &constraints->shop_weights
+        );
     }
     while (need_shop > 0) {
         int room_id = dg_pick_room_by_score(map, taken, scores, false, false);

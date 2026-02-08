@@ -75,6 +75,99 @@ static size_t count_rooms_with_role(const dg_map_t *map, dg_room_role_t role)
     return count;
 }
 
+static int find_first_room_with_role(const dg_map_t *map, dg_room_role_t role)
+{
+    size_t i;
+
+    if (map == NULL) {
+        return -1;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (map->metadata.rooms[i].role == role) {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+static bool compute_room_distances(const dg_map_t *map, int start_room_id, int *distances)
+{
+    size_t room_count;
+    int *queue;
+    size_t i;
+    size_t head;
+    size_t tail;
+
+    if (map == NULL || distances == NULL) {
+        return false;
+    }
+
+    room_count = map->metadata.room_count;
+    if (room_count == 0) {
+        return false;
+    }
+
+    if (start_room_id < 0 || (size_t)start_room_id >= room_count) {
+        return false;
+    }
+
+    queue = (int *)malloc(room_count * sizeof(int));
+    if (queue == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < room_count; ++i) {
+        distances[i] = -1;
+    }
+
+    head = 0;
+    tail = 0;
+    distances[start_room_id] = 0;
+    queue[tail++] = start_room_id;
+
+    while (head < tail) {
+        int room_id;
+        const dg_room_adjacency_span_t *span;
+        size_t neighbor_index;
+
+        room_id = queue[head++];
+        if (room_id < 0 || (size_t)room_id >= room_count) {
+            free(queue);
+            return false;
+        }
+
+        span = &map->metadata.room_adjacency[room_id];
+        if (span->start_index + span->count > map->metadata.room_neighbor_count) {
+            free(queue);
+            return false;
+        }
+
+        for (neighbor_index = span->start_index;
+             neighbor_index < span->start_index + span->count;
+             ++neighbor_index) {
+            int neighbor_room_id;
+
+            neighbor_room_id = map->metadata.room_neighbors[neighbor_index].room_id;
+            if (neighbor_room_id < 0 || (size_t)neighbor_room_id >= room_count) {
+                free(queue);
+                return false;
+            }
+
+            if (distances[neighbor_room_id] >= 0) {
+                continue;
+            }
+
+            distances[neighbor_room_id] = distances[room_id] + 1;
+            queue[tail++] = neighbor_room_id;
+        }
+    }
+
+    free(queue);
+    return true;
+}
+
 static bool region_is_non_walkable(const dg_map_t *map, const dg_rect_t *region)
 {
     int x;
@@ -485,6 +578,116 @@ static int test_room_role_constraints(void)
     return 0;
 }
 
+static int test_role_weights_leaf_vs_hub(void)
+{
+    dg_generate_request_t request;
+    dg_map_t leaf_map = {0};
+    dg_map_t hub_map = {0};
+    int leaf_entrance_id;
+    int hub_entrance_id;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 100, 60, 4040u);
+    request.params.rooms.min_rooms = 10;
+    request.params.rooms.max_rooms = 10;
+    request.constraints.required_entrance_rooms = 1;
+    request.constraints.max_generation_attempts = 4;
+
+    request.constraints.entrance_weights.distance_weight = 0;
+    request.constraints.entrance_weights.degree_weight = -4;
+    request.constraints.entrance_weights.leaf_bonus = 100;
+
+    ASSERT_STATUS(dg_generate(&request, &leaf_map), DG_STATUS_OK);
+    ASSERT_TRUE(leaf_map.metadata.room_count >= 3);
+    leaf_entrance_id = find_first_room_with_role(&leaf_map, DG_ROOM_ROLE_ENTRANCE);
+    ASSERT_TRUE(leaf_entrance_id >= 0);
+    ASSERT_TRUE(leaf_map.metadata.room_adjacency[leaf_entrance_id].count == 1);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 100, 60, 4040u);
+    request.params.rooms.min_rooms = 10;
+    request.params.rooms.max_rooms = 10;
+    request.constraints.required_entrance_rooms = 1;
+    request.constraints.max_generation_attempts = 4;
+    request.constraints.entrance_weights.distance_weight = 0;
+    request.constraints.entrance_weights.degree_weight = 100;
+    request.constraints.entrance_weights.leaf_bonus = -25;
+
+    ASSERT_STATUS(dg_generate(&request, &hub_map), DG_STATUS_OK);
+    ASSERT_TRUE(hub_map.metadata.room_count >= 3);
+    hub_entrance_id = find_first_room_with_role(&hub_map, DG_ROOM_ROLE_ENTRANCE);
+    ASSERT_TRUE(hub_entrance_id >= 0);
+    ASSERT_TRUE(hub_map.metadata.room_adjacency[hub_entrance_id].count >= 2);
+    ASSERT_TRUE(leaf_entrance_id != hub_entrance_id);
+
+    dg_map_destroy(&leaf_map);
+    dg_map_destroy(&hub_map);
+    return 0;
+}
+
+static int test_role_weights_treasure_prefers_far_distance(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    int entrance_room_id;
+    int treasure_room_id;
+    int *distances;
+    int expected_room_id;
+    int expected_distance;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_CORRIDORS, 100, 60, 5050u);
+    request.params.rooms.min_rooms = 10;
+    request.params.rooms.max_rooms = 10;
+    request.constraints.required_entrance_rooms = 1;
+    request.constraints.required_treasure_rooms = 1;
+    request.constraints.max_generation_attempts = 4;
+
+    request.constraints.entrance_weights.distance_weight = 0;
+    request.constraints.entrance_weights.degree_weight = -4;
+    request.constraints.entrance_weights.leaf_bonus = 100;
+    request.constraints.treasure_weights.distance_weight = 100;
+    request.constraints.treasure_weights.degree_weight = 0;
+    request.constraints.treasure_weights.leaf_bonus = 0;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(map.metadata.room_count >= 3);
+
+    entrance_room_id = find_first_room_with_role(&map, DG_ROOM_ROLE_ENTRANCE);
+    treasure_room_id = find_first_room_with_role(&map, DG_ROOM_ROLE_TREASURE);
+    ASSERT_TRUE(entrance_room_id >= 0);
+    ASSERT_TRUE(treasure_room_id >= 0);
+    ASSERT_TRUE(entrance_room_id != treasure_room_id);
+
+    distances = (int *)malloc(map.metadata.room_count * sizeof(int));
+    ASSERT_TRUE(distances != NULL);
+    ASSERT_TRUE(compute_room_distances(&map, entrance_room_id, distances));
+
+    expected_room_id = -1;
+    expected_distance = -1;
+    for (i = 0; i < map.metadata.room_count; ++i) {
+        int distance;
+
+        if ((int)i == entrance_room_id) {
+            continue;
+        }
+
+        distance = distances[i];
+        ASSERT_TRUE(distance >= 0);
+        if (distance > expected_distance ||
+            (distance == expected_distance &&
+             (expected_room_id < 0 || (int)i < expected_room_id))) {
+            expected_distance = distance;
+            expected_room_id = (int)i;
+        }
+    }
+
+    ASSERT_TRUE(expected_room_id >= 0);
+    ASSERT_TRUE(treasure_room_id == expected_room_id);
+
+    free(distances);
+    dg_map_destroy(&map);
+    return 0;
+}
+
 static int test_impossible_role_constraints_fail(void)
 {
     dg_generate_request_t request;
@@ -592,6 +795,8 @@ int main(void)
         {"rooms_and_corridors_generation", test_rooms_and_corridors_generation},
         {"organic_cave_generation", test_organic_cave_generation},
         {"room_role_constraints", test_room_role_constraints},
+        {"role_weights_leaf_vs_hub", test_role_weights_leaf_vs_hub},
+        {"role_weights_treasure_prefers_far_distance", test_role_weights_treasure_prefers_far_distance},
         {"forbidden_regions_constraint", test_forbidden_regions_constraint},
         {"impossible_constraints_fail", test_impossible_constraints_fail},
         {"impossible_role_constraints_fail", test_impossible_role_constraints_fail},

@@ -45,6 +45,7 @@ Generation entrypoint and method configs:
   - Floor coverage bounds
   - Room/special-room count bounds
   - Required room-role counts and entrance-exit graph distance
+  - Per-role placement weights (distance/degree/leaf bonus)
   - Boss-on-leaf constraints
   - Forbidden (no-carve) regions
   - Retry attempts
@@ -54,7 +55,7 @@ Generation entrypoint and method configs:
   - `src/generator/primitives.c`: Shared math, geometry, and low-level tile helpers
   - `src/generator/connectivity.c`: Connectivity analysis, enforcement, and smoothing
   - `src/generator/constraints.c`: Constraint validation and forbidden-region enforcement
-  - `src/generator/metadata.c`: Runtime metadata population and map-state initialization
+  - `src/generator/metadata.c`: Runtime metadata population, room-role assignment, and map-state initialization
   - `src/generator/rooms_corridors.c`: Rooms+corridors implementation
   - `src/generator/organic_cave.c`: Organic cave implementation
   - `src/generator/internal.h`: Internal contracts between generator modules

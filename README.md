@@ -20,6 +20,7 @@ Current baseline includes:
   - Min/max floor coverage
   - Min/max room count and min special-room count
   - Required role counts, entrance-exit distance, boss-on-leaf rule
+  - Per-role placement weights (distance/degree/leaf bonus)
   - Forbidden (no-carve) regions
   - Retry budget for constraint satisfaction
 - Deterministic RNG (seed-based generation)
@@ -46,6 +47,14 @@ ctest --test-dir build --output-on-failure
 ```
 
 The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).
+
+## Role placement tuning
+
+Role assignment can be tuned per role with weighted scoring:
+
+`score = distance_weight * distance_from_entrance + degree_weight * room_degree + leaf_bonus_if_leaf`
+
+`dg_default_generate_request` initializes sensible defaults for each role. When both entrance and exit are required, the first pair is still selected by maximum room-graph distance before weighted selection is used for additional entrance/exit slots.
 
 ## Project docs
 
