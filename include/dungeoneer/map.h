@@ -45,9 +45,16 @@ typedef struct dg_room_adjacency_span {
     size_t count;
 } dg_room_adjacency_span_t;
 
+typedef enum dg_map_generation_class {
+    DG_MAP_GENERATION_CLASS_UNKNOWN = 0,
+    DG_MAP_GENERATION_CLASS_ROOM_LIKE = 1,
+    DG_MAP_GENERATION_CLASS_CAVE_LIKE = 2
+} dg_map_generation_class_t;
+
 typedef struct dg_map_metadata {
     uint64_t seed;
     int algorithm_id;
+    dg_map_generation_class_t generation_class;
 
     dg_room_metadata_t *rooms;
     size_t room_count;

@@ -4,7 +4,6 @@ project(dungeoneer VERSION 0.1.0 LANGUAGES C)
 include(GNUInstallDirs)
 
 option(DUNGEONEER_BUILD_TESTS "Build dungeoneer tests" ON)
-option(DUNGEONEER_BUILD_DEMOS "Build dungeoneer demos" ON)
 option(DUNGEONEER_BUILD_NUKLEAR_APP "Build optional Nuklear core + GLFW presenter demo" OFF)
 option(
     DUNGEONEER_NUKLEAR_AUTO_FETCH
@@ -60,11 +59,6 @@ if(DUNGEONEER_BUILD_TESTS)
     add_executable(dungeoneer_tests tests/test_main.c)
     target_link_libraries(dungeoneer_tests PRIVATE dungeoneer)
     add_test(NAME dungeoneer_tests COMMAND dungeoneer_tests)
-endif()
-
-if(DUNGEONEER_BUILD_DEMOS)
-    add_executable(dungeoneer_ascii_demo demos/ascii_demo.c)
-    target_link_libraries(dungeoneer_ascii_demo PRIVATE dungeoneer)
 endif()
 
 if(DUNGEONEER_BUILD_NUKLEAR_APP)

@@ -49,6 +49,8 @@ void dg_default_generate_request(
     uint64_t seed
 );
 
+dg_map_generation_class_t dg_algorithm_generation_class(dg_algorithm_t algorithm);
+
 /*
  * `out_map` is expected to be zero-initialized or previously destroyed.
  * Call `dg_map_destroy` when done with the returned map.

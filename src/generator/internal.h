@@ -34,6 +34,7 @@ dg_status_t dg_populate_runtime_metadata(
     dg_map_t *map,
     uint64_t seed,
     int algorithm_id,
+    dg_map_generation_class_t generation_class,
     size_t generation_attempts
 );
 

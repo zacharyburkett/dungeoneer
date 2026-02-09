@@ -167,10 +167,25 @@ static dg_status_t dg_build_room_graph_metadata(
     return DG_STATUS_OK;
 }
 
+static void dg_clear_room_graph_metadata(dg_map_t *map)
+{
+    if (map == NULL) {
+        return;
+    }
+
+    free(map->metadata.room_adjacency);
+    free(map->metadata.room_neighbors);
+    map->metadata.room_adjacency = NULL;
+    map->metadata.room_adjacency_count = 0;
+    map->metadata.room_neighbors = NULL;
+    map->metadata.room_neighbor_count = 0;
+}
+
 dg_status_t dg_populate_runtime_metadata(
     dg_map_t *map,
     uint64_t seed,
     int algorithm_id,
+    dg_map_generation_class_t generation_class,
     size_t generation_attempts
 )
 {
@@ -208,9 +223,15 @@ dg_status_t dg_populate_runtime_metadata(
         }
     }
 
-    status = dg_build_room_graph_metadata(map, &leaf_room_count, &corridor_total_length);
-    if (status != DG_STATUS_OK) {
-        return status;
+    leaf_room_count = 0;
+    corridor_total_length = 0;
+    if (generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+        status = dg_build_room_graph_metadata(map, &leaf_room_count, &corridor_total_length);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+    } else {
+        dg_clear_room_graph_metadata(map);
     }
 
     status = dg_analyze_connectivity(map, &connectivity);
@@ -220,6 +241,7 @@ dg_status_t dg_populate_runtime_metadata(
 
     map->metadata.seed = seed;
     map->metadata.algorithm_id = algorithm_id;
+    map->metadata.generation_class = generation_class;
     map->metadata.walkable_tile_count = walkable_tile_count;
     map->metadata.wall_tile_count = wall_tile_count;
     map->metadata.special_room_count = special_room_count;
@@ -260,6 +282,7 @@ void dg_init_empty_map(dg_map_t *map)
     map->metadata.room_neighbor_count = 0;
     map->metadata.seed = 0;
     map->metadata.algorithm_id = -1;
+    map->metadata.generation_class = DG_MAP_GENERATION_CLASS_UNKNOWN;
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;

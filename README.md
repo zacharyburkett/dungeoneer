@@ -11,10 +11,11 @@ The generation pipeline is currently focused on two baseline algorithms:
 
 The library still includes:
 - Deterministic seed-based generation
-- Room/corridor metadata and room adjacency graph metadata
+- Generation-class-aware metadata (`room-like` vs `cave-like`)
+- Room/corridor metadata and room adjacency graph metadata for room-like algorithms
 - Connectivity/coverage diagnostics in map metadata
 - Binary map save/load for editor workflows
-- Unit tests, an ASCII demo, and a Nuklear editor app
+- Unit tests and a Nuklear editor app
 
 ## Build
 
@@ -47,16 +48,13 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Demo
+## Editor
+
+If built with `-DDUNGEONEER_BUILD_NUKLEAR_APP=ON`:
 
 ```sh
-./build/dungeoneer_ascii_demo bsp 80 40 42
-./build/dungeoneer_ascii_demo drunkards 80 40 42 75
-# if built with -DDUNGEONEER_BUILD_NUKLEAR_APP=ON
 ./build/dungeoneer_editor
 ```
-
-The ASCII demo prints the map and metadata diagnostics.
 
 ## Map Serialization
 

@@ -5,7 +5,6 @@
 - `include/dungeoneer/`: Public API headers
 - `src/`: Library implementation
 - `tests/`: Test executable source
-- `demos/`: Demo programs for visualization
 - `apps/nuklear/`: Optional Nuklear editor core and GLFW presenter
 - `docs/`: Planning and architecture docs
 
@@ -23,6 +22,7 @@ Shared primitive types:
 Owns map storage and metadata:
 - Tile buffer allocation and lifecycle
 - Tile read/write helpers
+- Generation-class tagging (`room-like` / `cave-like`)
 - Room metadata collection
 - Corridor metadata collection
 - Room adjacency graph metadata (spans + neighbor list)
@@ -47,6 +47,9 @@ Deterministic PRNG wrapper:
 Generation entrypoint and algorithm configs:
 - `DG_ALGORITHM_BSP_TREE`
 - `DG_ALGORITHM_DRUNKARDS_WALK`
+- Algorithms map into two generation classes:
+  - Room-like (BSP): produces room/corridor metadata
+  - Cave-like (Drunkard's Walk): focuses on tile topology without room graph data
 - Config blocks:
   - `dg_bsp_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
   - `dg_drunkards_walk_config_t` (`wiggle_percent`)
@@ -57,7 +60,7 @@ Internal generator split:
 - `src/generator/drunkards_walk.c`: single-walker cave carving with wiggle control
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
-- `src/generator/metadata.c`: metadata population and map-state initialization
+- `src/generator/metadata.c`: class-aware metadata population and map-state initialization
 - `src/generator/internal.h`: internal contracts between generator modules
 
 ### `apps/nuklear/core.h` + `apps/nuklear/core.c`
@@ -90,4 +93,4 @@ Simple presenter shell:
 ## Quality gates
 
 - CTest-driven test executable validates API basics and BSP invariants.
-- Demo executable provides quick visual verification during iteration.
+- Nuklear editor build acts as UI smoke coverage during iteration.

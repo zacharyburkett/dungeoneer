@@ -72,6 +72,7 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
 
     if (a->metadata.seed != b->metadata.seed ||
         a->metadata.algorithm_id != b->metadata.algorithm_id ||
+        a->metadata.generation_class != b->metadata.generation_class ||
         a->metadata.room_count != b->metadata.room_count ||
         a->metadata.corridor_count != b->metadata.corridor_count ||
         a->metadata.room_adjacency_count != b->metadata.room_adjacency_count ||
@@ -308,6 +309,7 @@ static int test_bsp_generation(void)
     floors = count_walkable_tiles(&map);
     ASSERT_TRUE(floors > 0);
     ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_BSP_TREE);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE);
     ASSERT_TRUE(map.metadata.room_count == 10);
     ASSERT_TRUE(map.metadata.corridor_count == map.metadata.room_count - 1);
     ASSERT_TRUE(map.metadata.connected_floor);
@@ -368,6 +370,7 @@ static int test_drunkards_walk_generation(void)
     floors = count_walkable_tiles(&map);
     ASSERT_TRUE(floors > 0);
     ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_DRUNKARDS_WALK);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE);
     ASSERT_TRUE(map.metadata.room_count == 0);
     ASSERT_TRUE(map.metadata.corridor_count == 0);
     ASSERT_TRUE(map.metadata.connected_floor);

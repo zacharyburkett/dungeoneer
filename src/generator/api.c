@@ -90,11 +90,24 @@ void dg_default_generate_request(
     }
 }
 
+dg_map_generation_class_t dg_algorithm_generation_class(dg_algorithm_t algorithm)
+{
+    switch (algorithm) {
+    case DG_ALGORITHM_BSP_TREE:
+        return DG_MAP_GENERATION_CLASS_ROOM_LIKE;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        return DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+    default:
+        return DG_MAP_GENERATION_CLASS_UNKNOWN;
+    }
+}
+
 dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
 {
     dg_status_t status;
     dg_map_t generated;
     dg_rng_t rng;
+    dg_map_generation_class_t generation_class;
 
     if (request == NULL || out_map == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -127,6 +140,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
 
     if (status != DG_STATUS_OK) {
         return status;
+    }
+
+    generation_class = dg_algorithm_generation_class(request->algorithm);
+    if (generation_class == DG_MAP_GENERATION_CLASS_UNKNOWN) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
     generated = (dg_map_t){0};
@@ -165,6 +183,7 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         &generated,
         request->seed,
         (int)request->algorithm,
+        generation_class,
         1u
     );
     if (status != DG_STATUS_OK) {

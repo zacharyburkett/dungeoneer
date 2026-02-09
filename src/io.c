@@ -6,7 +6,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 1u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 2u;
 
 static bool dg_mul_size_would_overflow(size_t a, size_t b, size_t *out)
 {
@@ -181,6 +181,13 @@ static bool dg_room_role_value_is_valid(int32_t value)
            value <= (int32_t)DG_ROOM_ROLE_SHOP;
 }
 
+static bool dg_map_generation_class_value_is_valid(int32_t value)
+{
+    return value == (int32_t)DG_MAP_GENERATION_CLASS_UNKNOWN ||
+           value == (int32_t)DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
+           value == (int32_t)DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+}
+
 static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
 {
     if (out_value == NULL) {
@@ -266,6 +273,10 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
     }
 
     if ((long long)map->width * (long long)map->height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (!dg_map_generation_class_value_is_valid((int32_t)map->metadata.generation_class)) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
@@ -358,6 +369,12 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
     }
 
     status = dg_write_i32(file, (int32_t)map->metadata.algorithm_id);
+    if (status != DG_STATUS_OK) {
+        fclose(file);
+        return status;
+    }
+
+    status = dg_write_i32(file, (int32_t)map->metadata.generation_class);
     if (status != DG_STATUS_OK) {
         fclose(file);
         return status;
@@ -610,7 +627,7 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
         fclose(file);
         return status;
     }
-    if (version != DG_MAP_FORMAT_VERSION) {
+    if (version != 1u && version != DG_MAP_FORMAT_VERSION) {
         fclose(file);
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -670,6 +687,24 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
             dg_map_destroy(&loaded);
             fclose(file);
             return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+
+        if (version >= 2u) {
+            int32_t generation_class_i32;
+            status = dg_read_i32(file, &generation_class_i32);
+            if (status != DG_STATUS_OK) {
+                dg_map_destroy(&loaded);
+                fclose(file);
+                return status;
+            }
+            if (!dg_map_generation_class_value_is_valid(generation_class_i32)) {
+                dg_map_destroy(&loaded);
+                fclose(file);
+                return DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            loaded.metadata.generation_class = (dg_map_generation_class_t)generation_class_i32;
+        } else {
+            loaded.metadata.generation_class = DG_MAP_GENERATION_CLASS_UNKNOWN;
         }
     }
 
@@ -738,6 +773,13 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
     loaded.metadata.corridor_capacity = loaded.metadata.corridor_count;
     loaded.metadata.room_adjacency_count = (size_t)room_adjacency_count_u64;
     loaded.metadata.room_neighbor_count = (size_t)room_neighbor_count_u64;
+    if (loaded.metadata.generation_class == DG_MAP_GENERATION_CLASS_UNKNOWN) {
+        if (loaded.metadata.room_count > 0 || loaded.metadata.corridor_count > 0) {
+            loaded.metadata.generation_class = DG_MAP_GENERATION_CLASS_ROOM_LIKE;
+        } else {
+            loaded.metadata.generation_class = DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+        }
+    }
 
     status = dg_read_size_from_u64(file, &loaded.metadata.walkable_tile_count);
     if (status != DG_STATUS_OK) {

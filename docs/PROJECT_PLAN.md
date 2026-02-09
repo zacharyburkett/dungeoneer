@@ -29,9 +29,10 @@ This baseline is meant to provide a stable foundation before adding advanced con
 - BSP room/corridor generation implementation
 - Drunkard's Walk implementation with wiggle control
 - Runtime metadata population
+- Class-aware metadata pipeline (room-like vs cave-like)
 - Binary map serialization (save/load)
 - Nuklear editor for generate/save/load with per-algorithm controls
-- Test harness and ASCII demo updated for the current algorithm set
+- Test harness and editor workflows updated for the current algorithm set
 
 ### Phase 1: BSP quality and diagnostics
 

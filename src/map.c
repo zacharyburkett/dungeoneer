@@ -53,6 +53,7 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.room_neighbor_count = 0;
     map->metadata.seed = 0;
     map->metadata.algorithm_id = -1;
+    map->metadata.generation_class = DG_MAP_GENERATION_CLASS_UNKNOWN;
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
@@ -158,6 +159,7 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.room_neighbor_count = 0;
     map->metadata.seed = 0;
     map->metadata.algorithm_id = -1;
+    map->metadata.generation_class = DG_MAP_GENERATION_CLASS_UNKNOWN;
     map->metadata.walkable_tile_count = 0;
     map->metadata.wall_tile_count = 0;
     map->metadata.special_room_count = 0;
