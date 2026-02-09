@@ -3,34 +3,10 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 static void print_usage(const char *program_name)
 {
-    fprintf(
-        stderr,
-        "Usage: %s [rooms|organic] [width] [height] [seed] [routing]\n",
-        program_name
-    );
-    fprintf(
-        stderr,
-        "  routing (rooms only): random | horizontal-first | vertical-first\n"
-    );
-}
-
-static char tile_glyph(dg_tile_t tile)
-{
-    switch (tile) {
-    case DG_TILE_WALL:
-        return ' ';
-    case DG_TILE_FLOOR:
-        return '.';
-    case DG_TILE_DOOR:
-        return '+';
-    case DG_TILE_VOID:
-    default:
-        return ' ';
-    }
+    fprintf(stderr, "Usage: %s [width] [height] [seed]\n", program_name);
 }
 
 static bool point_in_room(const dg_room_metadata_t *room, int x, int y)
@@ -65,25 +41,16 @@ static const dg_room_metadata_t *find_room_at(const dg_map_t *map, int x, int y)
 
 static char room_glyph(const dg_room_metadata_t *room)
 {
+    static const char glyphs[] =
+        "123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    size_t glyph_count;
+
     if (room == NULL) {
         return '.';
     }
 
-    switch (room->role) {
-    case DG_ROOM_ROLE_ENTRANCE:
-        return 'E';
-    case DG_ROOM_ROLE_EXIT:
-        return 'X';
-    case DG_ROOM_ROLE_BOSS:
-        return 'B';
-    case DG_ROOM_ROLE_TREASURE:
-        return 'T';
-    case DG_ROOM_ROLE_SHOP:
-        return 'S';
-    case DG_ROOM_ROLE_NONE:
-    default:
-        return (room->flags & DG_ROOM_FLAG_SPECIAL) != 0u ? '*' : 'r';
-    }
+    glyph_count = sizeof(glyphs) - 1;
+    return glyphs[(size_t)room->id % glyph_count];
 }
 
 static char map_glyph_at(const dg_map_t *map, int x, int y)
@@ -97,9 +64,10 @@ static char map_glyph_at(const dg_map_t *map, int x, int y)
         if (room != NULL) {
             return room_glyph(room);
         }
+        return '.';
     }
 
-    return tile_glyph(tile);
+    return ' ';
 }
 
 static void print_map(const dg_map_t *map)
@@ -115,125 +83,31 @@ static void print_map(const dg_map_t *map)
     }
 }
 
-static void print_room_legend(void)
-{
-    fprintf(stdout, "legend: E=entrance X=exit B=boss T=treasure S=shop r=room *=special room .=corridor (space)=wall\n");
-}
-
-static dg_room_flags_t demo_classify_room(int room_index, const dg_rect_t *bounds, void *user_data)
-{
-    int interval;
-    (void)bounds;
-
-    interval = 4;
-    if (user_data != NULL) {
-        interval = *((const int *)user_data);
-    }
-
-    return ((room_index + 1) % interval == 0) ? DG_ROOM_FLAG_SPECIAL : DG_ROOM_FLAG_NONE;
-}
-
-static const char *routing_mode_name(dg_corridor_routing_t routing)
-{
-    switch (routing) {
-    case DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST:
-        return "horizontal-first";
-    case DG_CORRIDOR_ROUTING_VERTICAL_FIRST:
-        return "vertical-first";
-    case DG_CORRIDOR_ROUTING_RANDOM:
-    default:
-        return "random";
-    }
-}
-
-static bool parse_routing_mode(const char *value, dg_corridor_routing_t *out_routing)
-{
-    if (value == NULL || out_routing == NULL) {
-        return false;
-    }
-
-    if (strcmp(value, "random") == 0) {
-        *out_routing = DG_CORRIDOR_ROUTING_RANDOM;
-        return true;
-    }
-    if (strcmp(value, "horizontal-first") == 0 || strcmp(value, "hfirst") == 0) {
-        *out_routing = DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
-        return true;
-    }
-    if (strcmp(value, "vertical-first") == 0 || strcmp(value, "vfirst") == 0) {
-        *out_routing = DG_CORRIDOR_ROUTING_VERTICAL_FIRST;
-        return true;
-    }
-
-    return false;
-}
-
 int main(int argc, char **argv)
 {
-    const char *mode;
-    const char *routing_arg;
     int width;
     int height;
     uint64_t seed;
-    dg_algorithm_t algorithm;
-    dg_corridor_routing_t corridor_routing;
     dg_generate_request_t request;
     dg_map_t map;
     dg_status_t status;
-    size_t i;
-    size_t special_rooms;
-    int special_interval;
     size_t total_tiles;
     float floor_coverage;
     double average_room_degree;
 
-    mode = (argc > 1) ? argv[1] : "rooms";
-    width = (argc > 2) ? atoi(argv[2]) : 80;
-    height = (argc > 3) ? atoi(argv[3]) : 40;
-    seed = (argc > 4) ? (uint64_t)strtoull(argv[4], NULL, 10) : 1337u;
-    routing_arg = (argc > 5) ? argv[5] : "random";
-    corridor_routing = DG_CORRIDOR_ROUTING_RANDOM;
+    width = (argc > 1) ? atoi(argv[1]) : 80;
+    height = (argc > 2) ? atoi(argv[2]) : 40;
+    seed = (argc > 3) ? (uint64_t)strtoull(argv[3], NULL, 10) : 1337u;
 
-    if (strcmp(mode, "rooms") == 0) {
-        algorithm = DG_ALGORITHM_ROOMS_AND_CORRIDORS;
-    } else if (strcmp(mode, "organic") == 0) {
-        algorithm = DG_ALGORITHM_ORGANIC_CAVE;
-    } else {
+    if (width < 8 || height < 8) {
         print_usage(argv[0]);
+        fprintf(stderr, "width and height must both be >= 8\n");
         return 2;
     }
 
-    if (width < 5 || height < 5) {
-        fprintf(stderr, "width and height must both be >= 5\n");
-        return 2;
-    }
-
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS &&
-        !parse_routing_mode(routing_arg, &corridor_routing)) {
-        fprintf(stderr, "invalid routing mode: %s\n", routing_arg);
-        print_usage(argv[0]);
-        return 2;
-    }
-
-    dg_default_generate_request(&request, algorithm, width, height, seed);
-    request.constraints.max_generation_attempts = 3;
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
-        special_interval = 4;
-        request.params.rooms.corridor_routing = corridor_routing;
-        request.params.rooms.classify_room = demo_classify_room;
-        request.params.rooms.classify_room_user_data = &special_interval;
-        request.constraints.min_room_count = 6;
-        request.constraints.required_entrance_rooms = 1;
-        request.constraints.required_exit_rooms = 1;
-        request.constraints.required_boss_rooms = 1;
-        request.constraints.required_treasure_rooms = 1;
-        request.constraints.required_shop_rooms = 1;
-        request.constraints.min_entrance_exit_distance = 2;
-        request.constraints.require_boss_on_leaf = true;
-    }
+    dg_default_generate_request(&request, width, height, seed);
 
     map = (dg_map_t){0};
-
     status = dg_generate(&request, &map);
     if (status != DG_STATUS_OK) {
         fprintf(stderr, "generation failed: %s\n", dg_status_string(status));
@@ -241,16 +115,6 @@ int main(int argc, char **argv)
     }
 
     print_map(&map);
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
-        print_room_legend();
-    }
-
-    special_rooms = 0;
-    for (i = 0; i < map.metadata.room_count; ++i) {
-        if ((map.metadata.rooms[i].flags & DG_ROOM_FLAG_SPECIAL) != 0) {
-            special_rooms += 1;
-        }
-    }
 
     total_tiles = (size_t)map.width * (size_t)map.height;
     floor_coverage = (float)map.metadata.walkable_tile_count / (float)total_tiles;
@@ -260,22 +124,11 @@ int main(int argc, char **argv)
     }
 
     fprintf(stdout, "\n");
-    fprintf(stdout, "algorithm: %s\n", mode);
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
-        fprintf(stdout, "corridor routing: %s\n", routing_mode_name(corridor_routing));
-    }
+    fprintf(stdout, "algorithm: bsp_tree\n");
     fprintf(stdout, "size: %dx%d\n", map.width, map.height);
-    fprintf(stdout, "seed: %" PRIu64 " (actual: %" PRIu64 ")\n", seed, map.metadata.seed);
-    fprintf(stdout, "attempts: %zu\n", map.metadata.generation_attempts);
-    fprintf(stdout, "rooms: %zu (special: %zu)\n", map.metadata.room_count, special_rooms);
+    fprintf(stdout, "seed: %" PRIu64 "\n", map.metadata.seed);
+    fprintf(stdout, "rooms: %zu\n", map.metadata.room_count);
     fprintf(stdout, "rooms (leaf): %zu\n", map.metadata.leaf_room_count);
-    fprintf(stdout, "roles: entrance=%zu exit=%zu boss=%zu treasure=%zu shop=%zu\n",
-            map.metadata.entrance_room_count,
-            map.metadata.exit_room_count,
-            map.metadata.boss_room_count,
-            map.metadata.treasure_room_count,
-            map.metadata.shop_room_count);
-    fprintf(stdout, "entrance-exit room distance: %d\n", map.metadata.entrance_exit_distance);
     fprintf(stdout, "corridors: %zu (total length: %zu)\n",
             map.metadata.corridor_count,
             map.metadata.corridor_total_length);

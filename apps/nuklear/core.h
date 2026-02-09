@@ -9,22 +9,13 @@ extern "C" {
 
 struct nk_context;
 
-#define DG_NUKLEAR_MAX_FORBIDDEN_REGIONS 16
-
 typedef struct dg_nuklear_app {
     dg_map_t map;
     bool has_map;
-    int algorithm_index;
-    int routing_index;
     int width;
     int height;
     char seed_text[32];
-    dg_rooms_corridors_config_t rooms_config;
-    dg_organic_cave_config_t organic_config;
-    dg_generation_constraints_t constraints;
-    dg_rect_t forbidden_regions[DG_NUKLEAR_MAX_FORBIDDEN_REGIONS];
-    int forbidden_region_count;
-    int selected_forbidden_region;
+    dg_bsp_config_t bsp_config;
     char file_path[256];
     char status_text[256];
 } dg_nuklear_app_t;

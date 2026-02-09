@@ -24,10 +24,9 @@ Owns map storage and metadata:
 - Tile buffer allocation and lifecycle
 - Tile read/write helpers
 - Room metadata collection
-- Room role tagging
 - Corridor metadata collection
-- Explicit room adjacency graph (spans + neighbor list)
-- Runtime metadata diagnostics (coverage/connectivity/attempts/room-graph metrics)
+- Room adjacency graph metadata (spans + neighbor list)
+- Runtime diagnostics (coverage/connectivity/attempts)
 
 ### `io.h` + `src/io.c`
 
@@ -36,11 +35,35 @@ Versioned binary map persistence:
 - Load full map snapshots
 - Format validation with explicit unsupported-format errors
 
+### `rng.h` + `src/rng.c`
+
+Deterministic PRNG wrapper:
+- Seed setup
+- Integer random helpers
+- Range generation helper
+
+### `generator.h` + `src/generator/`
+
+Generation entrypoint and BSP config:
+- One algorithm enum value: `DG_ALGORITHM_BSP_TREE`
+- One config block: `dg_bsp_config_t`
+- BSP controls only:
+  - `min_rooms` / `max_rooms`
+  - `room_min_size` / `room_max_size`
+
+Internal generator split:
+- `src/generator/api.c`: public API validation + orchestration
+- `src/generator/bsp.c`: BSP partitioning, room carving, and corridor linking
+- `src/generator/primitives.c`: shared geometry/tile helpers
+- `src/generator/connectivity.c`: connectivity analysis helpers
+- `src/generator/metadata.c`: metadata population and map-state initialization
+- `src/generator/internal.h`: internal contracts between generator modules
+
 ### `apps/nuklear/core.h` + `apps/nuklear/core.c`
 
 Nuklear-based editor core:
-- Owns editor UI state (generation params, file path, status text)
-- Handles generate/save/load actions via public dungeoneer API
+- Owns editor UI state (BSP params, file path, status text)
+- Handles generate/save/load via the public API
 - Renders map preview and metadata through Nuklear command buffers
 
 ### `apps/nuklear/glfw_main.c`
@@ -50,53 +73,20 @@ Simple presenter shell:
 - Nuklear frame lifecycle and rendering
 - Calls into Nuklear editor core each frame
 
-### `rng.h` + `src/rng.c`
-
-Deterministic PRNG wrapper:
-- Seed setup
-- Integer and float random values
-- Range generation helper
-
-### `generator.h` + `src/generator/`
-
-Generation entrypoint and method configs:
-- `DG_ALGORITHM_ROOMS_AND_CORRIDORS`
-- `DG_ALGORITHM_ORGANIC_CAVE`
-- Rooms+corridors tuning includes room sizing, corridor width, and corridor routing mode
-- Shared constraints:
-  - Connectivity + outer walls
-  - Floor coverage bounds
-  - Room/special-room count bounds
-  - Required room-role counts and entrance-exit graph distance
-  - Per-role placement weights (distance/degree/leaf bonus)
-  - Boss-on-leaf constraints
-  - Forbidden (no-carve) regions
-  - Retry attempts
-- Room classification callback for special-room tagging
-- Internal module split:
-  - `src/generator/api.c`: Public generation API, attempt orchestration, and algorithm-specific config validation
-  - `src/generator/primitives.c`: Shared math, geometry, and low-level tile helpers
-  - `src/generator/connectivity.c`: Connectivity analysis, enforcement, and smoothing
-  - `src/generator/constraints.c`: Shared constraint validation and forbidden-region enforcement
-  - `src/generator/metadata.c`: Runtime metadata population, room-role assignment, and map-state initialization
-  - `src/generator/rooms_corridors.c`: Rooms+corridors implementation
-  - `src/generator/organic_cave.c`: Organic cave implementation
-  - `src/generator/internal.h`: Internal contracts between generator modules
-
 ## Data flow
 
-1. Create `dg_generate_request_t` (often via `dg_default_generate_request`).
+1. Create `dg_generate_request_t` (usually via `dg_default_generate_request`).
 2. Call `dg_generate`.
-3. Access tiles and metadata from `dg_map_t`.
+3. Read tiles and metadata from `dg_map_t`.
 4. Destroy map with `dg_map_destroy`.
 
 ## Extensibility direction
 
-- New algorithms should be added as dedicated files under `src/generator/` and dispatched from `src/generator/api.c`.
-- Metadata can grow via `dg_map_metadata_t` while keeping backward-compatible defaults.
-- Special room behavior is currently callback-based and can evolve into richer hook stages.
+- Add new algorithms as dedicated files under `src/generator/`.
+- Extend `dg_generate_request_t` with per-algorithm config blocks as new algorithms are introduced.
+- Keep metadata schema additive so old maps remain readable.
 
 ## Quality gates
 
-- CTest-driven test executable validates API basics and generation invariants.
-- Demo executable provides quick visual verification during algorithm iteration.
+- CTest-driven test executable validates API basics and BSP invariants.
+- Demo executable provides quick visual verification during iteration.

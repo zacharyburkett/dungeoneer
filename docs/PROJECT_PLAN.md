@@ -2,75 +2,61 @@
 
 ## Vision
 
-Build a standalone C library for 2D procedural dungeon generation that can later be integrated into a game engine without requiring architectural rewrites.
+Build a standalone C library for 2D procedural dungeon generation that can later be integrated into a game engine without architectural rewrites.
 
-## Primary goals
+## Current reset direction
 
-1. Provide multiple generation methods with explicit configuration controls.
-2. Support custom room behavior and generation constraints.
-3. Expose generation metadata useful for gameplay systems.
-4. Maintain deterministic output with seed-driven reproducibility.
-5. Keep quality high via automated tests and visual demos.
+The generation stack has been intentionally reset to a clean baseline.
+
+Current generator scope is intentionally narrow:
+- One algorithm: vanilla BSP tree dungeon generation
+- One config family: min/max room count and min/max room size
+- Deterministic output by seed
+- Solid tests and editor/demo tooling
+
+This baseline is meant to provide a stable foundation before adding advanced controls.
 
 ## Scope phases
 
-### Phase 0: Foundation (current)
+### Phase 0: Baseline BSP (current)
 
 - Repository structure and CMake build
-- Public API skeleton (`include/dungeoneer`)
-- Core map and metadata types
-- Deterministic RNG
-- Two starter algorithms
-- Test harness and ASCII demo
-- Constraint system baseline:
-  - Floor coverage bounds
-  - Room/special-room bounds
-  - Role-count and graph-distance constraints
-  - Per-role weighted room-role placement controls
-  - Forbidden regions
-  - Retry attempts
-- Metadata baseline:
-  - Room + corridor records
-  - Explicit room adjacency graph
-  - Room role tagging and role counts
-  - Room-graph metrics (leaf rooms, corridor lengths, entrance-exit distance)
-  - Coverage and connectivity diagnostics
-  - Effective seed and attempt count
+- Public generation API reduced to BSP essentials
+- BSP room/corridor generation implementation
+- Runtime metadata population
+- Binary map serialization (save/load)
+- Nuklear editor for generate/save/load with BSP controls
+- Test harness and ASCII demo updated to BSP baseline
 
-### Phase 1: Generator maturity
+### Phase 1: BSP quality and diagnostics
 
-- Corridor routing mode controls for rooms+corridors (random/horizontal-first/vertical-first)
-- Fail-fast algorithm-specific config validation in public generate entrypoint
-- Binary map serialization (save/load) for tooling and GUI workflows
-- Optional Nuklear-based core app + simple presenter backend for editor workflows
-- Improve room layout quality and corridor routing options
-- Add algorithm-specific validation and diagnostics
-- Expand metadata (connectivity graph, entry/exit points, tags)
-- Add configurable constraints (no-overlap zones, reserved regions, locks)
+- Improve BSP split heuristics for better room distributions
+- Add corridor carving variations while preserving simple controls
+- Add regression snapshots for deterministic output drift
+- Expand metadata diagnostics around layout quality
 
-### Phase 2: Extensibility
+### Phase 2: New algorithm expansion
 
-- Introduce plugin-like hooks for custom generation passes
-- Add weighted room archetypes and special-room placement rules
-- Add post-process filters (doors, dead-end trimming, secret branches)
-- Build stable serialization for map + metadata
+- Introduce second generator family with its own config block
+- Keep algorithm configs isolated and composable
+- Add cross-algorithm invariants and comparison tests
 
 ### Phase 3: Engine integration readiness
 
-- Add strict API versioning and compatibility guarantees
-- Produce integration examples for common engine loop patterns
-- Benchmark generation performance and memory usage
-- Add CI matrix and release packaging
+- API versioning and compatibility guidelines
+- Integration examples for game/editor loops
+- Performance benchmarking and profiling
+- CI/release packaging hardening
 
 ## Testing strategy
 
-- Determinism tests by seed and config
+- Determinism tests by seed and BSP config
 - Structural invariants (bounds, connectivity, outer walls, room validity)
-- Regression snapshots for algorithm output drift
-- Demo smoke tests in CI
+- Serialization roundtrip coverage
+- Demo/editor smoke checks in CI
 
-## Definition of done for initial milestone
+## Definition of done for baseline milestone
 
-1. Build and test passes locally with no warnings.
-2. Demo executable generates visible dungeons for both algorithms.
-3. Baseline docs capture architecture and next implementation phases.
+1. Build and tests pass locally with strict warnings enabled.
+2. BSP demo/editor both generate valid maps.
+3. Docs reflect the reset architecture and next phases.

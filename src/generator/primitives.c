@@ -81,57 +81,6 @@ bool dg_rects_overlap_with_padding(const dg_rect_t *a, const dg_rect_t *b, int p
     return dg_rects_overlap(&expanded, b);
 }
 
-bool dg_clamp_region_to_map(
-    const dg_map_t *map,
-    const dg_rect_t *region,
-    int *out_x0,
-    int *out_y0,
-    int *out_x1,
-    int *out_y1
-)
-{
-    long long x0_ll;
-    long long y0_ll;
-    long long x1_ll;
-    long long y1_ll;
-    int x0;
-    int y0;
-    int x1;
-    int y1;
-
-    if (map == NULL || map->tiles == NULL || !dg_rect_is_valid(region)) {
-        return false;
-    }
-
-    x0_ll = (long long)region->x;
-    y0_ll = (long long)region->y;
-    x1_ll = (long long)region->x + (long long)region->width;
-    y1_ll = (long long)region->y + (long long)region->height;
-
-    if (x1_ll <= 0 || y1_ll <= 0) {
-        return false;
-    }
-
-    if (x0_ll >= (long long)map->width || y0_ll >= (long long)map->height) {
-        return false;
-    }
-
-    x0 = dg_max_int((int)x0_ll, 0);
-    y0 = dg_max_int((int)y0_ll, 0);
-    x1 = dg_min_int((int)x1_ll, map->width);
-    y1 = dg_min_int((int)y1_ll, map->height);
-
-    if (x0 >= x1 || y0 >= y1) {
-        return false;
-    }
-
-    *out_x0 = x0;
-    *out_y0 = y0;
-    *out_x1 = x1;
-    *out_y1 = y1;
-    return true;
-}
-
 void dg_paint_outer_walls(dg_map_t *map)
 {
     int x;

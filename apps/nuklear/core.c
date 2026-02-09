@@ -4,7 +4,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "nuklear_features.h"
 #include "nuklear.h"
@@ -42,26 +41,6 @@ static bool dg_nuklear_parse_u64(const char *text, uint64_t *out_value)
     return true;
 }
 
-static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
-{
-    if (algorithm_index == 1) {
-        return DG_ALGORITHM_ORGANIC_CAVE;
-    }
-    return DG_ALGORITHM_ROOMS_AND_CORRIDORS;
-}
-
-static dg_corridor_routing_t dg_nuklear_routing_from_index(int routing_index)
-{
-    switch (routing_index) {
-    case 1:
-        return DG_CORRIDOR_ROUTING_HORIZONTAL_FIRST;
-    case 2:
-        return DG_CORRIDOR_ROUTING_VERTICAL_FIRST;
-    default:
-        return DG_CORRIDOR_ROUTING_RANDOM;
-    }
-}
-
 static float dg_nuklear_min_float(float a, float b)
 {
     return (a < b) ? a : b;
@@ -95,75 +74,22 @@ static void dg_nuklear_destroy_map(dg_nuklear_app_t *app)
     }
 }
 
-static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algorithm_t algorithm)
+static void dg_nuklear_reset_defaults(dg_nuklear_app_t *app)
 {
     dg_generate_request_t defaults;
-    const int width = (app != NULL && app->width > 0) ? app->width : 80;
-    const int height = (app != NULL && app->height > 0) ? app->height : 40;
 
     if (app == NULL) {
         return;
     }
 
-    dg_default_generate_request(&defaults, algorithm, width, height, 1u);
-
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
-        app->rooms_config = defaults.params.rooms;
-        app->routing_index = (int)app->rooms_config.corridor_routing;
-    } else {
-        app->organic_config = defaults.params.organic;
-    }
-}
-
-static void dg_nuklear_reset_constraint_defaults(dg_nuklear_app_t *app)
-{
-    dg_generate_request_t defaults;
-    const int width = (app != NULL && app->width > 0) ? app->width : 80;
-    const int height = (app != NULL && app->height > 0) ? app->height : 40;
-
-    if (app == NULL) {
-        return;
-    }
-
-    dg_default_generate_request(
-        &defaults,
-        dg_nuklear_algorithm_from_index(app->algorithm_index),
-        width,
-        height,
-        1u
-    );
-
-    app->constraints = defaults.constraints;
-    app->constraints.forbidden_regions = NULL;
-    app->constraints.forbidden_region_count = 0;
-}
-
-static void dg_nuklear_remove_forbidden_region(dg_nuklear_app_t *app, int region_index)
-{
-    int i;
-
-    if (app == NULL || region_index < 0 || region_index >= app->forbidden_region_count) {
-        return;
-    }
-
-    for (i = region_index + 1; i < app->forbidden_region_count; ++i) {
-        app->forbidden_regions[i - 1] = app->forbidden_regions[i];
-    }
-
-    app->forbidden_region_count -= 1;
-    if (app->forbidden_region_count <= 0) {
-        app->forbidden_region_count = 0;
-        app->selected_forbidden_region = -1;
-    } else if (app->selected_forbidden_region >= app->forbidden_region_count) {
-        app->selected_forbidden_region = app->forbidden_region_count - 1;
-    }
+    dg_default_generate_request(&defaults, app->width, app->height, 1u);
+    app->bsp_config = defaults.bsp;
 }
 
 static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
     dg_map_t generated;
-    dg_algorithm_t algorithm;
     uint64_t seed;
     dg_status_t status;
 
@@ -181,24 +107,8 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
         return;
     }
 
-    algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
-    dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
-
-    request.constraints = app->constraints;
-    if (app->forbidden_region_count > 0) {
-        request.constraints.forbidden_regions = app->forbidden_regions;
-        request.constraints.forbidden_region_count = (size_t)app->forbidden_region_count;
-    } else {
-        request.constraints.forbidden_regions = NULL;
-        request.constraints.forbidden_region_count = 0;
-    }
-
-    if (algorithm == DG_ALGORITHM_ROOMS_AND_CORRIDORS) {
-        request.params.rooms = app->rooms_config;
-        request.params.rooms.corridor_routing = dg_nuklear_routing_from_index(app->routing_index);
-    } else {
-        request.params.organic = app->organic_config;
-    }
+    dg_default_generate_request(&request, app->width, app->height, seed);
+    request.bsp = app->bsp_config;
 
     generated = (dg_map_t){0};
     status = dg_generate(&request, &generated);
@@ -211,13 +121,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     app->map = generated;
     app->has_map = true;
 
-    dg_nuklear_set_status(
-        app,
-        "Generated %dx%d map in %llu attempt(s).",
-        app->map.width,
-        app->map.height,
-        (unsigned long long)app->map.metadata.generation_attempts
-    );
+    dg_nuklear_set_status(app, "Generated %dx%d BSP map.", app->map.width, app->map.height);
 }
 
 static void dg_nuklear_save_map(dg_nuklear_app_t *app)
@@ -347,6 +251,7 @@ static void dg_nuklear_draw_map(
 static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_app_t *app)
 {
     char line[128];
+    double average_room_degree;
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -362,6 +267,12 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     }
 
     nk_layout_row_dynamic(ctx, 18.0f, 1);
+
+    average_room_degree = 0.0;
+    if (app->map.metadata.room_count > 0) {
+        average_room_degree = (double)app->map.metadata.room_neighbor_count /
+                              (double)app->map.metadata.room_count;
+    }
 
     (void)snprintf(line, sizeof(line), "size: %dx%d", app->map.width, app->map.height);
     nk_label(ctx, line, NK_TEXT_LEFT);
@@ -381,22 +292,9 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     (void)snprintf(
         line,
         sizeof(line),
-        "rooms: total=%llu special=%llu leaf=%llu",
+        "rooms: total=%llu leaf=%llu",
         (unsigned long long)app->map.metadata.room_count,
-        (unsigned long long)app->map.metadata.special_room_count,
         (unsigned long long)app->map.metadata.leaf_room_count
-    );
-    nk_label(ctx, line, NK_TEXT_LEFT);
-
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "roles: E=%llu X=%llu B=%llu T=%llu S=%llu",
-        (unsigned long long)app->map.metadata.entrance_room_count,
-        (unsigned long long)app->map.metadata.exit_room_count,
-        (unsigned long long)app->map.metadata.boss_room_count,
-        (unsigned long long)app->map.metadata.treasure_room_count,
-        (unsigned long long)app->map.metadata.shop_room_count
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
 
@@ -409,6 +307,9 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
 
+    (void)snprintf(line, sizeof(line), "room graph: avg degree=%.2f", average_room_degree);
+    nk_label(ctx, line, NK_TEXT_LEFT);
+
     (void)snprintf(
         line,
         sizeof(line),
@@ -417,40 +318,10 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
         (unsigned long long)app->map.metadata.connected_component_count
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
-
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "entrance-exit distance: %d",
-        app->map.metadata.entrance_exit_distance
-    );
-    nk_label(ctx, line, NK_TEXT_LEFT);
-
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "generation attempts: %llu",
-        (unsigned long long)app->map.metadata.generation_attempts
-    );
-    nk_label(ctx, line, NK_TEXT_LEFT);
 }
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    static const char *algorithms[] = {"Rooms + Corridors", "Organic Cave"};
-
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Algorithm", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    app->algorithm_index = nk_combo(
-        ctx,
-        algorithms,
-        (int)(sizeof(algorithms) / sizeof(algorithms[0])),
-        app->algorithm_index,
-        25,
-        nk_vec2(300, 120)
-    );
-
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(ctx, "Width", 8, &app->width, 512, 1, 0.25f);
 
@@ -459,6 +330,7 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
 
     nk_layout_row_dynamic(ctx, 20.0f, 1);
     nk_label(ctx, "Seed", NK_TEXT_LEFT);
+
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     (void)nk_edit_string_zero_terminated(
         ctx,
@@ -469,370 +341,32 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
     );
 }
 
-static void dg_nuklear_draw_algorithm_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
+static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    static const char *routing_modes[] = {"Random", "Horizontal First", "Vertical First"};
-
-    if (app->algorithm_index == 0) {
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Min Rooms", 1, &app->rooms_config.min_rooms, 256, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Max Rooms", 1, &app->rooms_config.max_rooms, 256, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Room Min Size", 2, &app->rooms_config.room_min_size, 64, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Room Max Size", 2, &app->rooms_config.room_max_size, 64, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(
-            ctx,
-            "Placement Attempts",
-            1,
-            &app->rooms_config.max_placement_attempts,
-            10000,
-            1,
-            0.25f
-        );
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Corridor Width", 1, &app->rooms_config.corridor_width, 8, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, "Corridor Routing", NK_TEXT_LEFT);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        app->routing_index = nk_combo(
-            ctx,
-            routing_modes,
-            (int)(sizeof(routing_modes) / sizeof(routing_modes[0])),
-            app->routing_index,
-            25,
-            nk_vec2(300, 120)
-        );
-
-        if (app->rooms_config.max_rooms < app->rooms_config.min_rooms) {
-            app->rooms_config.max_rooms = app->rooms_config.min_rooms;
-        }
-        if (app->rooms_config.room_max_size < app->rooms_config.room_min_size) {
-            app->rooms_config.room_max_size = app->rooms_config.room_min_size;
-        }
-
-        nk_layout_row_dynamic(ctx, 30.0f, 1);
-        if (nk_button_label(ctx, "Reset Rooms Defaults")) {
-            dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_CORRIDORS);
-            dg_nuklear_set_status(app, "Rooms + corridors defaults restored.");
-        }
-    } else {
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Walk Steps", 1, &app->organic_config.walk_steps, 200000, 10, 0.5f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Brush Radius", 1, &app->organic_config.brush_radius, 8, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Smoothing Passes", 0, &app->organic_config.smoothing_passes, 16, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_float(
-            ctx,
-            "Target Coverage",
-            0.05f,
-            &app->organic_config.target_floor_coverage,
-            0.95f,
-            0.01f,
-            0.005f
-        );
-
-        nk_layout_row_dynamic(ctx, 30.0f, 1);
-        if (nk_button_label(ctx, "Reset Organic Defaults")) {
-            dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ORGANIC_CAVE);
-            dg_nuklear_set_status(app, "Organic defaults restored.");
-        }
-    }
-}
-
-static void dg_nuklear_draw_constraints(struct nk_context *ctx, dg_nuklear_app_t *app)
-{
-    app->constraints.require_connected_floor = nk_check_label(
-        ctx,
-        "Require Connected Floor",
-        app->constraints.require_connected_floor
-    );
-    app->constraints.enforce_outer_walls = nk_check_label(
-        ctx,
-        "Enforce Outer Walls",
-        app->constraints.enforce_outer_walls
-    );
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(ctx, "Min Rooms", 1, &app->bsp_config.min_rooms, 256, 1, 0.25f);
 
     nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_float(
-        ctx,
-        "Min Floor Coverage",
-        0.0f,
-        &app->constraints.min_floor_coverage,
-        1.0f,
-        0.01f,
-        0.005f
-    );
+    nk_property_int(ctx, "Max Rooms", 1, &app->bsp_config.max_rooms, 256, 1, 0.25f);
 
     nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_float(
-        ctx,
-        "Max Floor Coverage",
-        0.0f,
-        &app->constraints.max_floor_coverage,
-        1.0f,
-        0.01f,
-        0.005f
-    );
+    nk_property_int(ctx, "Room Min Size", 3, &app->bsp_config.room_min_size, 64, 1, 0.25f);
 
-    if (app->constraints.max_floor_coverage < app->constraints.min_floor_coverage) {
-        app->constraints.max_floor_coverage = app->constraints.min_floor_coverage;
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(ctx, "Room Max Size", 3, &app->bsp_config.room_max_size, 64, 1, 0.25f);
+
+    if (app->bsp_config.max_rooms < app->bsp_config.min_rooms) {
+        app->bsp_config.max_rooms = app->bsp_config.min_rooms;
     }
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Min Rooms", 0, &app->constraints.min_room_count, 256, 1, 0.25f);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Max Rooms", 0, &app->constraints.max_room_count, 256, 1, 0.25f);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Min Special Rooms", 0, &app->constraints.min_special_rooms, 256, 1, 0.25f);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Max Generation Attempts",
-        1,
-        &app->constraints.max_generation_attempts,
-        128,
-        1,
-        0.25f
-    );
+    if (app->bsp_config.room_max_size < app->bsp_config.room_min_size) {
+        app->bsp_config.room_max_size = app->bsp_config.room_min_size;
+    }
 
     nk_layout_row_dynamic(ctx, 30.0f, 1);
-    if (nk_button_label(ctx, "Reset Constraint Defaults")) {
-        dg_nuklear_reset_constraint_defaults(app);
-        dg_nuklear_set_status(app, "Constraint defaults restored.");
-    }
-}
-
-static void dg_nuklear_draw_role_requirements(struct nk_context *ctx, dg_nuklear_app_t *app)
-{
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Required Entrance Rooms",
-        0,
-        &app->constraints.required_entrance_rooms,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Required Exit Rooms",
-        0,
-        &app->constraints.required_exit_rooms,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Required Boss Rooms",
-        0,
-        &app->constraints.required_boss_rooms,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Required Treasure Rooms",
-        0,
-        &app->constraints.required_treasure_rooms,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Required Shop Rooms",
-        0,
-        &app->constraints.required_shop_rooms,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Min Entrance-Exit Distance",
-        0,
-        &app->constraints.min_entrance_exit_distance,
-        64,
-        1,
-        0.25f
-    );
-
-    app->constraints.require_boss_on_leaf = nk_check_label(
-        ctx,
-        "Require Boss On Leaf",
-        app->constraints.require_boss_on_leaf
-    );
-}
-
-static void dg_nuklear_draw_weight_block(
-    struct nk_context *ctx,
-    const char *label,
-    dg_role_placement_weights_t *weights
-)
-{
-    nk_layout_row_dynamic(ctx, 18.0f, 1);
-    nk_label(ctx, label, NK_TEXT_LEFT);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Distance Weight",
-        -64,
-        &weights->distance_weight,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Degree Weight",
-        -64,
-        &weights->degree_weight,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Leaf Bonus",
-        -64,
-        &weights->leaf_bonus,
-        64,
-        1,
-        0.25f
-    );
-}
-
-static void dg_nuklear_draw_role_weights(struct nk_context *ctx, dg_nuklear_app_t *app)
-{
-    dg_nuklear_draw_weight_block(ctx, "Entrance Weights", &app->constraints.entrance_weights);
-    dg_nuklear_draw_weight_block(ctx, "Exit Weights", &app->constraints.exit_weights);
-    dg_nuklear_draw_weight_block(ctx, "Boss Weights", &app->constraints.boss_weights);
-    dg_nuklear_draw_weight_block(ctx, "Treasure Weights", &app->constraints.treasure_weights);
-    dg_nuklear_draw_weight_block(ctx, "Shop Weights", &app->constraints.shop_weights);
-}
-
-static void dg_nuklear_draw_forbidden_regions(struct nk_context *ctx, dg_nuklear_app_t *app)
-{
-    char line[128];
-    int i;
-
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(
-        ctx,
-        "Forbidden regions are forced to walls after generation.",
-        NK_TEXT_LEFT
-    );
-
-    nk_layout_row_dynamic(ctx, 30.0f, 3);
-    if (nk_button_label(ctx, "Add")) {
-        if (app->forbidden_region_count >= DG_NUKLEAR_MAX_FORBIDDEN_REGIONS) {
-            dg_nuklear_set_status(
-                app,
-                "Cannot add more forbidden regions (max %d).",
-                DG_NUKLEAR_MAX_FORBIDDEN_REGIONS
-            );
-        } else {
-            dg_rect_t *region = &app->forbidden_regions[app->forbidden_region_count];
-            *region = (dg_rect_t){0, 0, 8, 8};
-            app->selected_forbidden_region = app->forbidden_region_count;
-            app->forbidden_region_count += 1;
-        }
-    }
-
-    if (nk_button_label(ctx, "Remove")) {
-        dg_nuklear_remove_forbidden_region(app, app->selected_forbidden_region);
-    }
-
-    if (nk_button_label(ctx, "Clear All")) {
-        app->forbidden_region_count = 0;
-        app->selected_forbidden_region = -1;
-    }
-
-    (void)snprintf(
-        line,
-        sizeof(line),
-        "Count: %d / %d",
-        app->forbidden_region_count,
-        DG_NUKLEAR_MAX_FORBIDDEN_REGIONS
-    );
-    nk_layout_row_dynamic(ctx, 18.0f, 1);
-    nk_label(ctx, line, NK_TEXT_LEFT);
-
-    for (i = 0; i < app->forbidden_region_count; ++i) {
-        const dg_rect_t *region = &app->forbidden_regions[i];
-
-        (void)snprintf(
-            line,
-            sizeof(line),
-            "%sRegion %d: x=%d y=%d w=%d h=%d",
-            (app->selected_forbidden_region == i) ? "* " : "",
-            i,
-            region->x,
-            region->y,
-            region->width,
-            region->height
-        );
-
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        if (nk_button_label(ctx, line)) {
-            app->selected_forbidden_region = i;
-        }
-    }
-
-    if (app->selected_forbidden_region >= 0 &&
-        app->selected_forbidden_region < app->forbidden_region_count) {
-        dg_rect_t *selected = &app->forbidden_regions[app->selected_forbidden_region];
-
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, "Selected Region", NK_TEXT_LEFT);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "X", -2048, &selected->x, 2048, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Y", -2048, &selected->y, 2048, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Width", 1, &selected->width, 2048, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Height", 1, &selected->height, 2048, 1, 0.25f);
+    if (nk_button_label(ctx, "Reset BSP Defaults")) {
+        dg_nuklear_reset_defaults(app);
+        dg_nuklear_set_status(app, "BSP defaults restored.");
     }
 }
 
@@ -879,28 +413,8 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         nk_tree_pop(ctx);
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Algorithm Settings", NK_MAXIMIZED)) {
-        dg_nuklear_draw_algorithm_settings(ctx, app);
-        nk_tree_pop(ctx);
-    }
-
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Constraints", NK_MINIMIZED)) {
-        dg_nuklear_draw_constraints(ctx, app);
-        nk_tree_pop(ctx);
-    }
-
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Role Requirements", NK_MINIMIZED)) {
-        dg_nuklear_draw_role_requirements(ctx, app);
-        nk_tree_pop(ctx);
-    }
-
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Role Placement Weights", NK_MINIMIZED)) {
-        dg_nuklear_draw_role_weights(ctx, app);
-        nk_tree_pop(ctx);
-    }
-
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Forbidden Regions", NK_MINIMIZED)) {
-        dg_nuklear_draw_forbidden_regions(ctx, app);
+    if (nk_tree_push(ctx, NK_TREE_TAB, "BSP Settings", NK_MAXIMIZED)) {
+        dg_nuklear_draw_bsp_settings(ctx, app);
         nk_tree_pop(ctx);
     }
 
@@ -920,16 +434,10 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     }
 
     *app = (dg_nuklear_app_t){0};
-    app->algorithm_index = 0;
-    app->routing_index = 0;
     app->width = 80;
     app->height = 40;
-    app->forbidden_region_count = 0;
-    app->selected_forbidden_region = -1;
 
-    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_CORRIDORS);
-    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ORGANIC_CAVE);
-    dg_nuklear_reset_constraint_defaults(app);
+    dg_nuklear_reset_defaults(app);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");
