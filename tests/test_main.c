@@ -175,6 +175,79 @@ static bool has_outer_walls(const dg_map_t *map)
     return true;
 }
 
+static bool rects_overlap_with_padding(const dg_rect_t *a, const dg_rect_t *b, int padding)
+{
+    long long a_left;
+    long long a_top;
+    long long a_right;
+    long long a_bottom;
+    long long b_left;
+    long long b_top;
+    long long b_right;
+    long long b_bottom;
+
+    a_left = (long long)a->x - (long long)padding;
+    a_top = (long long)a->y - (long long)padding;
+    a_right = (long long)a->x + (long long)a->width + (long long)padding;
+    a_bottom = (long long)a->y + (long long)a->height + (long long)padding;
+
+    b_left = (long long)b->x;
+    b_top = (long long)b->y;
+    b_right = (long long)b->x + (long long)b->width;
+    b_bottom = (long long)b->y + (long long)b->height;
+
+    if (a_right <= b_left || b_right <= a_left) {
+        return false;
+    }
+    if (a_bottom <= b_top || b_bottom <= a_top) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool rooms_have_min_wall_separation(const dg_map_t *map)
+{
+    size_t i;
+    size_t j;
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        for (j = i + 1; j < map->metadata.room_count; ++j) {
+            if (rects_overlap_with_padding(&map->metadata.rooms[i].bounds, &map->metadata.rooms[j].bounds, 1)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool corridors_have_unique_room_pairs(const dg_map_t *map)
+{
+    size_t i;
+    size_t j;
+
+    for (i = 0; i < map->metadata.corridor_count; ++i) {
+        int ai = map->metadata.corridors[i].from_room_id;
+        int bi = map->metadata.corridors[i].to_room_id;
+        int min_i = (ai < bi) ? ai : bi;
+        int max_i = (ai < bi) ? bi : ai;
+
+        for (j = i + 1; j < map->metadata.corridor_count; ++j) {
+            int aj = map->metadata.corridors[j].from_room_id;
+            int bj = map->metadata.corridors[j].to_room_id;
+            int min_j = (aj < bj) ? aj : bj;
+            int max_j = (aj < bj) ? bj : aj;
+
+            if (min_i == min_j && max_i == max_j) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 static bool is_connected(const dg_map_t *map)
 {
     size_t cell_count;
@@ -440,6 +513,69 @@ static int test_drunkards_wiggle_affects_layout(void)
     return 0;
 }
 
+static int test_rooms_and_mazes_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 96, 54, 2026u);
+    request.params.rooms_and_mazes.min_rooms = 10;
+    request.params.rooms_and_mazes.max_rooms = 14;
+    request.params.rooms_and_mazes.room_min_size = 4;
+    request.params.rooms_and_mazes.room_max_size = 10;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ROOMS_AND_MAZES);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE);
+    ASSERT_TRUE(map.metadata.room_count >= (size_t)request.params.rooms_and_mazes.min_rooms);
+    ASSERT_TRUE(map.metadata.room_count <= (size_t)request.params.rooms_and_mazes.max_rooms);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(rooms_have_min_wall_separation(&map));
+    ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
+
+    for (i = 0; i < map.metadata.room_count; ++i) {
+        const dg_room_metadata_t *room = &map.metadata.rooms[i];
+        ASSERT_TRUE(room->bounds.width >= request.params.rooms_and_mazes.room_min_size);
+        ASSERT_TRUE(room->bounds.width <= request.params.rooms_and_mazes.room_max_size);
+        ASSERT_TRUE(room->bounds.height >= request.params.rooms_and_mazes.room_min_size);
+        ASSERT_TRUE(room->bounds.height <= request.params.rooms_and_mazes.room_max_size);
+        ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
+        ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
+    }
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_rooms_and_mazes_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 9151u);
+    request.params.rooms_and_mazes.min_rooms = 8;
+    request.params.rooms_and_mazes.max_rooms = 12;
+    request.params.rooms_and_mazes.room_min_size = 4;
+    request.params.rooms_and_mazes.room_max_size = 9;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
 static int test_map_serialization_roundtrip(void)
 {
     const char *path;
@@ -518,6 +654,24 @@ static int test_invalid_generate_request(void)
     request.params.drunkards_walk.wiggle_percent = 101;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.min_rooms = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.min_rooms = 10;
+    request.params.rooms_and_mazes.max_rooms = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.room_min_size = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.room_min_size = 9;
+    request.params.rooms_and_mazes.room_max_size = 8;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     return 0;
 }
 
@@ -554,6 +708,8 @@ int main(void)
         {"drunkards_walk_generation", test_drunkards_walk_generation},
         {"drunkards_walk_determinism", test_drunkards_walk_determinism},
         {"drunkards_wiggle_affects_layout", test_drunkards_wiggle_affects_layout},
+        {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
+        {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"invalid_generate_request", test_invalid_generate_request},

@@ -40,6 +40,31 @@ static dg_status_t dg_validate_drunkards_walk_config(const dg_drunkards_walk_con
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->min_rooms < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_rooms < config->min_rooms) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_min_size < 3) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_max_size < config->room_min_size) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
 void dg_default_bsp_config(dg_bsp_config_t *config)
 {
     if (config == NULL) {
@@ -61,6 +86,18 @@ void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config)
     config->wiggle_percent = 65;
 }
 
+void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->min_rooms = 10;
+    config->max_rooms = 24;
+    config->room_min_size = 4;
+    config->room_max_size = 10;
+}
+
 void dg_default_generate_request(
     dg_generate_request_t *request,
     dg_algorithm_t algorithm,
@@ -80,6 +117,9 @@ void dg_default_generate_request(
     request->algorithm = algorithm;
 
     switch (algorithm) {
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        dg_default_rooms_and_mazes_config(&request->params.rooms_and_mazes);
+        break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         dg_default_drunkards_walk_config(&request->params.drunkards_walk);
         break;
@@ -94,6 +134,7 @@ dg_map_generation_class_t dg_algorithm_generation_class(dg_algorithm_t algorithm
 {
     switch (algorithm) {
     case DG_ALGORITHM_BSP_TREE:
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
         return DG_MAP_GENERATION_CLASS_ROOM_LIKE;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         return DG_MAP_GENERATION_CLASS_CAVE_LIKE;
@@ -131,6 +172,9 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     case DG_ALGORITHM_BSP_TREE:
         status = dg_validate_bsp_config(&request->params.bsp);
         break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        status = dg_validate_rooms_and_mazes_config(&request->params.rooms_and_mazes);
+        break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         status = dg_validate_drunkards_walk_config(&request->params.drunkards_walk);
         break;
@@ -158,6 +202,9 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     switch (request->algorithm) {
     case DG_ALGORITHM_BSP_TREE:
         status = dg_generate_bsp_tree_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        status = dg_generate_rooms_and_mazes_impl(request, &generated, &rng);
         break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         status = dg_generate_drunkards_walk_impl(request, &generated, &rng);

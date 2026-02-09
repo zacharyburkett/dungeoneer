@@ -50,5 +50,10 @@ dg_status_t dg_generate_drunkards_walk_impl(
     dg_map_t *map,
     dg_rng_t *rng
 );
+dg_status_t dg_generate_rooms_and_mazes_impl(
+    const dg_generate_request_t *request,
+    dg_map_t *map,
+    dg_rng_t *rng
+);
 
 #endif

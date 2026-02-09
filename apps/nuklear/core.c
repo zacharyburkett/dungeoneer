@@ -43,6 +43,9 @@ static bool dg_nuklear_parse_u64(const char *text, uint64_t *out_value)
 
 static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
 {
+    if (algorithm_index == 2) {
+        return DG_ALGORITHM_ROOMS_AND_MAZES;
+    }
     if (algorithm_index == 1) {
         return DG_ALGORITHM_DRUNKARDS_WALK;
     }
@@ -52,6 +55,8 @@ static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
 static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
 {
     switch (algorithm) {
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        return "rooms_and_mazes";
     case DG_ALGORITHM_DRUNKARDS_WALK:
         return "drunkards_walk";
     case DG_ALGORITHM_BSP_TREE:
@@ -104,6 +109,8 @@ static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algori
     dg_default_generate_request(&defaults, algorithm, app->width, app->height, 1u);
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         app->drunkards_walk_config = defaults.params.drunkards_walk;
+    } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
+        app->rooms_and_mazes_config = defaults.params.rooms_and_mazes;
     } else {
         app->bsp_config = defaults.params.bsp;
     }
@@ -136,6 +143,8 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
+    } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
+        request.params.rooms_and_mazes = app->rooms_and_mazes_config;
     } else {
         request.params.bsp = app->bsp_config;
     }
@@ -366,7 +375,7 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    static const char *algorithms[] = {"BSP Tree", "Drunkard's Walk"};
+    static const char *algorithms[] = {"BSP Tree", "Drunkard's Walk", "Rooms + Mazes"};
     int previous_algorithm_index;
 
     previous_algorithm_index = app->algorithm_index;
@@ -460,6 +469,70 @@ static void dg_nuklear_draw_drunkards_settings(struct nk_context *ctx, dg_nuklea
     }
 }
 
+static void dg_nuklear_draw_rooms_and_mazes_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app
+)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Min Rooms",
+        1,
+        &app->rooms_and_mazes_config.min_rooms,
+        256,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Max Rooms",
+        1,
+        &app->rooms_and_mazes_config.max_rooms,
+        256,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Room Min Size",
+        3,
+        &app->rooms_and_mazes_config.room_min_size,
+        64,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Room Max Size",
+        3,
+        &app->rooms_and_mazes_config.room_max_size,
+        64,
+        1,
+        0.25f
+    );
+
+    if (app->rooms_and_mazes_config.max_rooms < app->rooms_and_mazes_config.min_rooms) {
+        app->rooms_and_mazes_config.max_rooms = app->rooms_and_mazes_config.min_rooms;
+    }
+
+    if (app->rooms_and_mazes_config.room_max_size < app->rooms_and_mazes_config.room_min_size) {
+        app->rooms_and_mazes_config.room_max_size = app->rooms_and_mazes_config.room_min_size;
+    }
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Rooms+Mazes Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
+        dg_nuklear_set_status(app, "Rooms + Mazes defaults restored.");
+    }
+}
+
 static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     nk_layout_row_dynamic(ctx, 20.0f, 1);
@@ -512,6 +585,11 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
             dg_nuklear_draw_drunkards_settings(ctx, app);
             nk_tree_pop(ctx);
         }
+    } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
+        if (nk_tree_push(ctx, NK_TREE_TAB, "Rooms + Mazes Settings", NK_MAXIMIZED)) {
+            dg_nuklear_draw_rooms_and_mazes_settings(ctx, app);
+            nk_tree_pop(ctx);
+        }
     } else {
         if (nk_tree_push(ctx, NK_TREE_TAB, "BSP Settings", NK_MAXIMIZED)) {
             dg_nuklear_draw_bsp_settings(ctx, app);
@@ -541,6 +619,7 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
 
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");

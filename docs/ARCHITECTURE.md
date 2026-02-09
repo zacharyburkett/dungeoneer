@@ -47,17 +47,20 @@ Deterministic PRNG wrapper:
 Generation entrypoint and algorithm configs:
 - `DG_ALGORITHM_BSP_TREE`
 - `DG_ALGORITHM_DRUNKARDS_WALK`
+- `DG_ALGORITHM_ROOMS_AND_MAZES`
 - Algorithms map into two generation classes:
-  - Room-like (BSP): produces room/corridor metadata
+  - Room-like (BSP, Rooms + Mazes): produces room/corridor metadata
   - Cave-like (Drunkard's Walk): focuses on tile topology without room graph data
 - Config blocks:
   - `dg_bsp_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
   - `dg_drunkards_walk_config_t` (`wiggle_percent`)
+  - `dg_rooms_and_mazes_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
 
 Internal generator split:
 - `src/generator/api.c`: public API validation + orchestration
 - `src/generator/bsp.c`: BSP partitioning, room carving, and corridor linking
 - `src/generator/drunkards_walk.c`: single-walker cave carving with wiggle control
+- `src/generator/rooms_and_mazes.c`: random room placement + maze carving + connector + dead-end pruning
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
 - `src/generator/metadata.c`: class-aware metadata population and map-state initialization

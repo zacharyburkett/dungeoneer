@@ -10,7 +10,8 @@ extern "C" {
 
 typedef enum dg_algorithm {
     DG_ALGORITHM_BSP_TREE = 0,
-    DG_ALGORITHM_DRUNKARDS_WALK = 1
+    DG_ALGORITHM_DRUNKARDS_WALK = 1,
+    DG_ALGORITHM_ROOMS_AND_MAZES = 2
 } dg_algorithm_t;
 
 typedef struct dg_bsp_config {
@@ -28,6 +29,13 @@ typedef struct dg_drunkards_walk_config {
     int wiggle_percent;
 } dg_drunkards_walk_config_t;
 
+typedef struct dg_rooms_and_mazes_config {
+    int min_rooms;
+    int max_rooms;
+    int room_min_size;
+    int room_max_size;
+} dg_rooms_and_mazes_config_t;
+
 typedef struct dg_generate_request {
     int width;
     int height;
@@ -36,11 +44,13 @@ typedef struct dg_generate_request {
     union {
         dg_bsp_config_t bsp;
         dg_drunkards_walk_config_t drunkards_walk;
+        dg_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
 } dg_generate_request_t;
 
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
+void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
 void dg_default_generate_request(
     dg_generate_request_t *request,
     dg_algorithm_t algorithm,

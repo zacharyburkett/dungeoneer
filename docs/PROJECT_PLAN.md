@@ -12,9 +12,11 @@ Current generator scope is intentionally narrow:
 - Baseline algorithms:
   - Vanilla BSP tree dungeon generation
   - Drunkard's Walk generation
+  - Rooms + Mazes generation
 - Config families:
   - BSP: min/max room count and min/max room size
   - Drunkard's Walk: wiggle amount
+  - Rooms + Mazes: min/max room count and min/max room size
 - Deterministic output by seed
 - Solid tests and editor/demo tooling
 
@@ -25,9 +27,14 @@ This baseline is meant to provide a stable foundation before adding advanced con
 ### Phase 0: Baseline BSP (current)
 
 - Repository structure and CMake build
-- Public generation API reduced to BSP essentials
+- Public generation API focused on the baseline algorithm surface
 - BSP room/corridor generation implementation
 - Drunkard's Walk implementation with wiggle control
+- Rooms + Mazes implementation:
+  - random non-overlapping room placement with one-tile spacing
+  - maze fill for remaining gaps
+  - room-to-region connector stage with no reciprocal room-pair links
+  - iterative dead-end pruning
 - Runtime metadata population
 - Class-aware metadata pipeline (room-like vs cave-like)
 - Binary map serialization (save/load)
