@@ -376,6 +376,31 @@ static dg_status_t dg_apply_organic_room_shapes(
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_apply_process_method(
+    const dg_process_method_t *method,
+    dg_map_t *map,
+    dg_rng_t *rng,
+    dg_map_generation_class_t generation_class
+)
+{
+    if (method == NULL || map == NULL || rng == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    switch (method->type) {
+    case DG_PROCESS_METHOD_SCALE:
+        return dg_scale_map(map, method->params.scale.factor);
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC &&
+            generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+            return dg_apply_organic_room_shapes(map, method->params.room_shape.organicity, rng);
+        }
+        return DG_STATUS_OK;
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+}
+
 dg_status_t dg_apply_post_processes(
     const dg_generate_request_t *request,
     dg_map_t *map,
@@ -383,28 +408,20 @@ dg_status_t dg_apply_post_processes(
 )
 {
     dg_map_generation_class_t generation_class;
-    dg_status_t status;
+    size_t i;
 
     if (request == NULL || map == NULL || rng == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
     generation_class = dg_algorithm_generation_class(request->algorithm);
-
-    if (request->process.room_shape_mode == DG_ROOM_SHAPE_ORGANIC &&
-        generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
-        status = dg_apply_organic_room_shapes(
+    for (i = 0; i < request->process.method_count; ++i) {
+        dg_status_t status = dg_apply_process_method(
+            &request->process.methods[i],
             map,
-            request->process.room_shape_organicity,
-            rng
+            rng,
+            generation_class
         );
-        if (status != DG_STATUS_OK) {
-            return status;
-        }
-    }
-
-    if (request->process.scale_factor > 1) {
-        status = dg_scale_map(map, request->process.scale_factor);
         if (status != DG_STATUS_OK) {
             return status;
         }

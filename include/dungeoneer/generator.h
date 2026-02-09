@@ -56,24 +56,45 @@ typedef enum dg_room_shape_mode {
     DG_ROOM_SHAPE_ORGANIC = 1
 } dg_room_shape_mode_t;
 
-typedef struct dg_process_config {
+typedef enum dg_process_method_type {
+    DG_PROCESS_METHOD_SCALE = 0,
+    DG_PROCESS_METHOD_ROOM_SHAPE = 1
+} dg_process_method_type_t;
+
+typedef struct dg_process_scale_config {
     /*
      * Tile upscaling factor:
      *   1 = no scaling
      *   >1 = nearest-neighbor upscaling
      */
-    int scale_factor;
+    int factor;
+} dg_process_scale_config_t;
+
+typedef struct dg_process_room_shape_config {
     /*
      * Room shape post-process:
      *   RECTANGULAR = preserve layout room rectangles
      *   ORGANIC     = carve noisier room interiors while preserving room connections
      */
-    dg_room_shape_mode_t room_shape_mode;
+    dg_room_shape_mode_t mode;
     /*
      * Organic room roughness (0..100).
      * Higher values create more irregular room boundaries.
      */
-    int room_shape_organicity;
+    int organicity;
+} dg_process_room_shape_config_t;
+
+typedef struct dg_process_method {
+    dg_process_method_type_t type;
+    union {
+        dg_process_scale_config_t scale;
+        dg_process_room_shape_config_t room_shape;
+    } params;
+} dg_process_method_t;
+
+typedef struct dg_process_config {
+    const dg_process_method_t *methods;
+    size_t method_count;
 } dg_process_config_t;
 
 typedef struct dg_room_type_constraints {
@@ -162,6 +183,7 @@ typedef struct dg_generate_request {
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
+void dg_default_process_method(dg_process_method_t *method, dg_process_method_type_t type);
 void dg_default_process_config(dg_process_config_t *config);
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints);
 void dg_default_room_type_preferences(dg_room_type_preferences_t *preferences);

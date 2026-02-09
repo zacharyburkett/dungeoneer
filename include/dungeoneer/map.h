@@ -116,10 +116,26 @@ typedef struct dg_snapshot_room_type_assignment_config {
     dg_snapshot_room_type_assignment_policy_t policy;
 } dg_snapshot_room_type_assignment_config_t;
 
+typedef struct dg_snapshot_process_scale_config {
+    int factor;
+} dg_snapshot_process_scale_config_t;
+
+typedef struct dg_snapshot_process_room_shape_config {
+    int mode;
+    int organicity;
+} dg_snapshot_process_room_shape_config_t;
+
+typedef struct dg_snapshot_process_method {
+    int type;
+    union {
+        dg_snapshot_process_scale_config_t scale;
+        dg_snapshot_process_room_shape_config_t room_shape;
+    } params;
+} dg_snapshot_process_method_t;
+
 typedef struct dg_snapshot_process_config {
-    int scale_factor;
-    int room_shape_mode;
-    int room_shape_organicity;
+    dg_snapshot_process_method_t *methods;
+    size_t method_count;
 } dg_snapshot_process_config_t;
 
 typedef struct dg_generation_request_snapshot {

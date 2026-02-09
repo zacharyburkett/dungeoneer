@@ -10,6 +10,7 @@ extern "C" {
 struct nk_context;
 
 #define DG_NUKLEAR_MAX_ROOM_TYPES 8
+#define DG_NUKLEAR_MAX_PROCESS_METHODS 16
 
 typedef struct dg_nuklear_room_type_ui {
     char label[24];
@@ -42,7 +43,9 @@ typedef struct dg_nuklear_app {
     dg_bsp_config_t bsp_config;
     dg_drunkards_walk_config_t drunkards_walk_config;
     dg_rooms_and_mazes_config_t rooms_and_mazes_config;
-    dg_process_config_t process_config;
+    dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
+    int process_method_count;
+    int process_add_method_type_index;
     float preview_zoom;
     float preview_center_x;
     float preview_center_y;

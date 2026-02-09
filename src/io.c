@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 5u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 6u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -49,6 +49,7 @@ static bool dg_map_is_empty(const dg_map_t *map)
            map->metadata.corridors == NULL &&
            map->metadata.room_adjacency == NULL &&
            map->metadata.room_neighbors == NULL &&
+           map->metadata.generation_request.process.methods == NULL &&
            map->metadata.generation_request.room_types.definitions == NULL;
 }
 
@@ -213,31 +214,114 @@ static void dg_snapshot_process_config_set_defaults(dg_snapshot_process_config_t
         return;
     }
 
-    process->scale_factor = 1;
-    process->room_shape_mode = (int)DG_ROOM_SHAPE_RECTANGULAR;
-    process->room_shape_organicity = 45;
+    process->methods = NULL;
+    process->method_count = 0;
+}
+
+static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method_t *method)
+{
+    if (method == NULL) {
+        return false;
+    }
+
+    switch ((dg_process_method_type_t)method->type) {
+    case DG_PROCESS_METHOD_SCALE:
+        return method->params.scale.factor >= 1;
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        if (method->params.room_shape.mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
+            method->params.room_shape.mode != (int)DG_ROOM_SHAPE_ORGANIC) {
+            return false;
+        }
+        if (method->params.room_shape.organicity < 0 ||
+            method->params.room_shape.organicity > 100) {
+            return false;
+        }
+        return true;
+    default:
+        return false;
+    }
 }
 
 static bool dg_snapshot_process_config_is_valid(const dg_snapshot_process_config_t *process)
 {
+    size_t i;
+
     if (process == NULL) {
         return false;
     }
 
-    if (process->scale_factor < 1) {
+    if (process->method_count > 0 && process->methods == NULL) {
         return false;
     }
 
-    if (process->room_shape_mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
-        process->room_shape_mode != (int)DG_ROOM_SHAPE_ORGANIC) {
-        return false;
-    }
-
-    if (process->room_shape_organicity < 0 || process->room_shape_organicity > 100) {
-        return false;
+    for (i = 0; i < process->method_count; ++i) {
+        if (!dg_snapshot_process_method_is_valid(&process->methods[i])) {
+            return false;
+        }
     }
 
     return true;
+}
+
+static dg_status_t dg_snapshot_process_config_set_legacy_v5(
+    dg_snapshot_process_config_t *process,
+    int scale_factor,
+    int room_shape_mode,
+    int room_shape_organicity
+)
+{
+    size_t method_count;
+    size_t index;
+    dg_snapshot_process_method_t *methods;
+
+    if (process == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_snapshot_process_config_set_defaults(process);
+    if (scale_factor < 1) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (room_shape_mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
+        room_shape_mode != (int)DG_ROOM_SHAPE_ORGANIC) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (room_shape_organicity < 0 || room_shape_organicity > 100) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    method_count = 0;
+    if (room_shape_mode == (int)DG_ROOM_SHAPE_ORGANIC) {
+        method_count += 1;
+    }
+    if (scale_factor > 1) {
+        method_count += 1;
+    }
+    if (method_count == 0) {
+        return DG_STATUS_OK;
+    }
+
+    methods = (dg_snapshot_process_method_t *)malloc(method_count * sizeof(*methods));
+    if (methods == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    index = 0;
+    if (room_shape_mode == (int)DG_ROOM_SHAPE_ORGANIC) {
+        methods[index].type = (int)DG_PROCESS_METHOD_ROOM_SHAPE;
+        methods[index].params.room_shape.mode = room_shape_mode;
+        methods[index].params.room_shape.organicity = room_shape_organicity;
+        index += 1;
+    }
+    if (scale_factor > 1) {
+        methods[index].type = (int)DG_PROCESS_METHOD_SCALE;
+        methods[index].params.scale.factor = scale_factor;
+        index += 1;
+    }
+
+    process->methods = methods;
+    process->method_count = index;
+    return DG_STATUS_OK;
 }
 
 static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
@@ -495,6 +579,9 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
     if (snapshot->present != 0 && snapshot->present != 1) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
+    if (snapshot->process.method_count > 0 && snapshot->process.methods == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
     if (snapshot->room_types.definition_count > 0 && snapshot->room_types.definitions == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -701,9 +788,24 @@ static void dg_write_generation_request_snapshot(
     dg_io_writer_write_u64(writer, snapshot->seed);
     dg_io_writer_write_i32(writer, (int32_t)snapshot->algorithm_id);
     dg_write_generation_request_params(writer, snapshot);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.scale_factor);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.room_shape_mode);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.room_shape_organicity);
+
+    dg_io_writer_write_size(writer, snapshot->process.method_count);
+    for (i = 0; i < snapshot->process.method_count; ++i) {
+        const dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
+
+        dg_io_writer_write_i32(writer, (int32_t)method->type);
+        switch ((dg_process_method_type_t)method->type) {
+        case DG_PROCESS_METHOD_SCALE:
+            dg_io_writer_write_i32(writer, (int32_t)method->params.scale.factor);
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.mode);
+            dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.organicity);
+            break;
+        default:
+            break;
+        }
+    }
 
     dg_io_writer_write_size(writer, snapshot->room_types.definition_count);
     dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.strict_mode);
@@ -800,6 +902,7 @@ static dg_status_t dg_load_header(
         version != 2u &&
         version != 3u &&
         version != 4u &&
+        version != 5u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1260,16 +1363,69 @@ static dg_status_t dg_load_generation_request_snapshot(
     }
 
     dg_snapshot_process_config_set_defaults(&snapshot->process);
-    if (version >= 5u) {
-        dg_io_reader_read_int(reader, &snapshot->process.scale_factor);
-        dg_io_reader_read_int(reader, &snapshot->process.room_shape_mode);
-        dg_io_reader_read_int(reader, &snapshot->process.room_shape_organicity);
+    if (version >= 6u) {
+        dg_io_reader_read_size(reader, &snapshot->process.method_count);
         if (reader->status != DG_STATUS_OK) {
             return reader->status;
         }
-        if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
+
+        status = dg_allocate_array(
+            (void **)&snapshot->process.methods,
+            snapshot->process.method_count,
+            sizeof(dg_snapshot_process_method_t)
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
         }
+
+        for (i = 0; i < snapshot->process.method_count; ++i) {
+            dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
+
+            dg_io_reader_read_int(reader, &method->type);
+            if (reader->status != DG_STATUS_OK) {
+                return reader->status;
+            }
+
+            switch ((dg_process_method_type_t)method->type) {
+            case DG_PROCESS_METHOD_SCALE:
+                dg_io_reader_read_int(reader, &method->params.scale.factor);
+                break;
+            case DG_PROCESS_METHOD_ROOM_SHAPE:
+                dg_io_reader_read_int(reader, &method->params.room_shape.mode);
+                dg_io_reader_read_int(reader, &method->params.room_shape.organicity);
+                break;
+            default:
+                return DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            if (reader->status != DG_STATUS_OK) {
+                return reader->status;
+            }
+        }
+    } else if (version >= 5u) {
+        int legacy_scale_factor = 1;
+        int legacy_room_shape_mode = (int)DG_ROOM_SHAPE_RECTANGULAR;
+        int legacy_room_shape_organicity = 45;
+
+        dg_io_reader_read_int(reader, &legacy_scale_factor);
+        dg_io_reader_read_int(reader, &legacy_room_shape_mode);
+        dg_io_reader_read_int(reader, &legacy_room_shape_organicity);
+        if (reader->status != DG_STATUS_OK) {
+            return reader->status;
+        }
+
+        status = dg_snapshot_process_config_set_legacy_v5(
+            &snapshot->process,
+            legacy_scale_factor,
+            legacy_room_shape_mode,
+            legacy_room_shape_organicity
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+    }
+
+    if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
     dg_io_reader_read_size(reader, &snapshot->room_types.definition_count);

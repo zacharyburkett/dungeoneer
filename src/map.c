@@ -10,6 +10,7 @@ static void dg_map_clear_generation_request_snapshot(
         return;
     }
 
+    free(snapshot->process.methods);
     free(snapshot->room_types.definitions);
     *snapshot = (dg_generation_request_snapshot_t){0};
 }

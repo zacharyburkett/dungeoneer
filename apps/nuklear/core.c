@@ -91,18 +91,122 @@ static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
-static void dg_nuklear_sanitize_process_config(dg_process_config_t *process)
+static const char *dg_nuklear_process_method_label(dg_process_method_type_t type)
 {
-    if (process == NULL) {
+    switch (type) {
+    case DG_PROCESS_METHOD_SCALE:
+        return "Scale";
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        return "Room Shape";
+    default:
+        return "Unknown";
+    }
+}
+
+static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
+{
+    if (method == NULL) {
         return;
     }
 
-    process->scale_factor = dg_nuklear_clamp_int(process->scale_factor, 1, 8);
-    if (process->room_shape_mode != DG_ROOM_SHAPE_RECTANGULAR &&
-        process->room_shape_mode != DG_ROOM_SHAPE_ORGANIC) {
-        process->room_shape_mode = DG_ROOM_SHAPE_RECTANGULAR;
+    switch (method->type) {
+    case DG_PROCESS_METHOD_SCALE:
+        method->params.scale.factor = dg_nuklear_clamp_int(method->params.scale.factor, 1, 8);
+        break;
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
+            method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC) {
+            method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
+        }
+        method->params.room_shape.organicity =
+            dg_nuklear_clamp_int(method->params.room_shape.organicity, 0, 100);
+        break;
+    default:
+        dg_default_process_method(method, DG_PROCESS_METHOD_SCALE);
+        break;
     }
-    process->room_shape_organicity = dg_nuklear_clamp_int(process->room_shape_organicity, 0, 100);
+}
+
+static void dg_nuklear_sanitize_process_settings(dg_nuklear_app_t *app)
+{
+    int i;
+
+    if (app == NULL) {
+        return;
+    }
+
+    app->process_method_count = dg_nuklear_clamp_int(
+        app->process_method_count,
+        0,
+        DG_NUKLEAR_MAX_PROCESS_METHODS
+    );
+    app->process_add_method_type_index =
+        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 1);
+
+    for (i = 0; i < app->process_method_count; ++i) {
+        dg_nuklear_sanitize_process_method(&app->process_methods[i]);
+    }
+}
+
+static void dg_nuklear_reset_process_defaults(dg_nuklear_app_t *app)
+{
+    if (app == NULL) {
+        return;
+    }
+
+    app->process_method_count = 0;
+    app->process_add_method_type_index = 0;
+}
+
+static bool dg_nuklear_append_process_method(
+    dg_nuklear_app_t *app,
+    dg_process_method_type_t type
+)
+{
+    if (app == NULL || app->process_method_count >= DG_NUKLEAR_MAX_PROCESS_METHODS) {
+        return false;
+    }
+
+    dg_default_process_method(&app->process_methods[app->process_method_count], type);
+    app->process_method_count += 1;
+    dg_nuklear_sanitize_process_settings(app);
+    return true;
+}
+
+static bool dg_nuklear_remove_process_method(dg_nuklear_app_t *app, int index)
+{
+    int i;
+
+    if (app == NULL || index < 0 || index >= app->process_method_count) {
+        return false;
+    }
+
+    for (i = index; i < app->process_method_count - 1; ++i) {
+        app->process_methods[i] = app->process_methods[i + 1];
+    }
+    app->process_method_count -= 1;
+    dg_nuklear_sanitize_process_settings(app);
+    return true;
+}
+
+static bool dg_nuklear_move_process_method(dg_nuklear_app_t *app, int index, int direction)
+{
+    int target;
+    dg_process_method_t temp;
+
+    if (app == NULL || index < 0 || index >= app->process_method_count) {
+        return false;
+    }
+
+    target = index + direction;
+    if (target < 0 || target >= app->process_method_count) {
+        return false;
+    }
+
+    temp = app->process_methods[index];
+    app->process_methods[index] = app->process_methods[target];
+    app->process_methods[target] = temp;
+    return true;
 }
 
 static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
@@ -577,10 +681,31 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     app->width = snapshot->width;
     app->height = snapshot->height;
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)snapshot->seed);
-    app->process_config.scale_factor = snapshot->process.scale_factor;
-    app->process_config.room_shape_mode = (dg_room_shape_mode_t)snapshot->process.room_shape_mode;
-    app->process_config.room_shape_organicity = snapshot->process.room_shape_organicity;
-    dg_nuklear_sanitize_process_config(&app->process_config);
+    dg_nuklear_reset_process_defaults(app);
+    copy_count = snapshot->process.method_count;
+    if (copy_count > (size_t)DG_NUKLEAR_MAX_PROCESS_METHODS) {
+        copy_count = (size_t)DG_NUKLEAR_MAX_PROCESS_METHODS;
+    }
+    for (i = 0; i < copy_count; ++i) {
+        app->process_methods[i].type = (dg_process_method_type_t)snapshot->process.methods[i].type;
+        switch (app->process_methods[i].type) {
+        case DG_PROCESS_METHOD_SCALE:
+            app->process_methods[i].params.scale.factor =
+                snapshot->process.methods[i].params.scale.factor;
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            app->process_methods[i].params.room_shape.mode =
+                (dg_room_shape_mode_t)snapshot->process.methods[i].params.room_shape.mode;
+            app->process_methods[i].params.room_shape.organicity =
+                snapshot->process.methods[i].params.room_shape.organicity;
+            break;
+        default:
+            dg_default_process_method(&app->process_methods[i], DG_PROCESS_METHOD_SCALE);
+            break;
+        }
+    }
+    app->process_method_count = (int)copy_count;
+    dg_nuklear_sanitize_process_settings(app);
 
     switch ((dg_algorithm_t)snapshot->algorithm_id) {
     case DG_ALGORITHM_DRUNKARDS_WALK:
@@ -666,7 +791,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
     dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
     dg_nuklear_sanitize_room_type_settings(app);
-    dg_nuklear_sanitize_process_config(&app->process_config);
+    dg_nuklear_sanitize_process_settings(app);
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
@@ -675,7 +800,8 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     } else {
         request.params.bsp = app->bsp_config;
     }
-    request.process = app->process_config;
+    request.process.methods = app->process_methods;
+    request.process.method_count = (size_t)app->process_method_count;
 
     if (app->room_types_enabled && dg_nuklear_algorithm_supports_room_types(algorithm)) {
         int i;
@@ -824,7 +950,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
             app,
             dg_nuklear_algorithm_from_index(app->algorithm_index)
         );
-        dg_default_process_config(&app->process_config);
+        dg_nuklear_reset_process_defaults(app);
         dg_nuklear_reset_room_type_defaults(app);
         dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
     }
@@ -1428,59 +1554,183 @@ static void dg_nuklear_draw_process_settings(
     dg_algorithm_t algorithm
 )
 {
+    static const char *process_method_types[] = {"Scale", "Room Shape"};
     static const char *room_shape_modes[] = {"Rectangular", "Organic"};
-    int room_shape_index;
+    int i;
+    int pending_remove_index;
 
     if (ctx == NULL || app == NULL) {
         return;
     }
 
-    dg_nuklear_sanitize_process_config(&app->process_config);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Scale Factor", 1, &app->process_config.scale_factor, 8, 1, 0.25f);
+    dg_nuklear_sanitize_process_settings(app);
+    pending_remove_index = -1;
 
     nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_label(ctx, "Room Shape", NK_TEXT_LEFT);
+    {
+        char line[96];
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "Pipeline Steps: %d / %d",
+            app->process_method_count,
+            DG_NUKLEAR_MAX_PROCESS_METHODS
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+    }
 
-    room_shape_index = (app->process_config.room_shape_mode == DG_ROOM_SHAPE_ORGANIC) ? 1 : 0;
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    room_shape_index = nk_combo(
+    nk_layout_row_dynamic(ctx, 28.0f, 2);
+    app->process_add_method_type_index = nk_combo(
         ctx,
-        room_shape_modes,
-        (int)(sizeof(room_shape_modes) / sizeof(room_shape_modes[0])),
-        room_shape_index,
+        process_method_types,
+        (int)(sizeof(process_method_types) / sizeof(process_method_types[0])),
+        app->process_add_method_type_index,
         22,
         nk_vec2(220.0f, 80.0f)
     );
-    app->process_config.room_shape_mode =
-        (room_shape_index == 1) ? DG_ROOM_SHAPE_ORGANIC : DG_ROOM_SHAPE_RECTANGULAR;
-
-    if (app->process_config.room_shape_mode == DG_ROOM_SHAPE_ORGANIC) {
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(
-            ctx,
-            "Organicity (%)",
-            0,
-            &app->process_config.room_shape_organicity,
-            100,
-            1,
-            0.25f
-        );
+    if (nk_button_label(ctx, "Add Step")) {
+        dg_process_method_type_t type = app->process_add_method_type_index == 1
+                                            ? DG_PROCESS_METHOD_ROOM_SHAPE
+                                            : DG_PROCESS_METHOD_SCALE;
+        if (dg_nuklear_append_process_method(app, type)) {
+            dg_nuklear_set_status(
+                app,
+                "Added process step %d (%s).",
+                app->process_method_count,
+                dg_nuklear_process_method_label(type)
+            );
+        } else {
+            dg_nuklear_set_status(app, "Maximum process step count reached.");
+        }
     }
 
-    if (dg_algorithm_generation_class(algorithm) != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+    nk_layout_row_dynamic(ctx, 30.0f, 2);
+    if (nk_button_label(ctx, "Remove Last")) {
+        if (dg_nuklear_remove_process_method(app, app->process_method_count - 1)) {
+            dg_nuklear_set_status(app, "Removed last process step.");
+        } else {
+            dg_nuklear_set_status(app, "No process steps to remove.");
+        }
+    }
+    if (nk_button_label(ctx, "Reset Process Defaults")) {
+        dg_nuklear_reset_process_defaults(app);
+        dg_nuklear_set_status(app, "Process defaults restored.");
+    }
+
+    if (app->process_method_count == 0) {
         nk_layout_row_dynamic(ctx, 36.0f, 1);
         nk_label_wrap(
             ctx,
-            "Room shaping applies to room-like layouts only. Scale still applies to all algorithms."
+            "No post-process steps configured. Add steps above to define a custom process pipeline."
         );
+        return;
     }
 
-    nk_layout_row_dynamic(ctx, 30.0f, 1);
-    if (nk_button_label(ctx, "Reset Process Defaults")) {
-        dg_default_process_config(&app->process_config);
-        dg_nuklear_set_status(app, "Process defaults restored.");
+    for (i = 0; i < app->process_method_count; ++i) {
+        dg_process_method_t *method = &app->process_methods[i];
+        char step_title[96];
+        const char *method_name;
+        int type_index;
+
+        method_name = dg_nuklear_process_method_label(method->type);
+        (void)snprintf(step_title, sizeof(step_title), "%d. %s", i + 1, method_name);
+
+        if (nk_tree_push_id(ctx, NK_TREE_TAB, step_title, NK_MINIMIZED, 500 + i)) {
+            nk_layout_row_dynamic(ctx, 28.0f, 4);
+            if (nk_button_label(ctx, "Up")) {
+                if (dg_nuklear_move_process_method(app, i, -1)) {
+                    dg_nuklear_set_status(app, "Moved step %d up.", i + 1);
+                }
+            }
+            if (nk_button_label(ctx, "Down")) {
+                if (dg_nuklear_move_process_method(app, i, 1)) {
+                    dg_nuklear_set_status(app, "Moved step %d down.", i + 1);
+                }
+            }
+            if (nk_button_label(ctx, "Remove")) {
+                pending_remove_index = i;
+            }
+            nk_label(ctx, " ", NK_TEXT_LEFT);
+
+            type_index = (method->type == DG_PROCESS_METHOD_ROOM_SHAPE) ? 1 : 0;
+            nk_layout_row_dynamic(ctx, 24.0f, 1);
+            nk_label(ctx, "Type", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ctx, 28.0f, 1);
+            type_index = nk_combo(
+                ctx,
+                process_method_types,
+                (int)(sizeof(process_method_types) / sizeof(process_method_types[0])),
+                type_index,
+                22,
+                nk_vec2(220.0f, 80.0f)
+            );
+            if ((method->type == DG_PROCESS_METHOD_SCALE && type_index == 1) ||
+                (method->type == DG_PROCESS_METHOD_ROOM_SHAPE && type_index == 0)) {
+                dg_default_process_method(
+                    method,
+                    (type_index == 1) ? DG_PROCESS_METHOD_ROOM_SHAPE : DG_PROCESS_METHOD_SCALE
+                );
+            }
+
+            if (method->type == DG_PROCESS_METHOD_SCALE) {
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                nk_property_int(
+                    ctx,
+                    "Scale Factor",
+                    1,
+                    &method->params.scale.factor,
+                    8,
+                    1,
+                    0.25f
+                );
+            } else {
+                int room_shape_index =
+                    (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) ? 1 : 0;
+                nk_layout_row_dynamic(ctx, 24.0f, 1);
+                nk_label(ctx, "Room Shape Mode", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                room_shape_index = nk_combo(
+                    ctx,
+                    room_shape_modes,
+                    (int)(sizeof(room_shape_modes) / sizeof(room_shape_modes[0])),
+                    room_shape_index,
+                    22,
+                    nk_vec2(220.0f, 80.0f)
+                );
+                method->params.room_shape.mode =
+                    (room_shape_index == 1) ? DG_ROOM_SHAPE_ORGANIC : DG_ROOM_SHAPE_RECTANGULAR;
+
+                if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) {
+                    nk_layout_row_dynamic(ctx, 28.0f, 1);
+                    nk_property_int(
+                        ctx,
+                        "Organicity (%)",
+                        0,
+                        &method->params.room_shape.organicity,
+                        100,
+                        1,
+                        0.25f
+                    );
+                }
+                if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC &&
+                    dg_algorithm_generation_class(algorithm) != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+                    nk_layout_row_dynamic(ctx, 36.0f, 1);
+                    nk_label_wrap(
+                        ctx,
+                        "Organic room shape has no effect for cave-like layouts."
+                    );
+                }
+            }
+
+            dg_nuklear_sanitize_process_method(method);
+            nk_tree_pop(ctx);
+        }
+    }
+
+    if (pending_remove_index >= 0) {
+        if (dg_nuklear_remove_process_method(app, pending_remove_index)) {
+            dg_nuklear_set_status(app, "Removed step %d.", pending_remove_index + 1);
+        }
     }
 }
 
@@ -1812,7 +2062,7 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
-    dg_default_process_config(&app->process_config);
+    dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);
     dg_nuklear_reset_preview_camera(app);
 

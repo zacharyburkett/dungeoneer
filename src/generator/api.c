@@ -236,23 +236,91 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
 
 static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
 {
+    size_t i;
+
     if (config == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (config->scale_factor < 1) {
+    if (config->method_count > 0 && config->methods == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (config->room_shape_mode != DG_ROOM_SHAPE_RECTANGULAR &&
-        config->room_shape_mode != DG_ROOM_SHAPE_ORGANIC) {
+    for (i = 0; i < config->method_count; ++i) {
+        const dg_process_method_t *method = &config->methods[i];
+
+        switch (method->type) {
+        case DG_PROCESS_METHOD_SCALE:
+            if (method->params.scale.factor < 1) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
+                method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            if (method->params.room_shape.organicity < 0 ||
+                method->params.room_shape.organicity > 100) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            break;
+        default:
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_copy_process_methods_to_snapshot(
+    dg_snapshot_process_method_t **out_methods,
+    size_t method_count,
+    const dg_process_method_t *source_methods
+)
+{
+    size_t i;
+    dg_snapshot_process_method_t *methods;
+
+    if (out_methods == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (config->room_shape_organicity < 0 || config->room_shape_organicity > 100) {
+    *out_methods = NULL;
+    if (method_count == 0) {
+        return DG_STATUS_OK;
+    }
+
+    if (source_methods == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (method_count > (SIZE_MAX / sizeof(*methods))) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    methods = (dg_snapshot_process_method_t *)malloc(method_count * sizeof(*methods));
+    if (methods == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    for (i = 0; i < method_count; ++i) {
+        methods[i].type = (int)source_methods[i].type;
+        switch (source_methods[i].type) {
+        case DG_PROCESS_METHOD_SCALE:
+            methods[i].params.scale.factor = source_methods[i].params.scale.factor;
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            methods[i].params.room_shape.mode = (int)source_methods[i].params.room_shape.mode;
+            methods[i].params.room_shape.organicity = source_methods[i].params.room_shape.organicity;
+            break;
+        default:
+            free(methods);
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    *out_methods = methods;
     return DG_STATUS_OK;
 }
 
@@ -335,9 +403,6 @@ static dg_status_t dg_snapshot_generation_request(
     snapshot.height = request->height;
     snapshot.seed = request->seed;
     snapshot.algorithm_id = (int)request->algorithm;
-    snapshot.process.scale_factor = request->process.scale_factor;
-    snapshot.process.room_shape_mode = (int)request->process.room_shape_mode;
-    snapshot.process.room_shape_organicity = request->process.room_shape_organicity;
     snapshot.room_types.policy.strict_mode = request->room_types.policy.strict_mode;
     snapshot.room_types.policy.allow_untyped_rooms = request->room_types.policy.allow_untyped_rooms;
     snapshot.room_types.policy.default_type_id = request->room_types.policy.default_type_id;
@@ -381,9 +446,21 @@ static dg_status_t dg_snapshot_generation_request(
         return status;
     }
 
+    status = dg_copy_process_methods_to_snapshot(
+        &snapshot.process.methods,
+        request->process.method_count,
+        request->process.methods
+    );
+    if (status != DG_STATUS_OK) {
+        free(snapshot.room_types.definitions);
+        return status;
+    }
+
+    snapshot.process.method_count = request->process.method_count;
     snapshot.room_types.definition_count = request->room_types.definition_count;
     snapshot.present = 1;
 
+    free(map->metadata.generation_request.process.methods);
     free(map->metadata.generation_request.room_types.definitions);
     map->metadata.generation_request = snapshot;
     return DG_STATUS_OK;
@@ -493,15 +570,37 @@ void dg_default_room_type_assignment_config(dg_room_type_assignment_config_t *co
     dg_default_room_type_assignment_policy(&config->policy);
 }
 
+void dg_default_process_method(dg_process_method_t *method, dg_process_method_type_t type)
+{
+    if (method == NULL) {
+        return;
+    }
+
+    memset(method, 0, sizeof(*method));
+    method->type = type;
+    switch (type) {
+    case DG_PROCESS_METHOD_SCALE:
+        method->params.scale.factor = 2;
+        break;
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
+        method->params.room_shape.organicity = 45;
+        break;
+    default:
+        method->type = DG_PROCESS_METHOD_SCALE;
+        method->params.scale.factor = 2;
+        break;
+    }
+}
+
 void dg_default_process_config(dg_process_config_t *config)
 {
     if (config == NULL) {
         return;
     }
 
-    config->scale_factor = 1;
-    config->room_shape_mode = DG_ROOM_SHAPE_RECTANGULAR;
-    config->room_shape_organicity = 45;
+    config->methods = NULL;
+    config->method_count = 0;
 }
 
 void dg_default_generate_request(
