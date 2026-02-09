@@ -16,7 +16,7 @@ Current generator scope is intentionally narrow:
 - Config families:
   - BSP: min/max room count and min/max room size
   - Drunkard's Walk: wiggle amount
-  - Rooms + Mazes: min/max room count, min/max room size, and dead-end prune control
+  - Rooms + Mazes: min/max room count, min/max room size, room connection controls, connectivity toggle, and dead-end prune control
 - Deterministic output by seed
 - Solid tests and editor/demo tooling
 

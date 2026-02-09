@@ -34,6 +34,9 @@ typedef struct dg_rooms_and_mazes_config {
     int max_rooms;
     int room_min_size;
     int room_max_size;
+    int min_room_connections;
+    int max_room_connections;
+    int ensure_full_connectivity;
     /*
      * Dead-end pruning passes after room connections:
      *   0  = disabled

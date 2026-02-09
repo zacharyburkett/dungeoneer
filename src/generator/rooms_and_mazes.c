@@ -16,6 +16,15 @@ typedef struct dg_room_connector {
     int target_room_id;
 } dg_room_connector_t;
 
+typedef struct dg_region_connector {
+    int wall_x;
+    int wall_y;
+    int region_a;
+    int region_b;
+    int room_a;
+    int room_b;
+} dg_region_connector_t;
+
 static const int DG_CARDINAL_DIRECTIONS[4][2] = {
     {1, 0},
     {-1, 0},
@@ -78,6 +87,41 @@ static void dg_shuffle_ints(int *values, size_t count, dg_rng_t *rng)
     }
 }
 
+static bool dg_rng_range_with_parity(
+    dg_rng_t *rng,
+    int min_value,
+    int max_value,
+    int parity,
+    int *out_value
+)
+{
+    int first;
+    int last;
+    int step_count;
+
+    if (rng == NULL || out_value == NULL || min_value > max_value) {
+        return false;
+    }
+
+    first = min_value;
+    if ((first & 1) != parity) {
+        first += 1;
+    }
+
+    last = max_value;
+    if ((last & 1) != parity) {
+        last -= 1;
+    }
+
+    if (first > last) {
+        return false;
+    }
+
+    step_count = (last - first) / 2;
+    *out_value = first + dg_rng_range(rng, 0, step_count) * 2;
+    return true;
+}
+
 static void dg_carve_room_with_region(
     dg_map_t *map,
     const dg_rect_t *room,
@@ -95,6 +139,84 @@ static void dg_carve_room_with_region(
             regions[index] = region_id;
         }
     }
+}
+
+static bool dg_point_inside_any_room(const dg_map_t *map, int x, int y)
+{
+    size_t i;
+
+    if (map == NULL || map->metadata.rooms == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *room = &map->metadata.rooms[i].bounds;
+        if (x >= room->x && y >= room->y && x < room->x + room->width && y < room->y + room->height) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool dg_wall_causes_room_diagonal_touch(const dg_map_t *map, int wall_x, int wall_y)
+{
+    static const int cardinals[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    static const int diagonals[4][2] = {
+        {1, 1},
+        {1, -1},
+        {-1, 1},
+        {-1, -1}
+    };
+    bool orth_room_neighbor;
+    bool diagonal_room_neighbor;
+    int d;
+
+    if (map == NULL || map->metadata.room_count == 0) {
+        return false;
+    }
+
+    orth_room_neighbor = false;
+    diagonal_room_neighbor = false;
+
+    for (d = 0; d < 4; ++d) {
+        int nx = wall_x + cardinals[d][0];
+        int ny = wall_y + cardinals[d][1];
+        if (!dg_map_in_bounds(map, nx, ny)) {
+            continue;
+        }
+        if (!dg_point_inside_any_room(map, nx, ny)) {
+            continue;
+        }
+        if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            continue;
+        }
+        orth_room_neighbor = true;
+        break;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = wall_x + diagonals[d][0];
+        int ny = wall_y + diagonals[d][1];
+        if (!dg_map_in_bounds(map, nx, ny)) {
+            continue;
+        }
+        if (!dg_point_inside_any_room(map, nx, ny)) {
+            continue;
+        }
+        if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            continue;
+        }
+        diagonal_room_neighbor = true;
+        break;
+    }
+
+    return diagonal_room_neighbor && !orth_room_neighbor;
 }
 
 static bool dg_room_overlaps_existing(const dg_map_t *map, const dg_rect_t *candidate)
@@ -155,8 +277,24 @@ static dg_status_t dg_place_random_rooms(
             break;
         }
 
-        room.width = dg_rng_range(rng, config->room_min_size, max_room_width);
-        room.height = dg_rng_range(rng, config->room_min_size, max_room_height);
+        if (!dg_rng_range_with_parity(
+                rng,
+                config->room_min_size,
+                max_room_width,
+                1,
+                &room.width
+            )) {
+            room.width = dg_rng_range(rng, config->room_min_size, max_room_width);
+        }
+        if (!dg_rng_range_with_parity(
+                rng,
+                config->room_min_size,
+                max_room_height,
+                1,
+                &room.height
+            )) {
+            room.height = dg_rng_range(rng, config->room_min_size, max_room_height);
+        }
 
         max_x = map->width - room.width - 1;
         max_y = map->height - room.height - 1;
@@ -164,8 +302,12 @@ static dg_status_t dg_place_random_rooms(
             continue;
         }
 
-        room.x = dg_rng_range(rng, 1, max_x);
-        room.y = dg_rng_range(rng, 1, max_y);
+        if (!dg_rng_range_with_parity(rng, 1, max_x, 1, &room.x)) {
+            room.x = dg_rng_range(rng, 1, max_x);
+        }
+        if (!dg_rng_range_with_parity(rng, 1, max_y, 1, &room.y)) {
+            room.y = dg_rng_range(rng, 1, max_y);
+        }
 
         if (dg_room_overlaps_existing(map, &room)) {
             continue;
@@ -579,7 +721,375 @@ static void dg_try_add_room_connector_candidate(
     *in_out_candidate_count += 1;
 }
 
+static bool dg_room_pair_is_linked(
+    const unsigned char *room_links,
+    int room_count,
+    int room_a,
+    int room_b
+)
+{
+    if (room_links == NULL || room_a < 0 || room_b < 0 || room_a == room_b) {
+        return false;
+    }
+
+    return room_links[(size_t)room_a * (size_t)room_count + (size_t)room_b] != 0u;
+}
+
+static void dg_mark_room_pair_linked(unsigned char *room_links, int room_count, int room_a, int room_b)
+{
+    if (room_links == NULL || room_a < 0 || room_b < 0 || room_a == room_b) {
+        return;
+    }
+
+    room_links[(size_t)room_a * (size_t)room_count + (size_t)room_b] = 1u;
+    room_links[(size_t)room_b * (size_t)room_count + (size_t)room_a] = 1u;
+}
+
+static int dg_collect_wall_neighbor_regions(
+    const dg_map_t *map,
+    const int *regions,
+    int room_count,
+    int wall_x,
+    int wall_y,
+    int out_regions[4],
+    int out_room_ids[4]
+)
+{
+    int count;
+    int d;
+
+    count = 0;
+    for (d = 0; d < 4; ++d) {
+        int nx = wall_x + DG_CARDINAL_DIRECTIONS[d][0];
+        int ny = wall_y + DG_CARDINAL_DIRECTIONS[d][1];
+        size_t nindex;
+        int region;
+        int i;
+        bool duplicate;
+
+        if (!dg_interior_in_bounds(map, nx, ny)) {
+            continue;
+        }
+        if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            continue;
+        }
+
+        nindex = dg_tile_index(map, nx, ny);
+        region = regions[nindex];
+        if (region <= 0) {
+            continue;
+        }
+
+        duplicate = false;
+        for (i = 0; i < count; ++i) {
+            if (out_regions[i] == region) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        out_regions[count] = region;
+        out_room_ids[count] = (region <= room_count) ? (region - 1) : -1;
+        count += 1;
+    }
+
+    return count;
+}
+
+static void dg_open_wall_and_union_neighbors(
+    dg_map_t *map,
+    int *regions,
+    int *parents,
+    int room_count,
+    int wall_x,
+    int wall_y,
+    int assign_region
+)
+{
+    int neighbor_regions[4];
+    int neighbor_room_ids[4];
+    int neighbor_count;
+    int i;
+    size_t wall_index;
+
+    wall_index = dg_tile_index(map, wall_x, wall_y);
+    (void)dg_map_set_tile(map, wall_x, wall_y, DG_TILE_FLOOR);
+    regions[wall_index] = assign_region;
+
+    neighbor_count = dg_collect_wall_neighbor_regions(
+        map,
+        regions,
+        room_count,
+        wall_x,
+        wall_y,
+        neighbor_regions,
+        neighbor_room_ids
+    );
+    (void)neighbor_room_ids;
+
+    for (i = 0; i < neighbor_count; ++i) {
+        dg_region_union(parents, assign_region, neighbor_regions[i]);
+    }
+}
+
+static dg_status_t dg_apply_room_connector(
+    dg_map_t *map,
+    int *regions,
+    int *parents,
+    int room_count,
+    unsigned char *room_links,
+    int source_room_id,
+    int source_region,
+    const dg_room_connector_t *connector
+)
+{
+    if (
+        map == NULL ||
+        regions == NULL ||
+        parents == NULL ||
+        source_room_id < 0 ||
+        source_region <= 0 ||
+        connector == NULL
+    ) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_open_wall_and_union_neighbors(
+        map,
+        regions,
+        parents,
+        room_count,
+        connector->wall_x,
+        connector->wall_y,
+        source_region
+    );
+
+    if (connector->target_room_id >= 0) {
+        if (!dg_room_pair_is_linked(room_links, room_count, source_room_id, connector->target_room_id)) {
+            dg_status_t status;
+            dg_mark_room_pair_linked(room_links, room_count, source_room_id, connector->target_room_id);
+            status = dg_map_add_corridor(map, source_room_id, connector->target_room_id, 1, 1);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+
+    dg_region_union(parents, source_region, connector->target_region);
+    return DG_STATUS_OK;
+}
+
+static bool dg_choose_random_region_connector(
+    const dg_map_t *map,
+    const int *regions,
+    int *parents,
+    int room_count,
+    const unsigned char *room_links,
+    dg_rng_t *rng,
+    dg_region_connector_t *out_connector
+)
+{
+    size_t candidate_count;
+    int x;
+    int y;
+    dg_region_connector_t chosen;
+
+    if (
+        map == NULL ||
+        regions == NULL ||
+        parents == NULL ||
+        rng == NULL ||
+        out_connector == NULL
+    ) {
+        return false;
+    }
+
+    candidate_count = 0;
+    chosen = (dg_region_connector_t){0};
+
+    for (y = 1; y < map->height - 1; ++y) {
+        for (x = 1; x < map->width - 1; ++x) {
+            int neighbor_regions[4];
+            int neighbor_rooms[4];
+            int neighbor_count;
+            int i;
+            int j;
+
+            if (dg_map_get_tile(map, x, y) != DG_TILE_WALL) {
+                continue;
+            }
+
+            if (dg_wall_causes_room_diagonal_touch(map, x, y)) {
+                continue;
+            }
+
+            neighbor_count = dg_collect_wall_neighbor_regions(
+                map,
+                regions,
+                room_count,
+                x,
+                y,
+                neighbor_regions,
+                neighbor_rooms
+            );
+            if (neighbor_count < 2) {
+                continue;
+            }
+
+            for (i = 0; i < neighbor_count; ++i) {
+                for (j = i + 1; j < neighbor_count; ++j) {
+                    int region_a = neighbor_regions[i];
+                    int region_b = neighbor_regions[j];
+                    int room_a = neighbor_rooms[i];
+                    int room_b = neighbor_rooms[j];
+
+                    if (dg_region_find_root(parents, region_a) == dg_region_find_root(parents, region_b)) {
+                        continue;
+                    }
+
+                    if (dg_room_pair_is_linked(room_links, room_count, room_a, room_b)) {
+                        continue;
+                    }
+
+                    candidate_count += 1;
+                    if (dg_rng_range(rng, 0, (int)candidate_count - 1) == 0) {
+                        chosen = (dg_region_connector_t){
+                            x,
+                            y,
+                            region_a,
+                            region_b,
+                            room_a,
+                            room_b
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    if (candidate_count == 0) {
+        return false;
+    }
+
+    *out_connector = chosen;
+    return true;
+}
+
+static dg_status_t dg_apply_region_connector(
+    dg_map_t *map,
+    int *regions,
+    int *parents,
+    int room_count,
+    unsigned char *room_links,
+    const dg_region_connector_t *connector
+)
+{
+    if (map == NULL || regions == NULL || parents == NULL || connector == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_open_wall_and_union_neighbors(
+        map,
+        regions,
+        parents,
+        room_count,
+        connector->wall_x,
+        connector->wall_y,
+        connector->region_a
+    );
+
+    if (connector->room_a >= 0 && connector->room_b >= 0) {
+        if (!dg_room_pair_is_linked(room_links, room_count, connector->room_a, connector->room_b)) {
+            dg_status_t status;
+            dg_mark_room_pair_linked(room_links, room_count, connector->room_a, connector->room_b);
+            status = dg_map_add_corridor(map, connector->room_a, connector->room_b, 1, 1);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+
+    dg_region_union(parents, connector->region_a, connector->region_b);
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_count_region_components(
+    const dg_map_t *map,
+    const int *regions,
+    int *parents,
+    int next_region_id,
+    int *out_component_count
+)
+{
+    size_t cell_count;
+    unsigned char *used;
+    unsigned char *seen_root;
+    size_t i;
+    int component_count;
+    int region_id;
+
+    if (
+        map == NULL ||
+        map->tiles == NULL ||
+        regions == NULL ||
+        parents == NULL ||
+        out_component_count == NULL ||
+        next_region_id <= 0
+    ) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    used = (unsigned char *)calloc((size_t)next_region_id, sizeof(unsigned char));
+    seen_root = (unsigned char *)calloc((size_t)next_region_id, sizeof(unsigned char));
+    if (used == NULL || seen_root == NULL) {
+        free(used);
+        free(seen_root);
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    cell_count = (size_t)map->width * (size_t)map->height;
+    for (i = 0; i < cell_count; ++i) {
+        int region;
+
+        if (!dg_is_walkable_tile(map->tiles[i])) {
+            continue;
+        }
+
+        region = regions[i];
+        if (region > 0 && region < next_region_id) {
+            used[region] = 1u;
+        }
+    }
+
+    component_count = 0;
+    for (region_id = 1; region_id < next_region_id; ++region_id) {
+        int root;
+        if (used[region_id] == 0u) {
+            continue;
+        }
+
+        root = dg_region_find_root(parents, region_id);
+        if (root <= 0 || root >= next_region_id) {
+            continue;
+        }
+
+        if (seen_root[root] == 0u) {
+            seen_root[root] = 1u;
+            component_count += 1;
+        }
+    }
+
+    free(used);
+    free(seen_root);
+    *out_component_count = component_count;
+    return DG_STATUS_OK;
+}
+
 static dg_status_t dg_connect_rooms_to_other_regions(
+    const dg_rooms_and_mazes_config_t *config,
     dg_map_t *map,
     int *regions,
     int next_region_id,
@@ -593,7 +1103,13 @@ static dg_status_t dg_connect_rooms_to_other_regions(
     size_t link_count;
     int i;
 
-    if (map == NULL || map->tiles == NULL || regions == NULL || rng == NULL) {
+    if (
+        config == NULL ||
+        map == NULL ||
+        map->tiles == NULL ||
+        regions == NULL ||
+        rng == NULL
+    ) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
@@ -632,6 +1148,8 @@ static dg_status_t dg_connect_rooms_to_other_regions(
         int room_id = room_order[i];
         const dg_room_metadata_t *room = &map->metadata.rooms[room_id];
         int room_region = room_id + 1;
+        int target_connection_count;
+        int made_connections;
         size_t candidate_capacity;
         dg_room_connector_t *candidates;
         size_t candidate_count;
@@ -652,105 +1170,175 @@ static dg_status_t dg_connect_rooms_to_other_regions(
             free(parents);
             return DG_STATUS_ALLOCATION_FAILED;
         }
-        candidate_count = 0;
+        target_connection_count = dg_rng_range(
+            rng,
+            config->min_room_connections,
+            config->max_room_connections
+        );
+        made_connections = 0;
+        while (made_connections < target_connection_count) {
+            dg_status_t status;
+            const dg_room_connector_t *chosen;
 
-        for (x = room->bounds.x; x < room->bounds.x + room->bounds.width; ++x) {
-            dg_try_add_room_connector_candidate(
-                map,
-                regions,
-                parents,
-                room_id,
-                room_region,
-                room_count,
-                room_links,
-                x,
-                room->bounds.y,
-                0,
-                -1,
-                candidates,
-                candidate_capacity,
-                &candidate_count
-            );
-            dg_try_add_room_connector_candidate(
-                map,
-                regions,
-                parents,
-                room_id,
-                room_region,
-                room_count,
-                room_links,
-                x,
-                room->bounds.y + room->bounds.height - 1,
-                0,
-                1,
-                candidates,
-                candidate_capacity,
-                &candidate_count
-            );
-        }
+            candidate_count = 0;
 
-        for (y = room->bounds.y + 1; y < room->bounds.y + room->bounds.height - 1; ++y) {
-            dg_try_add_room_connector_candidate(
-                map,
-                regions,
-                parents,
-                room_id,
-                room_region,
-                room_count,
-                room_links,
-                room->bounds.x,
-                y,
-                -1,
-                0,
-                candidates,
-                candidate_capacity,
-                &candidate_count
-            );
-            dg_try_add_room_connector_candidate(
-                map,
-                regions,
-                parents,
-                room_id,
-                room_region,
-                room_count,
-                room_links,
-                room->bounds.x + room->bounds.width - 1,
-                y,
-                1,
-                0,
-                candidates,
-                candidate_capacity,
-                &candidate_count
-            );
-        }
-
-        if (candidate_count > 0) {
-            const dg_room_connector_t *chosen =
-                &candidates[dg_rng_range(rng, 0, (int)candidate_count - 1)];
-            size_t wall_index = dg_tile_index(map, chosen->wall_x, chosen->wall_y);
-
-            (void)dg_map_set_tile(map, chosen->wall_x, chosen->wall_y, DG_TILE_FLOOR);
-            regions[wall_index] = room_region;
-
-            if (chosen->target_room_id >= 0) {
-                dg_status_t status;
-                room_links[(size_t)room_id * (size_t)room_count + (size_t)chosen->target_room_id] = 1u;
-                room_links[(size_t)chosen->target_room_id * (size_t)room_count + (size_t)room_id] = 1u;
-
-                status = dg_map_add_corridor(map, room_id, chosen->target_room_id, 1, 1);
-                if (status != DG_STATUS_OK) {
-                    free(candidates);
-                    free(room_order);
-                    free(room_links);
-                    free(parents);
-                    return status;
-                }
+            for (x = room->bounds.x; x < room->bounds.x + room->bounds.width; ++x) {
+                dg_try_add_room_connector_candidate(
+                    map,
+                    regions,
+                    parents,
+                    room_id,
+                    room_region,
+                    room_count,
+                    room_links,
+                    x,
+                    room->bounds.y,
+                    0,
+                    -1,
+                    candidates,
+                    candidate_capacity,
+                    &candidate_count
+                );
+                dg_try_add_room_connector_candidate(
+                    map,
+                    regions,
+                    parents,
+                    room_id,
+                    room_region,
+                    room_count,
+                    room_links,
+                    x,
+                    room->bounds.y + room->bounds.height - 1,
+                    0,
+                    1,
+                    candidates,
+                    candidate_capacity,
+                    &candidate_count
+                );
             }
 
-            dg_region_union(parents, room_region, chosen->target_region);
+            for (y = room->bounds.y + 1; y < room->bounds.y + room->bounds.height - 1; ++y) {
+                dg_try_add_room_connector_candidate(
+                    map,
+                    regions,
+                    parents,
+                    room_id,
+                    room_region,
+                    room_count,
+                    room_links,
+                    room->bounds.x,
+                    y,
+                    -1,
+                    0,
+                    candidates,
+                    candidate_capacity,
+                    &candidate_count
+                );
+                dg_try_add_room_connector_candidate(
+                    map,
+                    regions,
+                    parents,
+                    room_id,
+                    room_region,
+                    room_count,
+                    room_links,
+                    room->bounds.x + room->bounds.width - 1,
+                    y,
+                    1,
+                    0,
+                    candidates,
+                    candidate_capacity,
+                    &candidate_count
+                );
+            }
+
+            if (candidate_count == 0) {
+                break;
+            }
+
+            chosen = &candidates[dg_rng_range(rng, 0, (int)candidate_count - 1)];
+            status = dg_apply_room_connector(
+                map,
+                regions,
+                parents,
+                room_count,
+                room_links,
+                room_id,
+                room_region,
+                chosen
+            );
+            if (status != DG_STATUS_OK) {
+                free(candidates);
+                free(room_order);
+                free(room_links);
+                free(parents);
+                return status;
+            }
+
+            made_connections += 1;
         }
 
         free(candidates);
+    }
+
+    if (config->ensure_full_connectivity != 0) {
+        while (true) {
+            dg_region_connector_t connector;
+            dg_status_t status;
+            bool found;
+
+            found = dg_choose_random_region_connector(
+                map,
+                regions,
+                parents,
+                room_count,
+                room_links,
+                rng,
+                &connector
+            );
+            if (!found) {
+                break;
+            }
+
+            status = dg_apply_region_connector(
+                map,
+                regions,
+                parents,
+                room_count,
+                room_links,
+                &connector
+            );
+            if (status != DG_STATUS_OK) {
+                free(room_order);
+                free(room_links);
+                free(parents);
+                return status;
+            }
+        }
+
+        {
+            int component_count;
+            dg_status_t status = dg_count_region_components(
+                map,
+                regions,
+                parents,
+                next_region_id,
+                &component_count
+            );
+            if (status != DG_STATUS_OK) {
+                free(room_order);
+                free(room_links);
+                free(parents);
+                return status;
+            }
+
+            if (component_count > 1) {
+                free(room_order);
+                free(room_links);
+                free(parents);
+                return DG_STATUS_GENERATION_FAILED;
+            }
+        }
     }
 
     free(room_order);
@@ -887,7 +1475,7 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
         return status;
     }
 
-    status = dg_connect_rooms_to_other_regions(map, regions, next_region_id, rng);
+    status = dg_connect_rooms_to_other_regions(config, map, regions, next_region_id, rng);
     if (status != DG_STATUS_OK) {
         free(regions);
         return status;

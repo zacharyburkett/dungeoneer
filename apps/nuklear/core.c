@@ -554,6 +554,35 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
+        "Min Connections",
+        1,
+        &app->rooms_and_mazes_config.min_room_connections,
+        16,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Max Connections",
+        1,
+        &app->rooms_and_mazes_config.max_room_connections,
+        16,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->rooms_and_mazes_config.ensure_full_connectivity = nk_check_label(
+        ctx,
+        "Ensure Full Connectivity",
+        app->rooms_and_mazes_config.ensure_full_connectivity
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
         "Prune Steps (-1=All)",
         -1,
         &app->rooms_and_mazes_config.dead_end_prune_steps,
@@ -569,6 +598,15 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     if (app->rooms_and_mazes_config.room_max_size < app->rooms_and_mazes_config.room_min_size) {
         app->rooms_and_mazes_config.room_max_size = app->rooms_and_mazes_config.room_min_size;
     }
+
+    if (app->rooms_and_mazes_config.max_room_connections <
+        app->rooms_and_mazes_config.min_room_connections) {
+        app->rooms_and_mazes_config.max_room_connections =
+            app->rooms_and_mazes_config.min_room_connections;
+    }
+
+    app->rooms_and_mazes_config.ensure_full_connectivity =
+        app->rooms_and_mazes_config.ensure_full_connectivity ? 1 : 0;
 
     if (app->rooms_and_mazes_config.dead_end_prune_steps < -1) {
         app->rooms_and_mazes_config.dead_end_prune_steps = -1;

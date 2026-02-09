@@ -62,6 +62,18 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (config->min_room_connections < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_room_connections < config->min_room_connections) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->ensure_full_connectivity != 0 && config->ensure_full_connectivity != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     if (config->dead_end_prune_steps < -1) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -100,6 +112,9 @@ void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
     config->max_rooms = 24;
     config->room_min_size = 4;
     config->room_max_size = 10;
+    config->min_room_connections = 1;
+    config->max_room_connections = 1;
+    config->ensure_full_connectivity = 1;
     config->dead_end_prune_steps = -1;
 }
 

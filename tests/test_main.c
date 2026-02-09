@@ -364,6 +364,12 @@ static size_t count_non_room_diagonal_touches_to_room_tiles(const dg_map_t *map)
     size_t count;
     int x;
     int y;
+    static const int cardinals[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
     static const int diagonals[4][2] = {
         {1, 1},
         {1, -1},
@@ -376,6 +382,7 @@ static size_t count_non_room_diagonal_touches_to_room_tiles(const dg_map_t *map)
         for (x = 1; x < map->width - 1; ++x) {
             int d;
             dg_tile_t tile;
+            bool orthogonally_adjacent_to_room;
 
             if (point_is_inside_any_room(map, x, y)) {
                 continue;
@@ -383,6 +390,19 @@ static size_t count_non_room_diagonal_touches_to_room_tiles(const dg_map_t *map)
 
             tile = dg_map_get_tile(map, x, y);
             if (!is_walkable(tile)) {
+                continue;
+            }
+
+            orthogonally_adjacent_to_room = false;
+            for (d = 0; d < 4; ++d) {
+                int nx = x + cardinals[d][0];
+                int ny = y + cardinals[d][1];
+                if (point_is_inside_any_room(map, nx, ny) && is_walkable(dg_map_get_tile(map, nx, ny))) {
+                    orthogonally_adjacent_to_room = true;
+                    break;
+                }
+            }
+            if (orthogonally_adjacent_to_room) {
                 continue;
             }
 
@@ -694,6 +714,7 @@ static int test_rooms_and_mazes_generation(void)
     ASSERT_TRUE(rooms_have_min_wall_separation(&map));
     ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
     ASSERT_TRUE(count_non_room_diagonal_touches_to_room_tiles(&map) == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
 
     for (i = 0; i < map.metadata.room_count; ++i) {
         const dg_room_metadata_t *room = &map.metadata.rooms[i];
@@ -899,6 +920,19 @@ static int test_invalid_generate_request(void)
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
     request.params.rooms_and_mazes.room_min_size = 9;
     request.params.rooms_and_mazes.room_max_size = 8;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.min_room_connections = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.min_room_connections = 3;
+    request.params.rooms_and_mazes.max_room_connections = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.ensure_full_connectivity = 2;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
