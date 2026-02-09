@@ -166,28 +166,31 @@ if(DUNGEONEER_BUILD_NUKLEAR_APP)
                 ${DUNGEONEER_NUKLEAR_GLFW_INCLUDE_DIR}
         )
 
-        add_executable(dungeoneer_nuklear_demo apps/nuklear/glfw_main.c)
-        target_compile_features(dungeoneer_nuklear_demo PRIVATE c_std_11)
+        add_executable(dungeoneer_editor apps/nuklear/glfw_main.c)
+        target_compile_features(dungeoneer_editor PRIVATE c_std_11)
         target_link_libraries(
-            dungeoneer_nuklear_demo
+            dungeoneer_editor
             PRIVATE
                 dungeoneer_nuklear_core
                 OpenGL::GL
         )
 
         if(TARGET glfw::glfw)
-            target_link_libraries(dungeoneer_nuklear_demo PRIVATE glfw::glfw)
+            target_link_libraries(dungeoneer_editor PRIVATE glfw::glfw)
         else()
-            target_link_libraries(dungeoneer_nuklear_demo PRIVATE glfw)
+            target_link_libraries(dungeoneer_editor PRIVATE glfw)
         endif()
         if(APPLE)
-            target_compile_definitions(dungeoneer_nuklear_demo PRIVATE GL_SILENCE_DEPRECATION)
+            target_compile_definitions(dungeoneer_editor PRIVATE GL_SILENCE_DEPRECATION)
         endif()
+
+        # Backward-compatible target alias while transitioning from demo naming.
+        add_executable(dungeoneer_nuklear_demo ALIAS dungeoneer_editor)
     else()
         message(WARNING
             "DUNGEONEER_BUILD_NUKLEAR_APP=ON but required deps were not found. "
             "Need nuklear.h + nuklear_glfw_gl2.h and GLFW/OpenGL (or enable auto-fetch). "
-            "Skipping dungeoneer_nuklear_demo."
+            "Skipping dungeoneer_editor."
         )
     endif()
 endif()

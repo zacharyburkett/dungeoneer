@@ -24,7 +24,7 @@ int main(void)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
 
-    window = glfwCreateWindow(1400, 900, "dungeoneer (nuklear demo)", NULL, NULL);
+    window = glfwCreateWindow(1400, 900, "dungeoneer editor", NULL, NULL);
     if (window == NULL) {
         fprintf(stderr, "glfwCreateWindow failed\n");
         glfwTerminate();

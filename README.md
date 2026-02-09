@@ -45,7 +45,7 @@ cmake --build build
 
 By default (`DUNGEONEER_NUKLEAR_AUTO_FETCH=ON`), CMake auto-fetches Nuklear and GLFW
 via `FetchContent` during configure (network access required), then builds
-`dungeoneer_nuklear_demo`.
+`dungeoneer_editor`.
 
 For offline or fully pinned dependencies, disable auto-fetch:
 
@@ -72,7 +72,7 @@ ctest --test-dir build --output-on-failure
 ./build/dungeoneer_ascii_demo rooms 80 40 42 horizontal-first
 ./build/dungeoneer_ascii_demo rooms 80 40 42 vertical-first
 # if built with -DDUNGEONEER_BUILD_NUKLEAR_APP=ON
-./build/dungeoneer_nuklear_demo
+./build/dungeoneer_editor
 ```
 
 The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).
