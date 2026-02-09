@@ -51,6 +51,31 @@ typedef struct dg_rooms_and_mazes_config {
     int dead_end_prune_steps;
 } dg_rooms_and_mazes_config_t;
 
+typedef enum dg_room_shape_mode {
+    DG_ROOM_SHAPE_RECTANGULAR = 0,
+    DG_ROOM_SHAPE_ORGANIC = 1
+} dg_room_shape_mode_t;
+
+typedef struct dg_process_config {
+    /*
+     * Tile upscaling factor:
+     *   1 = no scaling
+     *   >1 = nearest-neighbor upscaling
+     */
+    int scale_factor;
+    /*
+     * Room shape post-process:
+     *   RECTANGULAR = preserve layout room rectangles
+     *   ORGANIC     = carve noisier room interiors while preserving room connections
+     */
+    dg_room_shape_mode_t room_shape_mode;
+    /*
+     * Organic room roughness (0..100).
+     * Higher values create more irregular room boundaries.
+     */
+    int room_shape_organicity;
+} dg_process_config_t;
+
 typedef struct dg_room_type_constraints {
     /*
      * Constraint ranges:
@@ -130,12 +155,14 @@ typedef struct dg_generate_request {
         dg_drunkards_walk_config_t drunkards_walk;
         dg_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
+    dg_process_config_t process;
     dg_room_type_assignment_config_t room_types;
 } dg_generate_request_t;
 
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
+void dg_default_process_config(dg_process_config_t *config);
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints);
 void dg_default_room_type_preferences(dg_room_type_preferences_t *preferences);
 void dg_default_room_type_definition(dg_room_type_definition_t *definition, uint32_t type_id);

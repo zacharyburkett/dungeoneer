@@ -91,6 +91,20 @@ static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static void dg_nuklear_sanitize_process_config(dg_process_config_t *process)
+{
+    if (process == NULL) {
+        return;
+    }
+
+    process->scale_factor = dg_nuklear_clamp_int(process->scale_factor, 1, 8);
+    if (process->room_shape_mode != DG_ROOM_SHAPE_RECTANGULAR &&
+        process->room_shape_mode != DG_ROOM_SHAPE_ORGANIC) {
+        process->room_shape_mode = DG_ROOM_SHAPE_RECTANGULAR;
+    }
+    process->room_shape_organicity = dg_nuklear_clamp_int(process->room_shape_organicity, 0, 100);
+}
+
 static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
 {
     return algorithm == DG_ALGORITHM_BSP_TREE || algorithm == DG_ALGORITHM_ROOMS_AND_MAZES;
@@ -99,6 +113,40 @@ static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
 static float dg_nuklear_min_float(float a, float b)
 {
     return (a < b) ? a : b;
+}
+
+static float dg_nuklear_max_float(float a, float b)
+{
+    return (a > b) ? a : b;
+}
+
+static float dg_nuklear_clamp_float(float value, float min_value, float max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static int dg_nuklear_floor_to_int(float value)
+{
+    int truncated = (int)value;
+    if ((float)truncated > value) {
+        truncated -= 1;
+    }
+    return truncated;
+}
+
+static int dg_nuklear_ceil_to_int(float value)
+{
+    int truncated = (int)value;
+    if ((float)truncated < value) {
+        truncated += 1;
+    }
+    return truncated;
 }
 
 static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, int index)
@@ -418,6 +466,22 @@ static struct nk_color dg_nuklear_tile_color(const dg_map_t *map, int x, int y, 
     }
 }
 
+static void dg_nuklear_reset_preview_camera(dg_nuklear_app_t *app)
+{
+    if (app == NULL) {
+        return;
+    }
+
+    app->preview_zoom = 1.0f;
+    if (app->has_map && app->map.width > 0 && app->map.height > 0) {
+        app->preview_center_x = (float)app->map.width * 0.5f;
+        app->preview_center_y = (float)app->map.height * 0.5f;
+    } else {
+        app->preview_center_x = 0.0f;
+        app->preview_center_y = 0.0f;
+    }
+}
+
 static void dg_nuklear_destroy_map(dg_nuklear_app_t *app)
 {
     if (app == NULL) {
@@ -429,6 +493,8 @@ static void dg_nuklear_destroy_map(dg_nuklear_app_t *app)
         app->map = (dg_map_t){0};
         app->has_map = false;
     }
+
+    dg_nuklear_reset_preview_camera(app);
 }
 
 static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algorithm_t algorithm)
@@ -497,6 +563,10 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     app->width = snapshot->width;
     app->height = snapshot->height;
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)snapshot->seed);
+    app->process_config.scale_factor = snapshot->process.scale_factor;
+    app->process_config.room_shape_mode = (dg_room_shape_mode_t)snapshot->process.room_shape_mode;
+    app->process_config.room_shape_organicity = snapshot->process.room_shape_organicity;
+    dg_nuklear_sanitize_process_config(&app->process_config);
 
     switch ((dg_algorithm_t)snapshot->algorithm_id) {
     case DG_ALGORITHM_DRUNKARDS_WALK:
@@ -582,6 +652,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
     dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
     dg_nuklear_sanitize_room_type_settings(app);
+    dg_nuklear_sanitize_process_config(&app->process_config);
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
@@ -590,6 +661,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     } else {
         request.params.bsp = app->bsp_config;
     }
+    request.process = app->process_config;
 
     if (app->room_types_enabled && dg_nuklear_algorithm_supports_room_types(algorithm)) {
         int i;
@@ -634,6 +706,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     dg_nuklear_destroy_map(app);
     app->map = generated;
     app->has_map = true;
+    dg_nuklear_reset_preview_camera(app);
 
     if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
         size_t assigned_count;
@@ -708,6 +781,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
     dg_nuklear_destroy_map(app);
     app->map = loaded;
     app->has_map = true;
+    dg_nuklear_reset_preview_camera(app);
 
     app->algorithm_index = dg_nuklear_algorithm_index_from_id(app->map.metadata.algorithm_id);
     app->width = app->map.width;
@@ -736,6 +810,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
             app,
             dg_nuklear_algorithm_from_index(app->algorithm_index)
         );
+        dg_default_process_config(&app->process_config);
         dg_nuklear_reset_room_type_defaults(app);
         dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
     }
@@ -743,7 +818,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
 
 static void dg_nuklear_draw_map(
     struct nk_context *ctx,
-    const dg_nuklear_app_t *app,
+    dg_nuklear_app_t *app,
     float suggested_height
 )
 {
@@ -762,6 +837,13 @@ static void dg_nuklear_draw_map(
     if (app->has_map) {
         nk_layout_row_dynamic(ctx, 20.0f, 1);
         nk_label(ctx, "Map preview", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ctx, 28.0f, 3);
+        nk_label(ctx, "Zoom", NK_TEXT_LEFT);
+        nk_property_float(ctx, "x", 0.10f, &app->preview_zoom, 24.0f, 0.10f, 0.01f);
+        if (nk_button_label(ctx, "Fit")) {
+            dg_nuklear_reset_preview_camera(app);
+        }
     } else {
         nk_layout_row_dynamic(ctx, 20.0f, 1);
         nk_label(ctx, "No map loaded. Click Generate or Load.", NK_TEXT_LEFT);
@@ -778,42 +860,164 @@ static void dg_nuklear_draw_map(
     nk_stroke_rect(canvas, preview_bounds, 0.0f, 1.0f, nk_rgb(85, 96, 112));
 
     if (app->has_map && app->map.tiles != NULL && app->map.width > 0 && app->map.height > 0) {
+        int x_start;
+        int x_end;
+        int y_start;
+        int y_end;
+        int sample_step;
         int x;
         int y;
-        float tile_size;
-        float draw_width;
-        float draw_height;
-        float origin_x;
-        float origin_y;
+        size_t max_preview_quads;
+        size_t sampled_quads;
+        float base_scale;
+        float scale;
+        float view_w_tiles;
+        float view_h_tiles;
+        float center_x;
+        float center_y;
+        float origin_x_tiles;
+        float origin_y_tiles;
+        bool hovered;
+        float scroll_delta;
 
-        tile_size = dg_nuklear_min_float(
+        base_scale = dg_nuklear_min_float(
             preview_bounds.w / (float)app->map.width,
             preview_bounds.h / (float)app->map.height
         );
-
-        if (tile_size < 1.0f) {
+        if (base_scale <= 0.0f) {
             return;
         }
 
-        tile_size = (float)((int)tile_size);
-        draw_width = tile_size * (float)app->map.width;
-        draw_height = tile_size * (float)app->map.height;
-        origin_x = preview_bounds.x + (preview_bounds.w - draw_width) * 0.5f;
-        origin_y = preview_bounds.y + (preview_bounds.h - draw_height) * 0.5f;
+        app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom, 0.10f, 24.0f);
+        scale = base_scale * app->preview_zoom;
+        scale = dg_nuklear_max_float(scale, 0.01f);
+        view_w_tiles = preview_bounds.w / scale;
+        view_h_tiles = preview_bounds.h / scale;
 
-        for (y = 0; y < app->map.height; ++y) {
-            for (x = 0; x < app->map.width; ++x) {
+        center_x = app->preview_center_x;
+        center_y = app->preview_center_y;
+        if (center_x <= 0.0f || center_y <= 0.0f) {
+            center_x = (float)app->map.width * 0.5f;
+            center_y = (float)app->map.height * 0.5f;
+        }
+
+        hovered = nk_input_is_mouse_hovering_rect(&ctx->input, preview_bounds);
+        scroll_delta = ctx->input.mouse.scroll_delta.y;
+        if (hovered && scroll_delta != 0.0f) {
+            float mouse_x = ctx->input.mouse.pos.x;
+            float mouse_y = ctx->input.mouse.pos.y;
+            float old_scale = scale;
+            float old_view_w = view_w_tiles;
+            float old_view_h = view_h_tiles;
+            float map_x_at_cursor;
+            float map_y_at_cursor;
+            float new_zoom;
+            float new_scale;
+            float new_view_w;
+            float new_view_h;
+            float origin_x_before = center_x - old_view_w * 0.5f;
+            float origin_y_before = center_y - old_view_h * 0.5f;
+
+            map_x_at_cursor = origin_x_before + (mouse_x - preview_bounds.x) / old_scale;
+            map_y_at_cursor = origin_y_before + (mouse_y - preview_bounds.y) / old_scale;
+
+            new_zoom = app->preview_zoom * (1.0f + scroll_delta * 0.12f);
+            new_zoom = dg_nuklear_clamp_float(new_zoom, 0.10f, 24.0f);
+            new_scale = dg_nuklear_max_float(base_scale * new_zoom, 0.01f);
+            new_view_w = preview_bounds.w / new_scale;
+            new_view_h = preview_bounds.h / new_scale;
+
+            center_x = map_x_at_cursor - (mouse_x - preview_bounds.x) / new_scale + new_view_w * 0.5f;
+            center_y = map_y_at_cursor - (mouse_y - preview_bounds.y) / new_scale + new_view_h * 0.5f;
+
+            app->preview_zoom = new_zoom;
+            scale = new_scale;
+            view_w_tiles = new_view_w;
+            view_h_tiles = new_view_h;
+        }
+
+        if (hovered &&
+            (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_RIGHT) ||
+             nk_input_is_mouse_down(&ctx->input, NK_BUTTON_MIDDLE))) {
+            center_x -= ctx->input.mouse.delta.x / scale;
+            center_y -= ctx->input.mouse.delta.y / scale;
+        }
+
+        if (view_w_tiles >= (float)app->map.width) {
+            center_x = (float)app->map.width * 0.5f;
+        } else {
+            center_x = dg_nuklear_clamp_float(
+                center_x,
+                view_w_tiles * 0.5f,
+                (float)app->map.width - view_w_tiles * 0.5f
+            );
+        }
+
+        if (view_h_tiles >= (float)app->map.height) {
+            center_y = (float)app->map.height * 0.5f;
+        } else {
+            center_y = dg_nuklear_clamp_float(
+                center_y,
+                view_h_tiles * 0.5f,
+                (float)app->map.height - view_h_tiles * 0.5f
+            );
+        }
+
+        app->preview_center_x = center_x;
+        app->preview_center_y = center_y;
+
+        origin_x_tiles = center_x - view_w_tiles * 0.5f;
+        origin_y_tiles = center_y - view_h_tiles * 0.5f;
+
+        x_start = dg_nuklear_floor_to_int(origin_x_tiles);
+        y_start = dg_nuklear_floor_to_int(origin_y_tiles);
+        x_end = dg_nuklear_ceil_to_int(origin_x_tiles + view_w_tiles);
+        y_end = dg_nuklear_ceil_to_int(origin_y_tiles + view_h_tiles);
+
+        x_start = dg_nuklear_clamp_int(x_start, 0, app->map.width);
+        y_start = dg_nuklear_clamp_int(y_start, 0, app->map.height);
+        x_end = dg_nuklear_clamp_int(x_end, 0, app->map.width);
+        y_end = dg_nuklear_clamp_int(y_end, 0, app->map.height);
+        if (x_end <= x_start || y_end <= y_start) {
+            return;
+        }
+
+        sample_step = 1;
+        max_preview_quads = 4000u;
+        sampled_quads = (size_t)(x_end - x_start) * (size_t)(y_end - y_start);
+        while (sampled_quads > max_preview_quads) {
+            size_t sampled_w;
+            size_t sampled_h;
+
+            sample_step += 1;
+            sampled_w = ((size_t)(x_end - x_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
+            sampled_h = ((size_t)(y_end - y_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
+            sampled_quads = sampled_w * sampled_h;
+        }
+
+        for (y = y_start; y < y_end; y += sample_step) {
+            int block_h = sample_step;
+            if (y + block_h > y_end) {
+                block_h = y_end - y;
+            }
+
+            for (x = x_start; x < x_end; x += sample_step) {
+                int block_w = sample_step;
                 dg_tile_t tile;
                 struct nk_color color;
                 struct nk_rect r;
 
+                if (x + block_w > x_end) {
+                    block_w = x_end - x;
+                }
+
                 tile = dg_map_get_tile(&app->map, x, y);
                 color = dg_nuklear_tile_color(&app->map, x, y, tile);
                 r = nk_rect(
-                    origin_x + tile_size * (float)x,
-                    origin_y + tile_size * (float)y,
-                    tile_size,
-                    tile_size
+                    preview_bounds.x + ((float)x - origin_x_tiles) * scale,
+                    preview_bounds.y + ((float)y - origin_y_tiles) * scale,
+                    scale * (float)block_w,
+                    scale * (float)block_h
                 );
                 nk_fill_rect(canvas, r, 0.0f, color);
             }
@@ -1190,6 +1394,68 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     }
 }
 
+static void dg_nuklear_draw_process_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app,
+    dg_algorithm_t algorithm
+)
+{
+    static const char *room_shape_modes[] = {"Rectangular", "Organic"};
+    int room_shape_index;
+
+    if (ctx == NULL || app == NULL) {
+        return;
+    }
+
+    dg_nuklear_sanitize_process_config(&app->process_config);
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(ctx, "Scale Factor", 1, &app->process_config.scale_factor, 8, 1, 0.25f);
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_label(ctx, "Room Shape", NK_TEXT_LEFT);
+
+    room_shape_index = (app->process_config.room_shape_mode == DG_ROOM_SHAPE_ORGANIC) ? 1 : 0;
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    room_shape_index = nk_combo(
+        ctx,
+        room_shape_modes,
+        (int)(sizeof(room_shape_modes) / sizeof(room_shape_modes[0])),
+        room_shape_index,
+        22,
+        nk_vec2(220.0f, 80.0f)
+    );
+    app->process_config.room_shape_mode =
+        (room_shape_index == 1) ? DG_ROOM_SHAPE_ORGANIC : DG_ROOM_SHAPE_RECTANGULAR;
+
+    if (app->process_config.room_shape_mode == DG_ROOM_SHAPE_ORGANIC) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Organicity (%)",
+            0,
+            &app->process_config.room_shape_organicity,
+            100,
+            1,
+            0.25f
+        );
+    }
+
+    if (dg_algorithm_generation_class(algorithm) != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+        nk_layout_row_dynamic(ctx, 36.0f, 1);
+        nk_label_wrap(
+            ctx,
+            "Room shaping applies to room-like layouts only. Scale still applies to all algorithms."
+        );
+    }
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Process Defaults")) {
+        dg_default_process_config(&app->process_config);
+        dg_nuklear_set_status(app, "Process defaults restored.");
+    }
+}
+
 static void dg_nuklear_draw_room_type_slot(struct nk_context *ctx, dg_nuklear_room_type_ui_t *slot)
 {
     struct nk_color preview_color;
@@ -1470,26 +1736,24 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         dg_nuklear_set_status(app, "Cleared map.");
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Generation", NK_MAXIMIZED)) {
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Layout", NK_MAXIMIZED)) {
         dg_nuklear_draw_generation_settings(ctx, app);
+        nk_layout_row_dynamic(ctx, 18.0f, 1);
+        nk_label(ctx, "Layout Parameters", NK_TEXT_LEFT);
+
+        if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
+            dg_nuklear_draw_drunkards_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
+            dg_nuklear_draw_rooms_and_mazes_settings(ctx, app);
+        } else {
+            dg_nuklear_draw_bsp_settings(ctx, app);
+        }
         nk_tree_pop(ctx);
     }
 
-    if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
-        if (nk_tree_push(ctx, NK_TREE_TAB, "Drunkard Settings", NK_MAXIMIZED)) {
-            dg_nuklear_draw_drunkards_settings(ctx, app);
-            nk_tree_pop(ctx);
-        }
-    } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
-        if (nk_tree_push(ctx, NK_TREE_TAB, "Rooms + Mazes Settings", NK_MAXIMIZED)) {
-            dg_nuklear_draw_rooms_and_mazes_settings(ctx, app);
-            nk_tree_pop(ctx);
-        }
-    } else {
-        if (nk_tree_push(ctx, NK_TREE_TAB, "BSP Settings", NK_MAXIMIZED)) {
-            dg_nuklear_draw_bsp_settings(ctx, app);
-            nk_tree_pop(ctx);
-        }
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Process", NK_MINIMIZED)) {
+        dg_nuklear_draw_process_settings(ctx, app, algorithm);
+        nk_tree_pop(ctx);
     }
 
     if (nk_tree_push(ctx, NK_TREE_TAB, "Room Type Assignment", NK_MINIMIZED)) {
@@ -1520,7 +1784,9 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
+    dg_default_process_config(&app->process_config);
     dg_nuklear_reset_room_type_defaults(app);
+    dg_nuklear_reset_preview_camera(app);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");

@@ -116,6 +116,12 @@ typedef struct dg_snapshot_room_type_assignment_config {
     dg_snapshot_room_type_assignment_policy_t policy;
 } dg_snapshot_room_type_assignment_config_t;
 
+typedef struct dg_snapshot_process_config {
+    int scale_factor;
+    int room_shape_mode;
+    int room_shape_organicity;
+} dg_snapshot_process_config_t;
+
 typedef struct dg_generation_request_snapshot {
     int present;
     int width;
@@ -127,6 +133,7 @@ typedef struct dg_generation_request_snapshot {
         dg_snapshot_drunkards_walk_config_t drunkards_walk;
         dg_snapshot_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
+    dg_snapshot_process_config_t process;
     dg_snapshot_room_type_assignment_config_t room_types;
 } dg_generation_request_snapshot_t;
 

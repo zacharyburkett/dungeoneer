@@ -17,6 +17,11 @@ Implemented baseline:
 - Binary map save/load
 - Nuklear-based editor app for generate/save/load
 - Automated tests for core invariants and serialization roundtrip
+- Two-stage generation flow:
+  - Layout stage (algorithm-specific)
+  - Process stage (post-layout transforms)
+    - Scale factor
+    - Organic room shaping for room-like layouts
 
 ## Product direction after pivot
 
@@ -28,7 +33,8 @@ Primary near-term focus is a **general room-type and constraint system** that wo
 Chosen direction:
 - Keep generation in two explicit stages:
   1. Layout stage (algorithm-specific): carve tiles + produce room graph.
-  2. Typing stage (algorithm-agnostic): assign room types using constraints.
+  2. Process stage (algorithm-agnostic): apply transforms/customization passes.
+- Keep room typing as a separate assignment pass after layout/process.
 - Make room types user-defined and data-driven (ID + config), not enum-hardcoded behaviors.
 - Separate constraints into:
   - Hard constraints: must be satisfied (eligibility + quotas).

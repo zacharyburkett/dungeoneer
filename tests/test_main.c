@@ -85,6 +85,9 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
         sa->height != sb->height ||
         sa->seed != sb->seed ||
         sa->algorithm_id != sb->algorithm_id ||
+        sa->process.scale_factor != sb->process.scale_factor ||
+        sa->process.room_shape_mode != sb->process.room_shape_mode ||
+        sa->process.room_shape_organicity != sb->process.room_shape_organicity ||
         sa->room_types.definition_count != sb->room_types.definition_count ||
         sa->room_types.policy.strict_mode != sb->room_types.policy.strict_mode ||
         sa->room_types.policy.allow_untyped_rooms != sb->room_types.policy.allow_untyped_rooms ||
@@ -1010,6 +1013,70 @@ static int test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles(void)
     return 0;
 }
 
+static int test_post_process_scaling(void)
+{
+    dg_generate_request_t base_request;
+    dg_generate_request_t scaled_request;
+    dg_map_t base_map = {0};
+    dg_map_t scaled_map = {0};
+    int factor;
+
+    dg_default_generate_request(&base_request, DG_ALGORITHM_BSP_TREE, 72, 42, 123456u);
+    base_request.params.bsp.min_rooms = 8;
+    base_request.params.bsp.max_rooms = 10;
+    base_request.params.bsp.room_min_size = 4;
+    base_request.params.bsp.room_max_size = 9;
+
+    scaled_request = base_request;
+    factor = 3;
+    scaled_request.process.scale_factor = factor;
+
+    ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&scaled_request, &scaled_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(scaled_map.width == base_map.width * factor);
+    ASSERT_TRUE(scaled_map.height == base_map.height * factor);
+    ASSERT_TRUE(scaled_map.metadata.room_count == base_map.metadata.room_count);
+    ASSERT_TRUE(scaled_map.metadata.corridor_count == base_map.metadata.corridor_count);
+    ASSERT_TRUE(scaled_map.metadata.generation_request.process.scale_factor == factor);
+    ASSERT_TRUE(scaled_map.metadata.rooms[0].bounds.width == base_map.metadata.rooms[0].bounds.width * factor);
+    ASSERT_TRUE(scaled_map.metadata.rooms[0].bounds.height == base_map.metadata.rooms[0].bounds.height * factor);
+
+    dg_map_destroy(&base_map);
+    dg_map_destroy(&scaled_map);
+    return 0;
+}
+
+static int test_post_process_room_shape_changes_layout(void)
+{
+    dg_generate_request_t rectangular_request;
+    dg_generate_request_t organic_request;
+    dg_map_t rectangular_map = {0};
+    dg_map_t organic_map = {0};
+
+    dg_default_generate_request(&rectangular_request, DG_ALGORITHM_BSP_TREE, 80, 48, 222333u);
+    rectangular_request.params.bsp.min_rooms = 10;
+    rectangular_request.params.bsp.max_rooms = 12;
+    rectangular_request.params.bsp.room_min_size = 5;
+    rectangular_request.params.bsp.room_max_size = 10;
+    rectangular_request.process.room_shape_mode = DG_ROOM_SHAPE_RECTANGULAR;
+
+    organic_request = rectangular_request;
+    organic_request.process.room_shape_mode = DG_ROOM_SHAPE_ORGANIC;
+    organic_request.process.room_shape_organicity = 65;
+
+    ASSERT_STATUS(dg_generate(&rectangular_request, &rectangular_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&organic_request, &organic_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(!maps_have_same_tiles(&rectangular_map, &organic_map));
+    ASSERT_TRUE(organic_map.metadata.generation_request.process.room_shape_mode ==
+                (int)DG_ROOM_SHAPE_ORGANIC);
+
+    dg_map_destroy(&rectangular_map);
+    dg_map_destroy(&organic_map);
+    return 0;
+}
+
 static int test_generation_request_snapshot_populated(void)
 {
     dg_generate_request_t request;
@@ -1027,6 +1094,9 @@ static int test_generation_request_snapshot_populated(void)
     request.params.rooms_and_mazes.max_room_connections = 2;
     request.params.rooms_and_mazes.ensure_full_connectivity = 0;
     request.params.rooms_and_mazes.dead_end_prune_steps = 8;
+    request.process.scale_factor = 2;
+    request.process.room_shape_mode = DG_ROOM_SHAPE_ORGANIC;
+    request.process.room_shape_organicity = 60;
 
     dg_default_room_type_definition(&definitions[0], 701u);
     definitions[0].min_count = 2;
@@ -1049,6 +1119,9 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->height == request.height);
     ASSERT_TRUE(snapshot->seed == request.seed);
     ASSERT_TRUE(snapshot->algorithm_id == (int)request.algorithm);
+    ASSERT_TRUE(snapshot->process.scale_factor == request.process.scale_factor);
+    ASSERT_TRUE(snapshot->process.room_shape_mode == (int)request.process.room_shape_mode);
+    ASSERT_TRUE(snapshot->process.room_shape_organicity == request.process.room_shape_organicity);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_rooms == request.params.rooms_and_mazes.max_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.room_min_size ==
@@ -1095,6 +1168,9 @@ static int test_map_serialization_roundtrip(void)
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6060u);
     request.params.bsp.min_rooms = 9;
     request.params.bsp.max_rooms = 12;
+    request.process.scale_factor = 2;
+    request.process.room_shape_mode = DG_ROOM_SHAPE_ORGANIC;
+    request.process.room_shape_organicity = 55;
     dg_default_room_type_definition(&definitions[0], 51u);
     definitions[0].min_count = 2;
     dg_default_room_type_definition(&definitions[1], 52u);
@@ -1366,6 +1442,18 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.process.scale_factor = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.process.room_shape_mode = (dg_room_shape_mode_t)99;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.process.room_shape_organicity = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     request.room_types.policy.strict_mode = 2;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
@@ -1449,6 +1537,8 @@ int main(void)
         {"rooms_and_mazes_wiggle_affects_layout", test_rooms_and_mazes_wiggle_affects_layout},
         {"rooms_and_mazes_unpruned_has_no_isolated_seed_tiles",
          test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
+        {"post_process_scaling", test_post_process_scaling},
+        {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},

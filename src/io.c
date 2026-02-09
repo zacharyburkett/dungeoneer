@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 4u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 5u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -205,6 +205,39 @@ static bool dg_algorithm_id_value_is_valid(int32_t value)
     return value == (int32_t)DG_ALGORITHM_BSP_TREE ||
            value == (int32_t)DG_ALGORITHM_DRUNKARDS_WALK ||
            value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES;
+}
+
+static void dg_snapshot_process_config_set_defaults(dg_snapshot_process_config_t *process)
+{
+    if (process == NULL) {
+        return;
+    }
+
+    process->scale_factor = 1;
+    process->room_shape_mode = (int)DG_ROOM_SHAPE_RECTANGULAR;
+    process->room_shape_organicity = 45;
+}
+
+static bool dg_snapshot_process_config_is_valid(const dg_snapshot_process_config_t *process)
+{
+    if (process == NULL) {
+        return false;
+    }
+
+    if (process->scale_factor < 1) {
+        return false;
+    }
+
+    if (process->room_shape_mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
+        process->room_shape_mode != (int)DG_ROOM_SHAPE_ORGANIC) {
+        return false;
+    }
+
+    if (process->room_shape_organicity < 0 || process->room_shape_organicity > 100) {
+        return false;
+    }
+
+    return true;
 }
 
 static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
@@ -473,6 +506,9 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
         if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
             return DG_STATUS_INVALID_ARGUMENT;
         }
+        if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
 
         if (snapshot->room_types.policy.strict_mode != 0 &&
             snapshot->room_types.policy.strict_mode != 1) {
@@ -665,6 +701,9 @@ static void dg_write_generation_request_snapshot(
     dg_io_writer_write_u64(writer, snapshot->seed);
     dg_io_writer_write_i32(writer, (int32_t)snapshot->algorithm_id);
     dg_write_generation_request_params(writer, snapshot);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.scale_factor);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.room_shape_mode);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->process.room_shape_organicity);
 
     dg_io_writer_write_size(writer, snapshot->room_types.definition_count);
     dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.strict_mode);
@@ -760,6 +799,7 @@ static dg_status_t dg_load_header(
     if (version != 1u &&
         version != 2u &&
         version != 3u &&
+        version != 4u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1217,6 +1257,19 @@ static dg_status_t dg_load_generation_request_snapshot(
     status = dg_load_generation_request_params(reader, snapshot);
     if (status != DG_STATUS_OK) {
         return status;
+    }
+
+    dg_snapshot_process_config_set_defaults(&snapshot->process);
+    if (version >= 5u) {
+        dg_io_reader_read_int(reader, &snapshot->process.scale_factor);
+        dg_io_reader_read_int(reader, &snapshot->process.room_shape_mode);
+        dg_io_reader_read_int(reader, &snapshot->process.room_shape_organicity);
+        if (reader->status != DG_STATUS_OK) {
+            return reader->status;
+        }
+        if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
+            return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
     }
 
     dg_io_reader_read_size(reader, &snapshot->room_types.definition_count);

@@ -42,6 +42,10 @@ typedef struct dg_nuklear_app {
     dg_bsp_config_t bsp_config;
     dg_drunkards_walk_config_t drunkards_walk_config;
     dg_rooms_and_mazes_config_t rooms_and_mazes_config;
+    dg_process_config_t process_config;
+    float preview_zoom;
+    float preview_center_x;
+    float preview_center_y;
     int room_types_enabled;
     int room_type_count;
     int room_type_strict_mode;

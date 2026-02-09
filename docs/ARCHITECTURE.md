@@ -56,12 +56,14 @@ Current config blocks:
 - `dg_bsp_config_t`
 - `dg_drunkards_walk_config_t`
 - `dg_rooms_and_mazes_config_t`
+- `dg_process_config_t` (post-layout transforms)
 
 Internal generator split:
 - `src/generator/api.c`: public API validation + orchestration
 - `src/generator/bsp.c`: BSP room and corridor generation
 - `src/generator/drunkards_walk.c`: cave carving by random walk
 - `src/generator/rooms_and_mazes.c`: room placement + maze carving + connectors + pruning
+- `src/generator/process.c`: post-layout transforms (scaling, room shaping)
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
 - `src/generator/metadata.c`: class-aware metadata population and map-state initialization
@@ -86,9 +88,9 @@ Simple presenter shell:
 Pipeline is being standardized as:
 1. Input validation + seed setup
 2. Layout generation (algorithm-specific)
-3. Room graph/feature extraction (room-like only)
-4. Room type assignment (algorithm-agnostic)
-5. Optional post constraints / cleanup
+3. Process transforms (algorithm-agnostic post passes)
+4. Room graph/feature extraction (room-like only)
+5. Room type assignment (algorithm-agnostic)
 6. Metadata finalize + return
 
 This keeps algorithm code focused on geometry while shared logic handles room semantics.

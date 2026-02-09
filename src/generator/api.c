@@ -234,6 +234,28 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->scale_factor < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_shape_mode != DG_ROOM_SHAPE_RECTANGULAR &&
+        config->room_shape_mode != DG_ROOM_SHAPE_ORGANIC) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_shape_organicity < 0 || config->room_shape_organicity > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
 static dg_status_t dg_copy_room_type_definitions_to_snapshot(
     dg_snapshot_room_type_definition_t **out_definitions,
     size_t definition_count,
@@ -313,6 +335,9 @@ static dg_status_t dg_snapshot_generation_request(
     snapshot.height = request->height;
     snapshot.seed = request->seed;
     snapshot.algorithm_id = (int)request->algorithm;
+    snapshot.process.scale_factor = request->process.scale_factor;
+    snapshot.process.room_shape_mode = (int)request->process.room_shape_mode;
+    snapshot.process.room_shape_organicity = request->process.room_shape_organicity;
     snapshot.room_types.policy.strict_mode = request->room_types.policy.strict_mode;
     snapshot.room_types.policy.allow_untyped_rooms = request->room_types.policy.allow_untyped_rooms;
     snapshot.room_types.policy.default_type_id = request->room_types.policy.default_type_id;
@@ -468,6 +493,17 @@ void dg_default_room_type_assignment_config(dg_room_type_assignment_config_t *co
     dg_default_room_type_assignment_policy(&config->policy);
 }
 
+void dg_default_process_config(dg_process_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->scale_factor = 1;
+    config->room_shape_mode = DG_ROOM_SHAPE_RECTANGULAR;
+    config->room_shape_organicity = 45;
+}
+
 void dg_default_generate_request(
     dg_generate_request_t *request,
     dg_algorithm_t algorithm,
@@ -485,6 +521,7 @@ void dg_default_generate_request(
     request->height = height;
     request->seed = seed;
     request->algorithm = algorithm;
+    dg_default_process_config(&request->process);
     dg_default_room_type_assignment_config(&request->room_types);
 
     switch (algorithm) {
@@ -544,6 +581,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return status;
     }
 
+    status = dg_validate_process_config(&request->process);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
     switch (request->algorithm) {
     case DG_ALGORITHM_BSP_TREE:
         status = dg_validate_bsp_config(&request->params.bsp);
@@ -590,6 +632,12 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         break;
     }
 
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
+
+    status = dg_apply_post_processes(request, &generated, &rng);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
         return status;
