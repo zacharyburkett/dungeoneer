@@ -11,6 +11,7 @@ The generation pipeline is currently focused on three baseline algorithms:
 - **Rooms + Mazes generation**
   - `min_rooms` / `max_rooms`
   - `room_min_size` / `room_max_size`
+  - `maze_wiggle_percent` (0..100)
   - `min_room_connections` / `max_room_connections`
   - `ensure_full_connectivity` (`0`/`1`)
   - `dead_end_prune_steps` (`0` off, `>0` max passes, `-1` until stable)

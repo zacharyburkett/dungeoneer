@@ -7,6 +7,7 @@
 typedef struct dg_maze_cell {
     int x;
     int y;
+    int last_dir;
 } dg_maze_cell_t;
 
 typedef struct dg_room_connector {
@@ -507,6 +508,7 @@ static dg_status_t dg_carve_maze_region(
     int start_x,
     int start_y,
     int region_id,
+    int wiggle_percent,
     dg_rng_t *rng
 )
 {
@@ -530,7 +532,7 @@ static dg_status_t dg_carve_maze_region(
     regions[start_index] = region_id;
 
     stack_count = 0;
-    stack[stack_count++] = (dg_maze_cell_t){start_x, start_y};
+    stack[stack_count++] = (dg_maze_cell_t){start_x, start_y, -1};
 
     while (stack_count > 0) {
         dg_maze_cell_t cell = stack[stack_count - 1];
@@ -543,6 +545,7 @@ static dg_status_t dg_carve_maze_region(
         int mid_y;
         int dst_x;
         int dst_y;
+        bool can_continue_straight;
         size_t mid_index;
         size_t dst_index;
         int d;
@@ -566,7 +569,28 @@ static dg_status_t dg_carve_maze_region(
             continue;
         }
 
-        dir_choice = valid_dirs[dg_rng_range(rng, 0, valid_count - 1)];
+        can_continue_straight = false;
+        if (cell.last_dir >= 0) {
+            for (d = 0; d < valid_count; ++d) {
+                if (valid_dirs[d] == cell.last_dir) {
+                    can_continue_straight = true;
+                    break;
+                }
+            }
+        }
+
+        if (can_continue_straight && dg_rng_range(rng, 0, 99) >= wiggle_percent) {
+            dir_choice = cell.last_dir;
+        } else {
+            dir_choice = valid_dirs[dg_rng_range(rng, 0, valid_count - 1)];
+            if (can_continue_straight && valid_count > 1 && dir_choice == cell.last_dir) {
+                int fallback_index = dg_rng_range(rng, 0, valid_count - 2);
+                if (valid_dirs[fallback_index] == cell.last_dir) {
+                    fallback_index = valid_count - 1;
+                }
+                dir_choice = valid_dirs[fallback_index];
+            }
+        }
         dir_x = DG_CARDINAL_DIRECTIONS[dir_choice][0];
         dir_y = DG_CARDINAL_DIRECTIONS[dir_choice][1];
 
@@ -582,7 +606,7 @@ static dg_status_t dg_carve_maze_region(
         regions[mid_index] = region_id;
         regions[dst_index] = region_id;
 
-        stack[stack_count++] = (dg_maze_cell_t){dst_x, dst_y};
+        stack[stack_count++] = (dg_maze_cell_t){dst_x, dst_y, dir_choice};
     }
 
     free(stack);
@@ -593,6 +617,7 @@ static dg_status_t dg_generate_maze_regions(
     dg_map_t *map,
     int *regions,
     int next_region_id,
+    int wiggle_percent,
     dg_rng_t *rng,
     int *out_next_region_id
 )
@@ -623,7 +648,15 @@ static dg_status_t dg_generate_maze_regions(
                 continue;
             }
 
-            status = dg_carve_maze_region(map, regions, x, y, next_region_id, rng);
+            status = dg_carve_maze_region(
+                map,
+                regions,
+                x,
+                y,
+                next_region_id,
+                wiggle_percent,
+                rng
+            );
             if (status != DG_STATUS_OK) {
                 return status;
             }
@@ -1469,7 +1502,14 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
         return status;
     }
 
-    status = dg_generate_maze_regions(map, regions, next_region_id, rng, &next_region_id);
+    status = dg_generate_maze_regions(
+        map,
+        regions,
+        next_region_id,
+        config->maze_wiggle_percent,
+        rng,
+        &next_region_id
+    );
     if (status != DG_STATUS_OK) {
         free(regions);
         return status;

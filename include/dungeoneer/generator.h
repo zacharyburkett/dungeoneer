@@ -34,6 +34,11 @@ typedef struct dg_rooms_and_mazes_config {
     int max_rooms;
     int room_min_size;
     int room_max_size;
+    /*
+     * Probability (0..100) of changing direction while carving mazes.
+     * 0 keeps long straight corridors when possible; 100 is highly wiggly.
+     */
+    int maze_wiggle_percent;
     int min_room_connections;
     int max_room_connections;
     int ensure_full_connectivity;

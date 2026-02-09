@@ -62,6 +62,10 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (config->maze_wiggle_percent < 0 || config->maze_wiggle_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     if (config->min_room_connections < 1) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -112,6 +116,7 @@ void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
     config->max_rooms = 24;
     config->room_min_size = 4;
     config->room_max_size = 10;
+    config->maze_wiggle_percent = 100;
     config->min_room_connections = 1;
     config->max_room_connections = 1;
     config->ensure_full_connectivity = 1;

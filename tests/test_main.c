@@ -800,6 +800,49 @@ static int test_rooms_and_mazes_pruning_control(void)
     return 0;
 }
 
+static int test_rooms_and_mazes_wiggle_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 3200u; seed < 3280u; ++seed) {
+        dg_generate_request_t request_low;
+        dg_generate_request_t request_high;
+        dg_map_t low = {0};
+        dg_map_t high = {0};
+
+        dg_default_generate_request(&request_low, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        request_low.params.rooms_and_mazes.min_rooms = 9;
+        request_low.params.rooms_and_mazes.max_rooms = 14;
+        request_low.params.rooms_and_mazes.room_min_size = 4;
+        request_low.params.rooms_and_mazes.room_max_size = 10;
+        request_low.params.rooms_and_mazes.dead_end_prune_steps = 0;
+        request_low.params.rooms_and_mazes.ensure_full_connectivity = 0;
+        request_low.params.rooms_and_mazes.maze_wiggle_percent = 0;
+
+        request_high = request_low;
+        request_high.params.rooms_and_mazes.maze_wiggle_percent = 100;
+
+        ASSERT_STATUS(dg_generate(&request_low, &low), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&request_high, &high), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&low, &high)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&low);
+        dg_map_destroy(&high);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
 static int test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles(void)
 {
     uint64_t seed;
@@ -923,6 +966,14 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.maze_wiggle_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.maze_wiggle_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
     request.params.rooms_and_mazes.min_room_connections = 0;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
@@ -978,6 +1029,7 @@ int main(void)
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},
+        {"rooms_and_mazes_wiggle_affects_layout", test_rooms_and_mazes_wiggle_affects_layout},
         {"rooms_and_mazes_unpruned_has_no_isolated_seed_tiles",
          test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},

@@ -554,6 +554,17 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
+        "Maze Wiggle (%)",
+        0,
+        &app->rooms_and_mazes_config.maze_wiggle_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
         "Min Connections",
         1,
         &app->rooms_and_mazes_config.min_room_connections,
@@ -597,6 +608,12 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
 
     if (app->rooms_and_mazes_config.room_max_size < app->rooms_and_mazes_config.room_min_size) {
         app->rooms_and_mazes_config.room_max_size = app->rooms_and_mazes_config.room_min_size;
+    }
+
+    if (app->rooms_and_mazes_config.maze_wiggle_percent < 0) {
+        app->rooms_and_mazes_config.maze_wiggle_percent = 0;
+    } else if (app->rooms_and_mazes_config.maze_wiggle_percent > 100) {
+        app->rooms_and_mazes_config.maze_wiggle_percent = 100;
     }
 
     if (app->rooms_and_mazes_config.max_room_connections <
