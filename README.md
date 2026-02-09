@@ -36,6 +36,28 @@ cmake -S . -B build
 cmake --build build
 ```
 
+To build the optional Nuklear app + GLFW presenter:
+
+```sh
+cmake -S . -B build -DDUNGEONEER_BUILD_NUKLEAR_APP=ON
+cmake --build build
+```
+
+By default (`DUNGEONEER_NUKLEAR_AUTO_FETCH=ON`), CMake auto-fetches Nuklear and GLFW
+via `FetchContent` during configure (network access required), then builds
+`dungeoneer_nuklear_demo`.
+
+For offline or fully pinned dependencies, disable auto-fetch:
+
+```sh
+cmake -S . -B build -DDUNGEONEER_BUILD_NUKLEAR_APP=ON -DDUNGEONEER_NUKLEAR_AUTO_FETCH=OFF
+cmake --build build
+```
+
+With auto-fetch off, CMake looks for `nuklear.h` and `nuklear_glfw_gl2.h` in
+`third_party/`, `/opt/homebrew/include`, and `/usr/local/include`, and expects
+GLFW + OpenGL to be available on the system.
+
 ## Test
 
 ```sh
@@ -49,6 +71,8 @@ ctest --test-dir build --output-on-failure
 ./build/dungeoneer_ascii_demo organic 80 40 42
 ./build/dungeoneer_ascii_demo rooms 80 40 42 horizontal-first
 ./build/dungeoneer_ascii_demo rooms 80 40 42 vertical-first
+# if built with -DDUNGEONEER_BUILD_NUKLEAR_APP=ON
+./build/dungeoneer_nuklear_demo
 ```
 
 The demo also prints metadata diagnostics (rooms, corridors, coverage, connectivity, attempts).

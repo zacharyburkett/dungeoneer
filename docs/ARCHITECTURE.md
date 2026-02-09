@@ -6,6 +6,7 @@
 - `src/`: Library implementation
 - `tests/`: Test executable source
 - `demos/`: Demo programs for visualization
+- `apps/nuklear/`: Optional Nuklear editor core and GLFW presenter
 - `docs/`: Planning and architecture docs
 
 ## Core modules
@@ -34,6 +35,20 @@ Versioned binary map persistence:
 - Save full map snapshots (tiles + metadata)
 - Load full map snapshots
 - Format validation with explicit unsupported-format errors
+
+### `apps/nuklear/core.h` + `apps/nuklear/core.c`
+
+Nuklear-based editor core:
+- Owns editor UI state (generation params, file path, status text)
+- Handles generate/save/load actions via public dungeoneer API
+- Renders map preview and metadata through Nuklear command buffers
+
+### `apps/nuklear/glfw_main.c`
+
+Simple presenter shell:
+- GLFW window + OpenGL context
+- Nuklear frame lifecycle and rendering
+- Calls into Nuklear editor core each frame
 
 ### `rng.h` + `src/rng.c`
 

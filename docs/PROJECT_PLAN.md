@@ -42,6 +42,7 @@ Build a standalone C library for 2D procedural dungeon generation that can later
 - Corridor routing mode controls for rooms+corridors (random/horizontal-first/vertical-first)
 - Fail-fast algorithm-specific config validation in public generate entrypoint
 - Binary map serialization (save/load) for tooling and GUI workflows
+- Optional Nuklear-based core app + simple presenter backend for editor workflows
 - Improve room layout quality and corridor routing options
 - Add algorithm-specific validation and diagnostics
 - Expand metadata (connectivity graph, entry/exit points, tags)

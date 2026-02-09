@@ -1,4 +1,5 @@
 build/
+build-nuklear/
 out/
 dist/
 *.o
