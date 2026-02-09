@@ -835,9 +835,6 @@ static void dg_nuklear_draw_map(
     }
 
     if (app->has_map) {
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, "Map preview", NK_TEXT_LEFT);
-
         nk_layout_row_dynamic(ctx, 28.0f, 3);
         nk_label(ctx, "Zoom", NK_TEXT_LEFT);
         nk_property_float(ctx, "x", 0.10f, &app->preview_zoom, 24.0f, 0.10f, 0.01f);
@@ -1906,7 +1903,7 @@ void dg_nuklear_app_draw(
             ctx,
             "Map Preview",
             map_rect,
-            NK_WINDOW_BORDER | NK_WINDOW_TITLE
+            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR
         )) {
         dg_nuklear_draw_map(ctx, app, map_rect.h - 50.0f);
     }
