@@ -49,14 +49,17 @@ int main(void)
     dg_nuklear_app_init(&app);
 
     while (!glfwWindowShouldClose(window)) {
+        int window_width;
+        int window_height;
         int fb_width;
         int fb_height;
 
         glfwPollEvents();
         nk_glfw3_new_frame();
 
+        glfwGetWindowSize(window, &window_width, &window_height);
         glfwGetFramebufferSize(window, &fb_width, &fb_height);
-        dg_nuklear_app_draw(ctx, &app, fb_width, fb_height);
+        dg_nuklear_app_draw(ctx, &app, window_width, window_height);
 
         glViewport(0, 0, fb_width, fb_height);
         glClearColor(0.11f, 0.13f, 0.16f, 1.0f);
