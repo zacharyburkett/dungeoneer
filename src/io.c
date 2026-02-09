@@ -6,7 +6,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 2u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 3u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -505,6 +505,7 @@ static void dg_write_rooms(dg_io_writer_t *writer, const dg_map_t *map)
         dg_io_writer_write_i32(writer, (int32_t)room->bounds.height);
         dg_io_writer_write_u32(writer, (uint32_t)room->flags);
         dg_io_writer_write_i32(writer, (int32_t)room->role);
+        dg_io_writer_write_u32(writer, room->type_id);
     }
 }
 
@@ -609,7 +610,7 @@ static dg_status_t dg_load_header(
     if (reader->status != DG_STATUS_OK) {
         return reader->status;
     }
-    if (version != 1u && version != DG_MAP_FORMAT_VERSION) {
+    if (version != 1u && version != 2u && version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
@@ -786,7 +787,7 @@ static dg_status_t dg_load_tiles(dg_io_reader_t *reader, dg_map_t *map, size_t t
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_load_rooms(dg_io_reader_t *reader, dg_map_t *map)
+static dg_status_t dg_load_rooms(dg_io_reader_t *reader, uint32_t version, dg_map_t *map)
 {
     size_t i;
     dg_status_t status;
@@ -819,6 +820,11 @@ static dg_status_t dg_load_rooms(dg_io_reader_t *reader, dg_map_t *map)
         dg_io_reader_read_int(reader, &room->bounds.height);
         dg_io_reader_read_u32(reader, &room->flags);
         dg_io_reader_read_i32(reader, &role_i32);
+        if (version >= 3u) {
+            dg_io_reader_read_u32(reader, &room->type_id);
+        } else {
+            room->type_id = DG_ROOM_TYPE_UNASSIGNED;
+        }
 
         if (reader->status != DG_STATUS_OK) {
             return reader->status;
@@ -1070,7 +1076,7 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
         return dg_fail_load(file, &loaded, status);
     }
 
-    status = dg_load_rooms(&reader, &loaded);
+    status = dg_load_rooms(&reader, version, &loaded);
     if (status != DG_STATUS_OK) {
         return dg_fail_load(file, &loaded, status);
     }

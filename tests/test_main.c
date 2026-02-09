@@ -114,7 +114,8 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
             ra->bounds.width != rb->bounds.width ||
             ra->bounds.height != rb->bounds.height ||
             ra->flags != rb->flags ||
-            ra->role != rb->role) {
+            ra->role != rb->role ||
+            ra->type_id != rb->type_id) {
             return false;
         }
     }
@@ -147,6 +148,44 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
     }
 
     return true;
+}
+
+static size_t count_rooms_with_type_id(const dg_map_t *map, uint32_t type_id)
+{
+    size_t i;
+    size_t count;
+
+    if (map == NULL) {
+        return 0;
+    }
+
+    count = 0;
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (map->metadata.rooms[i].type_id == type_id) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+static size_t count_rooms_with_assigned_type(const dg_map_t *map)
+{
+    size_t i;
+    size_t count;
+
+    if (map == NULL) {
+        return 0;
+    }
+
+    count = 0;
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (map->metadata.rooms[i].type_id != DG_ROOM_TYPE_UNASSIGNED) {
+            count += 1;
+        }
+    }
+
+    return count;
 }
 
 static bool has_outer_walls(const dg_map_t *map)
@@ -574,6 +613,7 @@ static int test_bsp_generation(void)
         ASSERT_TRUE(room->bounds.height >= request.params.bsp.room_min_size);
         ASSERT_TRUE(room->bounds.height <= request.params.bsp.room_max_size);
         ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
+        ASSERT_TRUE(room->type_id == DG_ROOM_TYPE_UNASSIGNED);
         ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
     }
 
@@ -723,6 +763,7 @@ static int test_rooms_and_mazes_generation(void)
         ASSERT_TRUE(room->bounds.height >= request.params.rooms_and_mazes.room_min_size);
         ASSERT_TRUE(room->bounds.height <= request.params.rooms_and_mazes.room_max_size);
         ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
+        ASSERT_TRUE(room->type_id == DG_ROOM_TYPE_UNASSIGNED);
         ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
     }
 
@@ -875,12 +916,20 @@ static int test_map_serialization_roundtrip(void)
     dg_generate_request_t request;
     dg_map_t original = {0};
     dg_map_t loaded = {0};
+    dg_room_type_definition_t definitions[2];
 
     path = "dungeoneer_test_roundtrip.dgmap";
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6060u);
     request.params.bsp.min_rooms = 9;
     request.params.bsp.max_rooms = 12;
+    dg_default_room_type_definition(&definitions[0], 51u);
+    definitions[0].min_count = 2;
+    dg_default_room_type_definition(&definitions[1], 52u);
+    definitions[1].min_count = 2;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.strict_mode = 1;
 
     ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
     ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
@@ -913,10 +962,159 @@ static int test_map_load_rejects_invalid_magic(void)
     return 0;
 }
 
+static int test_room_type_config_scaffold(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definitions[2];
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 8080u);
+    ASSERT_TRUE(request.room_types.definitions == NULL);
+    ASSERT_TRUE(request.room_types.definition_count == 0);
+    ASSERT_TRUE(request.room_types.policy.strict_mode == 0);
+    ASSERT_TRUE(request.room_types.policy.allow_untyped_rooms == 1);
+    ASSERT_TRUE(request.room_types.policy.default_type_id == 0u);
+
+    dg_default_room_type_definition(&definitions[0], 10u);
+    definitions[0].min_count = 1;
+    definitions[0].target_count = 2;
+
+    dg_default_room_type_definition(&definitions[1], 20u);
+    definitions[1].preferences.weight = 3;
+    definitions[1].constraints.area_min = 12;
+    definitions[1].constraints.area_max = 150;
+
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 10u;
+    request.params.bsp.min_rooms = 8;
+    request.params.bsp.max_rooms = 12;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(map.metadata.room_count > 0);
+    ASSERT_TRUE(count_rooms_with_assigned_type(&map) == map.metadata.room_count);
+    ASSERT_TRUE(count_rooms_with_type_id(&map, 10u) >= 1);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_room_type_assignment_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+    dg_room_type_definition_t definitions[2];
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 7007u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 10;
+
+    dg_default_room_type_definition(&definitions[0], 100u);
+    definitions[0].preferences.weight = 3;
+    definitions[0].preferences.higher_degree_bias = 40;
+    definitions[0].min_count = 2;
+
+    dg_default_room_type_definition(&definitions[1], 200u);
+    definitions[1].preferences.weight = 2;
+    definitions[1].preferences.border_distance_bias = 35;
+    definitions[1].min_count = 2;
+
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.strict_mode = 1;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 100u;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_room_type_assignment_minimums(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definitions[2];
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 8123u);
+    request.params.bsp.min_rooms = 12;
+    request.params.bsp.max_rooms = 12;
+
+    dg_default_room_type_definition(&definitions[0], 31u);
+    definitions[0].min_count = 3;
+    definitions[0].preferences.larger_room_bias = 30;
+
+    dg_default_room_type_definition(&definitions[1], 32u);
+    definitions[1].min_count = 4;
+    definitions[1].preferences.higher_degree_bias = 25;
+
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.strict_mode = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(count_rooms_with_type_id(&map, 31u) >= 3);
+    ASSERT_TRUE(count_rooms_with_type_id(&map, 32u) >= 4);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_room_type_strict_minimum_infeasible(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definition;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 9001u);
+    dg_default_room_type_definition(&definition, 7u);
+    definition.min_count = 1;
+    definition.constraints.area_min = 1000000;
+    definition.constraints.area_max = -1;
+
+    request.room_types.definitions = &definition;
+    request.room_types.definition_count = 1;
+    request.room_types.policy.strict_mode = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_GENERATION_FAILED);
+    return 0;
+}
+
+static int test_room_type_strict_requires_full_coverage(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definition;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 9002u);
+    dg_default_room_type_definition(&definition, 11u);
+    definition.min_count = 0;
+    definition.constraints.degree_min = 100;
+    definition.constraints.degree_max = -1;
+
+    request.room_types.definitions = &definition;
+    request.room_types.definition_count = 1;
+    request.room_types.policy.strict_mode = 1;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 11u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_GENERATION_FAILED);
+    return 0;
+}
+
 static int test_invalid_generate_request(void)
 {
     dg_generate_request_t request;
     dg_map_t map = {0};
+    dg_room_type_definition_t definitions[2];
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 7, 48, 1u);
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
@@ -990,6 +1188,53 @@ static int test_invalid_generate_request(void)
     request.params.rooms_and_mazes.dead_end_prune_steps = -2;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.room_types.definition_count = 1;
+    request.room_types.definitions = NULL;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.room_types.policy.strict_mode = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.room_types.policy.allow_untyped_rooms = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.room_types.policy.allow_untyped_rooms = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 3u);
+    dg_default_room_type_definition(&definitions[1], 3u);
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 3u);
+    definitions[0].enabled = 2;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 3u);
+    definitions[0].constraints.area_min = 20;
+    definitions[0].constraints.area_max = 10;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 3u);
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 1;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 42u;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     return 0;
 }
 
@@ -1034,6 +1279,11 @@ int main(void)
          test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
+        {"room_type_config_scaffold", test_room_type_config_scaffold},
+        {"room_type_assignment_determinism", test_room_type_assignment_determinism},
+        {"room_type_assignment_minimums", test_room_type_assignment_minimums},
+        {"room_type_strict_minimum_infeasible", test_room_type_strict_minimum_infeasible},
+        {"room_type_strict_requires_full_coverage", test_room_type_strict_requires_full_coverage},
         {"invalid_generate_request", test_invalid_generate_request},
         {"bsp_generation_failure_for_tiny_map", test_bsp_generation_failure_for_tiny_map},
     };

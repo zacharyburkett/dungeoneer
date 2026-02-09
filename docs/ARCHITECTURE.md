@@ -23,8 +23,7 @@ Owns map storage and metadata:
 - Tile buffer allocation and lifecycle
 - Tile read/write helpers
 - Generation-class tagging (`room-like` / `cave-like`)
-- Room metadata collection
-- Corridor metadata collection
+- Room and corridor metadata
 - Room adjacency graph metadata (spans + neighbor list)
 - Runtime diagnostics (coverage/connectivity/attempts)
 
@@ -48,19 +47,21 @@ Generation entrypoint and algorithm configs:
 - `DG_ALGORITHM_BSP_TREE`
 - `DG_ALGORITHM_DRUNKARDS_WALK`
 - `DG_ALGORITHM_ROOMS_AND_MAZES`
-- Algorithms map into two generation classes:
-  - Room-like (BSP, Rooms + Mazes): produces room/corridor metadata
-  - Cave-like (Drunkard's Walk): focuses on tile topology without room graph data
-- Config blocks:
-  - `dg_bsp_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
-  - `dg_drunkards_walk_config_t` (`wiggle_percent`)
-  - `dg_rooms_and_mazes_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`, `maze_wiggle_percent`, `min_room_connections`, `max_room_connections`, `ensure_full_connectivity`, `dead_end_prune_steps`)
+
+Algorithms map into two classes:
+- Room-like: BSP, Rooms + Mazes
+- Cave-like: Drunkard's Walk
+
+Current config blocks:
+- `dg_bsp_config_t`
+- `dg_drunkards_walk_config_t`
+- `dg_rooms_and_mazes_config_t`
 
 Internal generator split:
 - `src/generator/api.c`: public API validation + orchestration
-- `src/generator/bsp.c`: BSP partitioning, room carving, and corridor linking
-- `src/generator/drunkards_walk.c`: single-walker cave carving with wiggle control
-- `src/generator/rooms_and_mazes.c`: random room placement + maze carving + connector + dead-end pruning
+- `src/generator/bsp.c`: BSP room and corridor generation
+- `src/generator/drunkards_walk.c`: cave carving by random walk
+- `src/generator/rooms_and_mazes.c`: room placement + maze carving + connectors + pruning
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
 - `src/generator/metadata.c`: class-aware metadata population and map-state initialization
@@ -68,10 +69,10 @@ Internal generator split:
 
 ### `apps/nuklear/core.h` + `apps/nuklear/core.c`
 
-Nuklear-based editor core:
-- Owns editor UI state (BSP params, file path, status text)
-- Handles generate/save/load via the public API
-- Renders map preview and metadata through Nuklear command buffers
+Nuklear editor core:
+- Owns editor UI state
+- Handles generate/save/load through public API
+- Renders map preview and metadata
 
 ### `apps/nuklear/glfw_main.c`
 
@@ -80,20 +81,43 @@ Simple presenter shell:
 - Nuklear frame lifecycle and rendering
 - Calls into Nuklear editor core each frame
 
-## Data flow
+## Generation pipeline (target shape)
 
-1. Create `dg_generate_request_t` (usually via `dg_default_generate_request`).
-2. Call `dg_generate`.
-3. Read tiles and metadata from `dg_map_t`.
-4. Destroy map with `dg_map_destroy`.
+Pipeline is being standardized as:
+1. Input validation + seed setup
+2. Layout generation (algorithm-specific)
+3. Room graph/feature extraction (room-like only)
+4. Room type assignment (algorithm-agnostic)
+5. Optional post constraints / cleanup
+6. Metadata finalize + return
+
+This keeps algorithm code focused on geometry while shared logic handles room semantics.
+
+## Room-type configuration architecture (planned)
+
+Configuration is split by concern:
+- Layout config:
+  - Algorithm-specific controls (already present in `dg_generate_request_t`).
+- Typing config:
+  - Generator-agnostic room-type definitions, quotas, and constraints.
+  - Passed as caller-owned arrays (`pointer + count`) for deterministic, explicit ownership.
+- Policy config:
+  - Global behavior for infeasible constraints (strict fail vs best effort).
+
+Data model direction:
+- Move from hardcoded role semantics toward user-defined room type IDs.
+- Preserve deterministic assignment with seed-driven tie breaking.
+- Keep serialization additive/versioned for backward compatibility.
+- Keep strict-mode failure local to a single generation attempt; retries are handled by callers.
 
 ## Extensibility direction
 
-- Add new algorithms as dedicated files under `src/generator/`.
-- Extend `dg_generate_request_t` with per-algorithm config blocks as new algorithms are introduced.
+- Add new layout algorithms as dedicated files under `src/generator/`.
+- Keep room-typing logic shared and independent from any specific layout algorithm.
 - Keep metadata schema additive so old maps remain readable.
 
 ## Quality gates
 
-- CTest-driven test executable validates API basics and BSP invariants.
-- Nuklear editor build acts as UI smoke coverage during iteration.
+- CTest-driven executable validates API and generation invariants.
+- Serialization tests validate format compatibility and roundtrip integrity.
+- Editor build and runtime smoke checks cover UI integration paths.

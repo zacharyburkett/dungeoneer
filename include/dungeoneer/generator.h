@@ -51,6 +51,75 @@ typedef struct dg_rooms_and_mazes_config {
     int dead_end_prune_steps;
 } dg_rooms_and_mazes_config_t;
 
+typedef struct dg_room_type_constraints {
+    /*
+     * Constraint ranges:
+     *   min >= 0
+     *   max == -1 means unbounded, otherwise max >= min
+     */
+    int area_min;
+    int area_max;
+    int degree_min;
+    int degree_max;
+    int border_distance_min;
+    int border_distance_max;
+    int graph_depth_min;
+    int graph_depth_max;
+} dg_room_type_constraints_t;
+
+typedef struct dg_room_type_preferences {
+    /*
+     * Relative soft-priority bias in scoring. Higher means more likely.
+     * Must be >= 0.
+     */
+    int weight;
+    /*
+     * Directional biases in [-100, 100].
+     * Positive values prefer larger/higher/farther, negative the opposite.
+     */
+    int larger_room_bias;
+    int higher_degree_bias;
+    int border_distance_bias;
+} dg_room_type_preferences_t;
+
+typedef struct dg_room_type_definition {
+    uint32_t type_id;
+    int enabled;
+    /*
+     * Quotas:
+     *   min_count >= 0
+     *   max_count == -1 means unbounded, otherwise max_count >= min_count
+     *   target_count == -1 means unset, otherwise must be in [min_count, max_count]
+     */
+    int min_count;
+    int max_count;
+    int target_count;
+    dg_room_type_constraints_t constraints;
+    dg_room_type_preferences_t preferences;
+} dg_room_type_definition_t;
+
+typedef struct dg_room_type_assignment_policy {
+    /*
+     * strict_mode:
+     *   1 = fail generation when constraints are infeasible
+     *   0 = best effort (future behavior)
+     */
+    int strict_mode;
+    /*
+     * allow_untyped_rooms:
+     *   1 = assignment may leave rooms untyped
+     *   0 = all rooms must receive a type (future behavior)
+     */
+    int allow_untyped_rooms;
+    uint32_t default_type_id;
+} dg_room_type_assignment_policy_t;
+
+typedef struct dg_room_type_assignment_config {
+    const dg_room_type_definition_t *definitions;
+    size_t definition_count;
+    dg_room_type_assignment_policy_t policy;
+} dg_room_type_assignment_config_t;
+
 typedef struct dg_generate_request {
     int width;
     int height;
@@ -61,11 +130,17 @@ typedef struct dg_generate_request {
         dg_drunkards_walk_config_t drunkards_walk;
         dg_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
+    dg_room_type_assignment_config_t room_types;
 } dg_generate_request_t;
 
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
+void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints);
+void dg_default_room_type_preferences(dg_room_type_preferences_t *preferences);
+void dg_default_room_type_definition(dg_room_type_definition_t *definition, uint32_t type_id);
+void dg_default_room_type_assignment_policy(dg_room_type_assignment_policy_t *policy);
+void dg_default_room_type_assignment_config(dg_room_type_assignment_config_t *config);
 void dg_default_generate_request(
     dg_generate_request_t *request,
     dg_algorithm_t algorithm,

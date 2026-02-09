@@ -2,74 +2,94 @@
 
 ## Vision
 
-Build a standalone C library for 2D procedural dungeon generation that can later be integrated into a game engine without architectural rewrites.
+Build a standalone C library for high-variety 2D dungeon generation that can be embedded in engine/editor workflows without rewriting core systems.
 
-## Current reset direction
+## Current state (as of reset)
 
-The generation stack has been intentionally reset to a clean baseline.
+Implemented baseline:
+- Room-like generators:
+  - BSP Tree
+  - Rooms + Mazes
+- Cave-like generators:
+  - Drunkard's Walk
+- Deterministic generation by seed
+- Room/corridor metadata and connectivity metrics
+- Binary map save/load
+- Nuklear-based editor app for generate/save/load
+- Automated tests for core invariants and serialization roundtrip
 
-Current generator scope is intentionally narrow:
-- Baseline algorithms:
-  - Vanilla BSP tree dungeon generation
-  - Drunkard's Walk generation
-  - Rooms + Mazes generation
-- Config families:
-  - BSP: min/max room count and min/max room size
-  - Drunkard's Walk: wiggle amount
-  - Rooms + Mazes: min/max room count, min/max room size, maze wiggle, room connection controls, connectivity toggle, and dead-end prune control
-- Deterministic output by seed
-- Solid tests and editor/demo tooling
+## Product direction after pivot
 
-This baseline is meant to provide a stable foundation before adding advanced controls.
+Primary near-term focus is no longer "special hardcoded roles" (entrance/exit/boss/etc).
+Primary near-term focus is a **general room-type and constraint system** that works across room-like generators.
 
-## Scope phases
+## Decision summary: room typing model
 
-### Phase 0: Baseline BSP (current)
+Chosen direction:
+- Keep generation in two explicit stages:
+  1. Layout stage (algorithm-specific): carve tiles + produce room graph.
+  2. Typing stage (algorithm-agnostic): assign room types using constraints.
+- Make room types user-defined and data-driven (ID + config), not enum-hardcoded behaviors.
+- Separate constraints into:
+  - Hard constraints: must be satisfied (eligibility + quotas).
+  - Soft preferences: weighted scoring when multiple candidates are valid.
+- Keep deterministic behavior by making every tie-break seed-driven.
+- Manage room-type configs as explicit caller-owned arrays in generation requests (no hidden global registry).
 
-- Repository structure and CMake build
-- Public generation API focused on the baseline algorithm surface
-- BSP room/corridor generation implementation
-- Drunkard's Walk implementation with wiggle control
-- Rooms + Mazes implementation:
-  - random non-overlapping room placement with one-tile spacing
-  - maze fill for remaining gaps
-  - room-to-region connector stage with no reciprocal room-pair links
-  - iterative dead-end pruning
-- Runtime metadata population
-- Class-aware metadata pipeline (room-like vs cave-like)
-- Binary map serialization (save/load)
-- Nuklear editor for generate/save/load with per-algorithm controls
-- Test harness and editor workflows updated for the current algorithm set
+Detailed design contract: `docs/ROOM_TYPES.md`.
 
-### Phase 1: BSP quality and diagnostics
+## Roadmap
 
-- Improve BSP split heuristics for better room distributions
-- Add corridor carving variations while preserving simple controls
-- Add regression snapshots for deterministic output drift
-- Expand metadata diagnostics around layout quality
+### Phase 1: Spec and API scaffold
 
-### Phase 2: New algorithm expansion
+- Freeze terminology and config schema for room typing.
+- Add new public config model for room-type assignment (non-breaking first pass).
+- Define migration strategy from legacy `dg_room_role_t` to generic room type IDs.
+- Expand docs for serialization/versioning implications.
 
-- Introduce second generator family with its own config block
-- Keep algorithm configs isolated and composable
-- Add cross-algorithm invariants and comparison tests
+### Phase 2: Room feature extraction
 
-### Phase 3: Engine integration readiness
+- Build room feature pass from existing metadata/graph:
+  - area
+  - aspect ratio
+  - graph degree
+  - border distance
+  - path depth / graph distance metrics
+- Store computed features in internal generation context.
 
-- API versioning and compatibility guidelines
-- Integration examples for game/editor loops
-- Performance benchmarking and profiling
-- CI/release packaging hardening
+### Phase 3: Assignment engine
 
-## Testing strategy
+- Implement deterministic assignment pass:
+  - eligibility filtering
+  - min/max/target quota handling
+  - weighted scoring for soft preferences
+- Support "fully typed" and "partially typed" modes.
+- Define fallback behavior when constraints are infeasible.
 
-- Determinism tests by seed and BSP config
-- Structural invariants (bounds, connectivity, outer walls, room validity)
-- Serialization roundtrip coverage
-- Demo/editor smoke checks in CI
+### Phase 4: Editor integration
 
-## Definition of done for baseline milestone
+- Add room-type configuration controls in Nuklear app:
+  - type list management
+  - quota controls
+  - constraint sliders/toggles
+  - validation messages
+- Add map visualization for assigned room types.
 
-1. Build and tests pass locally with strict warnings enabled.
-2. BSP demo/editor both generate valid maps.
-3. Docs reflect the reset architecture and next phases.
+### Phase 5: Persistence and compatibility
+
+- Extend map format for room type assignments/config snapshots.
+- Maintain backward load compatibility for existing map versions.
+- Add explicit version bump + migration tests.
+
+### Phase 6: Quality gates
+
+- Determinism tests for type assignment by seed/config.
+- Constraint satisfaction tests (quotas/eligibility rules).
+- Property tests for infeasible-config handling.
+- GUI smoke test for room-type config lifecycle.
+
+## Definition of done for this milestone
+
+1. Project docs reflect the post-pivot architecture and priorities.
+2. Room typing has a clear, implementation-ready design contract.
+3. Next coding phase can start from stable API/behavior assumptions.

@@ -20,6 +20,7 @@ add_library(dungeoneer
     src/generator/bsp.c
     src/generator/drunkards_walk.c
     src/generator/rooms_and_mazes.c
+    src/generator/room_types.c
     src/generator/primitives.c
     src/generator/connectivity.c
     src/generator/metadata.c

@@ -218,6 +218,7 @@ dg_status_t dg_populate_runtime_metadata(
     special_room_count = 0;
     for (i = 0; i < map->metadata.room_count; ++i) {
         map->metadata.rooms[i].role = DG_ROOM_ROLE_NONE;
+        map->metadata.rooms[i].type_id = DG_ROOM_TYPE_UNASSIGNED;
         if ((map->metadata.rooms[i].flags & DG_ROOM_FLAG_SPECIAL) != 0u) {
             special_room_count += 1;
         }

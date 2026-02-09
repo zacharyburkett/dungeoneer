@@ -11,6 +11,7 @@ typedef uint32_t dg_room_flags_t;
 
 #define DG_ROOM_FLAG_NONE ((dg_room_flags_t)0u)
 #define DG_ROOM_FLAG_SPECIAL ((dg_room_flags_t)1u)
+#define DG_ROOM_TYPE_UNASSIGNED UINT32_MAX
 
 typedef enum dg_room_role {
     DG_ROOM_ROLE_NONE = 0,
@@ -26,6 +27,7 @@ typedef struct dg_room_metadata {
     dg_rect_t bounds;
     dg_room_flags_t flags;
     dg_room_role_t role;
+    uint32_t type_id;
 } dg_room_metadata_t;
 
 typedef struct dg_corridor_metadata {

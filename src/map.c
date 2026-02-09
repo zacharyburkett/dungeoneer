@@ -234,6 +234,7 @@ dg_status_t dg_map_add_room(dg_map_t *map, const dg_rect_t *bounds, dg_room_flag
     room->bounds = *bounds;
     room->flags = flags;
     room->role = DG_ROOM_ROLE_NONE;
+    room->type_id = DG_ROOM_TYPE_UNASSIGNED;
     map->metadata.room_count += 1;
 
     return DG_STATUS_OK;
