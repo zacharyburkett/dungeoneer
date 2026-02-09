@@ -1,4 +1,5 @@
 #include "dungeoneer/io.h"
+#include "dungeoneer/generator.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -6,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 3u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 4u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -47,7 +48,8 @@ static bool dg_map_is_empty(const dg_map_t *map)
            map->metadata.rooms == NULL &&
            map->metadata.corridors == NULL &&
            map->metadata.room_adjacency == NULL &&
-           map->metadata.room_neighbors == NULL;
+           map->metadata.room_neighbors == NULL &&
+           map->metadata.generation_request.room_types.definitions == NULL;
 }
 
 static dg_status_t dg_write_exact(FILE *file, const void *data, size_t byte_count)
@@ -196,6 +198,13 @@ static bool dg_map_generation_class_value_is_valid(int32_t value)
     return value == (int32_t)DG_MAP_GENERATION_CLASS_UNKNOWN ||
            value == (int32_t)DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
            value == (int32_t)DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+}
+
+static bool dg_algorithm_id_value_is_valid(int32_t value)
+{
+    return value == (int32_t)DG_ALGORITHM_BSP_TREE ||
+           value == (int32_t)DG_ALGORITHM_DRUNKARDS_WALK ||
+           value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES;
 }
 
 static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
@@ -410,6 +419,9 @@ static dg_status_t dg_allocate_array(void **out_ptr, size_t count, size_t elemen
 
 static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
 {
+    const dg_generation_request_snapshot_t *snapshot;
+    size_t i;
+
     if (map == NULL || map->tiles == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -444,6 +456,39 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
 
     if (map->metadata.room_neighbor_count > 0 && map->metadata.room_neighbors == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    snapshot = &map->metadata.generation_request;
+    if (snapshot->present != 0 && snapshot->present != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+    if (snapshot->room_types.definition_count > 0 && snapshot->room_types.definitions == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (snapshot->present == 1) {
+        if (snapshot->width < 1 || snapshot->height < 1) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+        if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        if (snapshot->room_types.policy.strict_mode != 0 &&
+            snapshot->room_types.policy.strict_mode != 1) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+        if (snapshot->room_types.policy.allow_untyped_rooms != 0 &&
+            snapshot->room_types.policy.allow_untyped_rooms != 1) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        for (i = 0; i < snapshot->room_types.definition_count; ++i) {
+            if (snapshot->room_types.definitions[i].enabled != 0 &&
+                snapshot->room_types.definitions[i].enabled != 1) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+        }
     }
 
     return DG_STATUS_OK;
@@ -547,6 +592,108 @@ static void dg_write_room_neighbors(dg_io_writer_t *writer, const dg_map_t *map)
     }
 }
 
+static void dg_write_generation_request_params(
+    dg_io_writer_t *writer,
+    const dg_generation_request_snapshot_t *snapshot
+)
+{
+    if (writer == NULL || snapshot == NULL) {
+        return;
+    }
+
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.min_rooms);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.max_rooms);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.room_min_size);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.room_max_size);
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.drunkards_walk.wiggle_percent);
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.min_rooms);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.max_rooms);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.room_min_size);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.room_max_size);
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.rooms_and_mazes.maze_wiggle_percent
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.rooms_and_mazes.min_room_connections
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.rooms_and_mazes.max_room_connections
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.rooms_and_mazes.ensure_full_connectivity
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.rooms_and_mazes.dead_end_prune_steps
+        );
+        break;
+    default:
+        break;
+    }
+}
+
+static void dg_write_generation_request_snapshot(
+    dg_io_writer_t *writer,
+    const dg_map_metadata_t *metadata
+)
+{
+    const dg_generation_request_snapshot_t *snapshot;
+    size_t i;
+
+    if (writer == NULL || metadata == NULL) {
+        return;
+    }
+
+    snapshot = &metadata->generation_request;
+    dg_io_writer_write_u8(writer, snapshot->present ? 1u : 0u);
+    if (snapshot->present == 0) {
+        return;
+    }
+
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->width);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->height);
+    dg_io_writer_write_u64(writer, snapshot->seed);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->algorithm_id);
+    dg_write_generation_request_params(writer, snapshot);
+
+    dg_io_writer_write_size(writer, snapshot->room_types.definition_count);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.strict_mode);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.allow_untyped_rooms);
+    dg_io_writer_write_u32(writer, snapshot->room_types.policy.default_type_id);
+
+    for (i = 0; i < snapshot->room_types.definition_count; ++i) {
+        const dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
+
+        dg_io_writer_write_u32(writer, definition->type_id);
+        dg_io_writer_write_i32(writer, (int32_t)definition->enabled);
+        dg_io_writer_write_i32(writer, (int32_t)definition->min_count);
+        dg_io_writer_write_i32(writer, (int32_t)definition->max_count);
+        dg_io_writer_write_i32(writer, (int32_t)definition->target_count);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.area_min);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.area_max);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.degree_min);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.degree_max);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.border_distance_min);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.border_distance_max);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.graph_depth_min);
+        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.graph_depth_max);
+        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.weight);
+        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.larger_room_bias);
+        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.higher_degree_bias);
+        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.border_distance_bias);
+    }
+}
+
 static dg_status_t dg_finish_write(FILE *file, dg_status_t status)
 {
     if (file == NULL) {
@@ -610,7 +757,10 @@ static dg_status_t dg_load_header(
     if (reader->status != DG_STATUS_OK) {
         return reader->status;
     }
-    if (version != 1u && version != 2u && version != DG_MAP_FORMAT_VERSION) {
+    if (version != 1u &&
+        version != 2u &&
+        version != 3u &&
+        version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
@@ -972,6 +1122,159 @@ static dg_status_t dg_load_room_neighbors(dg_io_reader_t *reader, dg_map_t *map)
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_load_generation_request_params(
+    dg_io_reader_t *reader,
+    dg_generation_request_snapshot_t *snapshot
+)
+{
+    if (reader == NULL || snapshot == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        dg_io_reader_read_int(reader, &snapshot->params.bsp.min_rooms);
+        dg_io_reader_read_int(reader, &snapshot->params.bsp.max_rooms);
+        dg_io_reader_read_int(reader, &snapshot->params.bsp.room_min_size);
+        dg_io_reader_read_int(reader, &snapshot->params.bsp.room_max_size);
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        dg_io_reader_read_int(reader, &snapshot->params.drunkards_walk.wiggle_percent);
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.min_rooms);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.max_rooms);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.room_min_size);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.room_max_size);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.maze_wiggle_percent);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.min_room_connections);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.max_room_connections);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.ensure_full_connectivity);
+        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.dead_end_prune_steps);
+        break;
+    default:
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_load_generation_request_snapshot(
+    dg_io_reader_t *reader,
+    uint32_t version,
+    dg_map_t *map
+)
+{
+    dg_generation_request_snapshot_t *snapshot;
+    uint8_t present_u8;
+    size_t i;
+    dg_status_t status;
+
+    if (reader == NULL || map == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    snapshot = &map->metadata.generation_request;
+    *snapshot = (dg_generation_request_snapshot_t){0};
+
+    if (version < 4u) {
+        return DG_STATUS_OK;
+    }
+
+    present_u8 = 0;
+    dg_io_reader_read_u8(reader, &present_u8);
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    if (present_u8 != 0u && present_u8 != 1u) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (present_u8 == 0u) {
+        return DG_STATUS_OK;
+    }
+
+    snapshot->present = 1;
+    dg_io_reader_read_int(reader, &snapshot->width);
+    dg_io_reader_read_int(reader, &snapshot->height);
+    dg_io_reader_read_u64(reader, &snapshot->seed);
+    dg_io_reader_read_int(reader, &snapshot->algorithm_id);
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    if (snapshot->width < 1 || snapshot->height < 1) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_load_generation_request_params(reader, snapshot);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    dg_io_reader_read_size(reader, &snapshot->room_types.definition_count);
+    dg_io_reader_read_int(reader, &snapshot->room_types.policy.strict_mode);
+    dg_io_reader_read_int(reader, &snapshot->room_types.policy.allow_untyped_rooms);
+    dg_io_reader_read_u32(reader, &snapshot->room_types.policy.default_type_id);
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    if ((snapshot->room_types.policy.strict_mode != 0 &&
+         snapshot->room_types.policy.strict_mode != 1) ||
+        (snapshot->room_types.policy.allow_untyped_rooms != 0 &&
+         snapshot->room_types.policy.allow_untyped_rooms != 1)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_allocate_array(
+        (void **)&snapshot->room_types.definitions,
+        snapshot->room_types.definition_count,
+        sizeof(dg_snapshot_room_type_definition_t)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < snapshot->room_types.definition_count; ++i) {
+        dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
+
+        dg_io_reader_read_u32(reader, &definition->type_id);
+        dg_io_reader_read_int(reader, &definition->enabled);
+        dg_io_reader_read_int(reader, &definition->min_count);
+        dg_io_reader_read_int(reader, &definition->max_count);
+        dg_io_reader_read_int(reader, &definition->target_count);
+        dg_io_reader_read_int(reader, &definition->constraints.area_min);
+        dg_io_reader_read_int(reader, &definition->constraints.area_max);
+        dg_io_reader_read_int(reader, &definition->constraints.degree_min);
+        dg_io_reader_read_int(reader, &definition->constraints.degree_max);
+        dg_io_reader_read_int(reader, &definition->constraints.border_distance_min);
+        dg_io_reader_read_int(reader, &definition->constraints.border_distance_max);
+        dg_io_reader_read_int(reader, &definition->constraints.graph_depth_min);
+        dg_io_reader_read_int(reader, &definition->constraints.graph_depth_max);
+        dg_io_reader_read_int(reader, &definition->preferences.weight);
+        dg_io_reader_read_int(reader, &definition->preferences.larger_room_bias);
+        dg_io_reader_read_int(reader, &definition->preferences.higher_degree_bias);
+        dg_io_reader_read_int(reader, &definition->preferences.border_distance_bias);
+        if (reader->status != DG_STATUS_OK) {
+            return reader->status;
+        }
+
+        if (definition->enabled != 0 && definition->enabled != 1) {
+            return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
 dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
 {
     FILE *file;
@@ -1019,6 +1322,7 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
     dg_write_corridors(&writer, map);
     dg_write_room_adjacency(&writer, map);
     dg_write_room_neighbors(&writer, map);
+    dg_write_generation_request_snapshot(&writer, &map->metadata);
 
     return dg_finish_write(file, writer.status);
 }
@@ -1092,6 +1396,11 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
     }
 
     status = dg_load_room_neighbors(&reader, &loaded);
+    if (status != DG_STATUS_OK) {
+        return dg_fail_load(file, &loaded, status);
+    }
+
+    status = dg_load_generation_request_snapshot(&reader, version, &loaded);
     if (status != DG_STATUS_OK) {
         return dg_fail_load(file, &loaded, status);
     }

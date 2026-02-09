@@ -54,6 +54,19 @@ static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
     return DG_ALGORITHM_BSP_TREE;
 }
 
+static int dg_nuklear_algorithm_index_from_id(int algorithm_id)
+{
+    switch ((dg_algorithm_t)algorithm_id) {
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        return 2;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        return 1;
+    case DG_ALGORITHM_BSP_TREE:
+    default:
+        return 0;
+    }
+}
+
 static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
 {
     switch (algorithm) {
@@ -436,6 +449,113 @@ static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algori
     }
 }
 
+static void dg_nuklear_apply_room_type_slot_snapshot(
+    dg_nuklear_room_type_ui_t *slot,
+    const dg_snapshot_room_type_definition_t *definition,
+    int index
+)
+{
+    if (slot == NULL || definition == NULL) {
+        return;
+    }
+
+    dg_nuklear_default_room_type_slot(slot, index);
+    slot->type_id = (int)definition->type_id;
+    slot->enabled = definition->enabled ? 1 : 0;
+    slot->min_count = definition->min_count;
+    slot->max_count = definition->max_count;
+    slot->target_count = definition->target_count;
+    slot->area_min = definition->constraints.area_min;
+    slot->area_max = definition->constraints.area_max;
+    slot->degree_min = definition->constraints.degree_min;
+    slot->degree_max = definition->constraints.degree_max;
+    slot->border_distance_min = definition->constraints.border_distance_min;
+    slot->border_distance_max = definition->constraints.border_distance_max;
+    slot->graph_depth_min = definition->constraints.graph_depth_min;
+    slot->graph_depth_max = definition->constraints.graph_depth_max;
+    slot->weight = definition->preferences.weight;
+    slot->larger_room_bias = definition->preferences.larger_room_bias;
+    slot->higher_degree_bias = definition->preferences.higher_degree_bias;
+    slot->border_distance_bias = definition->preferences.border_distance_bias;
+    (void)snprintf(slot->label, sizeof(slot->label), "Type %u", (unsigned int)definition->type_id);
+    dg_nuklear_sanitize_room_type_slot(slot);
+}
+
+static bool dg_nuklear_apply_generation_request_snapshot(
+    dg_nuklear_app_t *app,
+    const dg_generation_request_snapshot_t *snapshot
+)
+{
+    size_t i;
+    size_t copy_count;
+
+    if (app == NULL || snapshot == NULL || snapshot->present == 0) {
+        return false;
+    }
+
+    app->algorithm_index = dg_nuklear_algorithm_index_from_id(snapshot->algorithm_id);
+    app->width = snapshot->width;
+    app->height = snapshot->height;
+    (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)snapshot->seed);
+
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        app->drunkards_walk_config.wiggle_percent = snapshot->params.drunkards_walk.wiggle_percent;
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        app->rooms_and_mazes_config.min_rooms = snapshot->params.rooms_and_mazes.min_rooms;
+        app->rooms_and_mazes_config.max_rooms = snapshot->params.rooms_and_mazes.max_rooms;
+        app->rooms_and_mazes_config.room_min_size = snapshot->params.rooms_and_mazes.room_min_size;
+        app->rooms_and_mazes_config.room_max_size = snapshot->params.rooms_and_mazes.room_max_size;
+        app->rooms_and_mazes_config.maze_wiggle_percent =
+            snapshot->params.rooms_and_mazes.maze_wiggle_percent;
+        app->rooms_and_mazes_config.min_room_connections =
+            snapshot->params.rooms_and_mazes.min_room_connections;
+        app->rooms_and_mazes_config.max_room_connections =
+            snapshot->params.rooms_and_mazes.max_room_connections;
+        app->rooms_and_mazes_config.ensure_full_connectivity =
+            snapshot->params.rooms_and_mazes.ensure_full_connectivity;
+        app->rooms_and_mazes_config.dead_end_prune_steps =
+            snapshot->params.rooms_and_mazes.dead_end_prune_steps;
+        break;
+    case DG_ALGORITHM_BSP_TREE:
+    default:
+        app->bsp_config.min_rooms = snapshot->params.bsp.min_rooms;
+        app->bsp_config.max_rooms = snapshot->params.bsp.max_rooms;
+        app->bsp_config.room_min_size = snapshot->params.bsp.room_min_size;
+        app->bsp_config.room_max_size = snapshot->params.bsp.room_max_size;
+        break;
+    }
+
+    dg_nuklear_reset_room_type_defaults(app);
+    app->room_types_enabled = snapshot->room_types.definition_count > 0 ? 1 : 0;
+    app->room_type_strict_mode = snapshot->room_types.policy.strict_mode ? 1 : 0;
+    app->room_type_allow_untyped = snapshot->room_types.policy.allow_untyped_rooms ? 1 : 0;
+    app->room_type_default_type_id = (int)snapshot->room_types.policy.default_type_id;
+
+    copy_count = snapshot->room_types.definition_count;
+    if (copy_count > (size_t)DG_NUKLEAR_MAX_ROOM_TYPES) {
+        copy_count = (size_t)DG_NUKLEAR_MAX_ROOM_TYPES;
+    }
+
+    if (copy_count > 0) {
+        app->room_type_count = (int)copy_count;
+        for (i = 0; i < copy_count; ++i) {
+            dg_nuklear_apply_room_type_slot_snapshot(
+                &app->room_type_slots[i],
+                &snapshot->room_types.definitions[i],
+                (int)i
+            );
+        }
+        for (; i < (size_t)DG_NUKLEAR_MAX_ROOM_TYPES; ++i) {
+            dg_nuklear_default_room_type_slot(&app->room_type_slots[i], (int)i);
+        }
+    }
+
+    dg_nuklear_sanitize_room_type_settings(app);
+    return true;
+}
+
 static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
@@ -572,6 +692,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
 {
     dg_map_t loaded;
     dg_status_t status;
+    bool restored_from_snapshot;
 
     if (app == NULL) {
         return;
@@ -587,7 +708,37 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
     dg_nuklear_destroy_map(app);
     app->map = loaded;
     app->has_map = true;
-    dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
+
+    app->algorithm_index = dg_nuklear_algorithm_index_from_id(app->map.metadata.algorithm_id);
+    app->width = app->map.width;
+    app->height = app->map.height;
+    (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)app->map.metadata.seed);
+
+    restored_from_snapshot = dg_nuklear_apply_generation_request_snapshot(
+        app,
+        &app->map.metadata.generation_request
+    );
+
+    if (restored_from_snapshot) {
+        if (app->map.metadata.generation_request.room_types.definition_count >
+            (size_t)DG_NUKLEAR_MAX_ROOM_TYPES) {
+            dg_nuklear_set_status(
+                app,
+                "Loaded map from %s (restored settings; room types truncated to %d).",
+                app->file_path,
+                DG_NUKLEAR_MAX_ROOM_TYPES
+            );
+        } else {
+            dg_nuklear_set_status(app, "Loaded map from %s (restored generation settings).", app->file_path);
+        }
+    } else {
+        dg_nuklear_reset_algorithm_defaults(
+            app,
+            dg_nuklear_algorithm_from_index(app->algorithm_index)
+        );
+        dg_nuklear_reset_room_type_defaults(app);
+        dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
+    }
 }
 
 static void dg_nuklear_draw_map(

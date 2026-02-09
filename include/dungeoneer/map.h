@@ -53,6 +53,83 @@ typedef enum dg_map_generation_class {
     DG_MAP_GENERATION_CLASS_CAVE_LIKE = 2
 } dg_map_generation_class_t;
 
+typedef struct dg_snapshot_bsp_config {
+    int min_rooms;
+    int max_rooms;
+    int room_min_size;
+    int room_max_size;
+} dg_snapshot_bsp_config_t;
+
+typedef struct dg_snapshot_drunkards_walk_config {
+    int wiggle_percent;
+} dg_snapshot_drunkards_walk_config_t;
+
+typedef struct dg_snapshot_rooms_and_mazes_config {
+    int min_rooms;
+    int max_rooms;
+    int room_min_size;
+    int room_max_size;
+    int maze_wiggle_percent;
+    int min_room_connections;
+    int max_room_connections;
+    int ensure_full_connectivity;
+    int dead_end_prune_steps;
+} dg_snapshot_rooms_and_mazes_config_t;
+
+typedef struct dg_snapshot_room_type_constraints {
+    int area_min;
+    int area_max;
+    int degree_min;
+    int degree_max;
+    int border_distance_min;
+    int border_distance_max;
+    int graph_depth_min;
+    int graph_depth_max;
+} dg_snapshot_room_type_constraints_t;
+
+typedef struct dg_snapshot_room_type_preferences {
+    int weight;
+    int larger_room_bias;
+    int higher_degree_bias;
+    int border_distance_bias;
+} dg_snapshot_room_type_preferences_t;
+
+typedef struct dg_snapshot_room_type_definition {
+    uint32_t type_id;
+    int enabled;
+    int min_count;
+    int max_count;
+    int target_count;
+    dg_snapshot_room_type_constraints_t constraints;
+    dg_snapshot_room_type_preferences_t preferences;
+} dg_snapshot_room_type_definition_t;
+
+typedef struct dg_snapshot_room_type_assignment_policy {
+    int strict_mode;
+    int allow_untyped_rooms;
+    uint32_t default_type_id;
+} dg_snapshot_room_type_assignment_policy_t;
+
+typedef struct dg_snapshot_room_type_assignment_config {
+    dg_snapshot_room_type_definition_t *definitions;
+    size_t definition_count;
+    dg_snapshot_room_type_assignment_policy_t policy;
+} dg_snapshot_room_type_assignment_config_t;
+
+typedef struct dg_generation_request_snapshot {
+    int present;
+    int width;
+    int height;
+    uint64_t seed;
+    int algorithm_id;
+    union {
+        dg_snapshot_bsp_config_t bsp;
+        dg_snapshot_drunkards_walk_config_t drunkards_walk;
+        dg_snapshot_rooms_and_mazes_config_t rooms_and_mazes;
+    } params;
+    dg_snapshot_room_type_assignment_config_t room_types;
+} dg_generation_request_snapshot_t;
+
 typedef struct dg_map_metadata {
     uint64_t seed;
     int algorithm_id;
@@ -91,6 +168,7 @@ typedef struct dg_map_metadata {
     size_t largest_component_size;
     bool connected_floor;
     size_t generation_attempts;
+    dg_generation_request_snapshot_t generation_request;
 } dg_map_metadata_t;
 
 typedef struct dg_map {

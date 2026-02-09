@@ -62,6 +62,106 @@ static bool maps_have_same_tiles(const dg_map_t *a, const dg_map_t *b)
     return memcmp(a->tiles, b->tiles, cell_count * sizeof(dg_tile_t)) == 0;
 }
 
+static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const dg_map_t *b)
+{
+    const dg_generation_request_snapshot_t *sa;
+    const dg_generation_request_snapshot_t *sb;
+    size_t i;
+
+    if (a == NULL || b == NULL) {
+        return false;
+    }
+
+    sa = &a->metadata.generation_request;
+    sb = &b->metadata.generation_request;
+    if (sa->present != sb->present) {
+        return false;
+    }
+    if (sa->present == 0) {
+        return true;
+    }
+
+    if (sa->width != sb->width ||
+        sa->height != sb->height ||
+        sa->seed != sb->seed ||
+        sa->algorithm_id != sb->algorithm_id ||
+        sa->room_types.definition_count != sb->room_types.definition_count ||
+        sa->room_types.policy.strict_mode != sb->room_types.policy.strict_mode ||
+        sa->room_types.policy.allow_untyped_rooms != sb->room_types.policy.allow_untyped_rooms ||
+        sa->room_types.policy.default_type_id != sb->room_types.policy.default_type_id) {
+        return false;
+    }
+
+    switch ((dg_algorithm_t)sa->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        if (sa->params.bsp.min_rooms != sb->params.bsp.min_rooms ||
+            sa->params.bsp.max_rooms != sb->params.bsp.max_rooms ||
+            sa->params.bsp.room_min_size != sb->params.bsp.room_min_size ||
+            sa->params.bsp.room_max_size != sb->params.bsp.room_max_size) {
+            return false;
+        }
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        if (sa->params.drunkards_walk.wiggle_percent !=
+            sb->params.drunkards_walk.wiggle_percent) {
+            return false;
+        }
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        if (sa->params.rooms_and_mazes.min_rooms != sb->params.rooms_and_mazes.min_rooms ||
+            sa->params.rooms_and_mazes.max_rooms != sb->params.rooms_and_mazes.max_rooms ||
+            sa->params.rooms_and_mazes.room_min_size != sb->params.rooms_and_mazes.room_min_size ||
+            sa->params.rooms_and_mazes.room_max_size != sb->params.rooms_and_mazes.room_max_size ||
+            sa->params.rooms_and_mazes.maze_wiggle_percent !=
+                sb->params.rooms_and_mazes.maze_wiggle_percent ||
+            sa->params.rooms_and_mazes.min_room_connections !=
+                sb->params.rooms_and_mazes.min_room_connections ||
+            sa->params.rooms_and_mazes.max_room_connections !=
+                sb->params.rooms_and_mazes.max_room_connections ||
+            sa->params.rooms_and_mazes.ensure_full_connectivity !=
+                sb->params.rooms_and_mazes.ensure_full_connectivity ||
+            sa->params.rooms_and_mazes.dead_end_prune_steps !=
+                sb->params.rooms_and_mazes.dead_end_prune_steps) {
+            return false;
+        }
+        break;
+    default:
+        return false;
+    }
+
+    if ((sa->room_types.definition_count > 0 &&
+         (sa->room_types.definitions == NULL || sb->room_types.definitions == NULL))) {
+        return false;
+    }
+
+    for (i = 0; i < sa->room_types.definition_count; ++i) {
+        const dg_snapshot_room_type_definition_t *da = &sa->room_types.definitions[i];
+        const dg_snapshot_room_type_definition_t *db = &sb->room_types.definitions[i];
+
+        if (da->type_id != db->type_id ||
+            da->enabled != db->enabled ||
+            da->min_count != db->min_count ||
+            da->max_count != db->max_count ||
+            da->target_count != db->target_count ||
+            da->constraints.area_min != db->constraints.area_min ||
+            da->constraints.area_max != db->constraints.area_max ||
+            da->constraints.degree_min != db->constraints.degree_min ||
+            da->constraints.degree_max != db->constraints.degree_max ||
+            da->constraints.border_distance_min != db->constraints.border_distance_min ||
+            da->constraints.border_distance_max != db->constraints.border_distance_max ||
+            da->constraints.graph_depth_min != db->constraints.graph_depth_min ||
+            da->constraints.graph_depth_max != db->constraints.graph_depth_max ||
+            da->preferences.weight != db->preferences.weight ||
+            da->preferences.larger_room_bias != db->preferences.larger_room_bias ||
+            da->preferences.higher_degree_bias != db->preferences.higher_degree_bias ||
+            da->preferences.border_distance_bias != db->preferences.border_distance_bias) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
 {
     size_t i;
@@ -147,7 +247,7 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         }
     }
 
-    return true;
+    return maps_have_same_generation_request_snapshot(a, b);
 }
 
 static size_t count_rooms_with_type_id(const dg_map_t *map, uint32_t type_id)
@@ -910,6 +1010,78 @@ static int test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles(void)
     return 0;
 }
 
+static int test_generation_request_snapshot_populated(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definitions[2];
+    const dg_generation_request_snapshot_t *snapshot;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 515151u);
+    request.params.rooms_and_mazes.min_rooms = 11;
+    request.params.rooms_and_mazes.max_rooms = 16;
+    request.params.rooms_and_mazes.room_min_size = 5;
+    request.params.rooms_and_mazes.room_max_size = 9;
+    request.params.rooms_and_mazes.maze_wiggle_percent = 25;
+    request.params.rooms_and_mazes.min_room_connections = 1;
+    request.params.rooms_and_mazes.max_room_connections = 2;
+    request.params.rooms_and_mazes.ensure_full_connectivity = 0;
+    request.params.rooms_and_mazes.dead_end_prune_steps = 8;
+
+    dg_default_room_type_definition(&definitions[0], 701u);
+    definitions[0].min_count = 2;
+    definitions[0].preferences.higher_degree_bias = 20;
+    dg_default_room_type_definition(&definitions[1], 702u);
+    definitions[1].min_count = 1;
+    definitions[1].preferences.border_distance_bias = 35;
+
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.strict_mode = 1;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 701u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    snapshot = &map.metadata.generation_request;
+    ASSERT_TRUE(snapshot->present == 1);
+    ASSERT_TRUE(snapshot->width == request.width);
+    ASSERT_TRUE(snapshot->height == request.height);
+    ASSERT_TRUE(snapshot->seed == request.seed);
+    ASSERT_TRUE(snapshot->algorithm_id == (int)request.algorithm);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_rooms == request.params.rooms_and_mazes.max_rooms);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.room_min_size ==
+                request.params.rooms_and_mazes.room_min_size);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.room_max_size ==
+                request.params.rooms_and_mazes.room_max_size);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.maze_wiggle_percent ==
+                request.params.rooms_and_mazes.maze_wiggle_percent);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_room_connections ==
+                request.params.rooms_and_mazes.min_room_connections);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_room_connections ==
+                request.params.rooms_and_mazes.max_room_connections);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.ensure_full_connectivity ==
+                request.params.rooms_and_mazes.ensure_full_connectivity);
+    ASSERT_TRUE(snapshot->params.rooms_and_mazes.dead_end_prune_steps ==
+                request.params.rooms_and_mazes.dead_end_prune_steps);
+
+    ASSERT_TRUE(snapshot->room_types.definition_count == request.room_types.definition_count);
+    ASSERT_TRUE(snapshot->room_types.policy.strict_mode == request.room_types.policy.strict_mode);
+    ASSERT_TRUE(snapshot->room_types.policy.allow_untyped_rooms ==
+                request.room_types.policy.allow_untyped_rooms);
+    ASSERT_TRUE(snapshot->room_types.policy.default_type_id ==
+                request.room_types.policy.default_type_id);
+    ASSERT_TRUE(snapshot->room_types.definitions != NULL);
+    ASSERT_TRUE(snapshot->room_types.definitions[0].type_id == definitions[0].type_id);
+    ASSERT_TRUE(snapshot->room_types.definitions[0].min_count == definitions[0].min_count);
+    ASSERT_TRUE(snapshot->room_types.definitions[1].type_id == definitions[1].type_id);
+    ASSERT_TRUE(snapshot->room_types.definitions[1].min_count == definitions[1].min_count);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
 static int test_map_serialization_roundtrip(void)
 {
     const char *path;
@@ -1277,6 +1449,7 @@ int main(void)
         {"rooms_and_mazes_wiggle_affects_layout", test_rooms_and_mazes_wiggle_affects_layout},
         {"rooms_and_mazes_unpruned_has_no_isolated_seed_tiles",
          test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
+        {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"room_type_config_scaffold", test_room_type_config_scaffold},
