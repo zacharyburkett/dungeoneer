@@ -149,6 +149,20 @@ static int dg_nuklear_ceil_to_int(float value)
     return truncated;
 }
 
+static struct nk_rect dg_nuklear_rect_intersection(struct nk_rect a, struct nk_rect b)
+{
+    float left = dg_nuklear_max_float(a.x, b.x);
+    float top = dg_nuklear_max_float(a.y, b.y);
+    float right = dg_nuklear_min_float(a.x + a.w, b.x + b.w);
+    float bottom = dg_nuklear_min_float(a.y + a.h, b.y + b.h);
+
+    if (right <= left || bottom <= top) {
+        return nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    return nk_rect(left, top, right - left, bottom - top);
+}
+
 static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, int index)
 {
     if (slot == NULL) {
@@ -823,8 +837,11 @@ static void dg_nuklear_draw_map(
 )
 {
     struct nk_rect preview_bounds;
+    struct nk_rect preview_content_bounds;
     enum nk_widget_layout_states widget_state;
     struct nk_command_buffer *canvas;
+    struct nk_rect old_clip;
+    struct nk_rect draw_clip;
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -853,8 +870,18 @@ static void dg_nuklear_draw_map(
     }
 
     canvas = nk_window_get_canvas(ctx);
+    old_clip = canvas->clip;
+    preview_content_bounds = preview_bounds;
+    if (preview_content_bounds.w > 2.0f && preview_content_bounds.h > 2.0f) {
+        preview_content_bounds.x += 1.0f;
+        preview_content_bounds.y += 1.0f;
+        preview_content_bounds.w -= 2.0f;
+        preview_content_bounds.h -= 2.0f;
+    }
+
     nk_fill_rect(canvas, preview_bounds, 0.0f, nk_rgb(20, 24, 31));
-    nk_stroke_rect(canvas, preview_bounds, 0.0f, 1.0f, nk_rgb(85, 96, 112));
+    draw_clip = dg_nuklear_rect_intersection(old_clip, preview_content_bounds);
+    nk_push_scissor(canvas, draw_clip);
 
     if (app->has_map && app->map.tiles != NULL && app->map.width > 0 && app->map.height > 0) {
         int x_start;
@@ -878,148 +905,152 @@ static void dg_nuklear_draw_map(
         float scroll_delta;
 
         base_scale = dg_nuklear_min_float(
-            preview_bounds.w / (float)app->map.width,
-            preview_bounds.h / (float)app->map.height
+            preview_content_bounds.w / (float)app->map.width,
+            preview_content_bounds.h / (float)app->map.height
         );
-        if (base_scale <= 0.0f) {
-            return;
-        }
+        if (base_scale > 0.0f) {
+            app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom, 0.10f, 24.0f);
+            scale = base_scale * app->preview_zoom;
+            scale = dg_nuklear_max_float(scale, 0.01f);
+            view_w_tiles = preview_content_bounds.w / scale;
+            view_h_tiles = preview_content_bounds.h / scale;
 
-        app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom, 0.10f, 24.0f);
-        scale = base_scale * app->preview_zoom;
-        scale = dg_nuklear_max_float(scale, 0.01f);
-        view_w_tiles = preview_bounds.w / scale;
-        view_h_tiles = preview_bounds.h / scale;
-
-        center_x = app->preview_center_x;
-        center_y = app->preview_center_y;
-        if (center_x <= 0.0f || center_y <= 0.0f) {
-            center_x = (float)app->map.width * 0.5f;
-            center_y = (float)app->map.height * 0.5f;
-        }
-
-        hovered = nk_input_is_mouse_hovering_rect(&ctx->input, preview_bounds);
-        scroll_delta = ctx->input.mouse.scroll_delta.y;
-        if (hovered && scroll_delta != 0.0f) {
-            float mouse_x = ctx->input.mouse.pos.x;
-            float mouse_y = ctx->input.mouse.pos.y;
-            float old_scale = scale;
-            float old_view_w = view_w_tiles;
-            float old_view_h = view_h_tiles;
-            float map_x_at_cursor;
-            float map_y_at_cursor;
-            float new_zoom;
-            float new_scale;
-            float new_view_w;
-            float new_view_h;
-            float origin_x_before = center_x - old_view_w * 0.5f;
-            float origin_y_before = center_y - old_view_h * 0.5f;
-
-            map_x_at_cursor = origin_x_before + (mouse_x - preview_bounds.x) / old_scale;
-            map_y_at_cursor = origin_y_before + (mouse_y - preview_bounds.y) / old_scale;
-
-            new_zoom = app->preview_zoom * (1.0f + scroll_delta * 0.12f);
-            new_zoom = dg_nuklear_clamp_float(new_zoom, 0.10f, 24.0f);
-            new_scale = dg_nuklear_max_float(base_scale * new_zoom, 0.01f);
-            new_view_w = preview_bounds.w / new_scale;
-            new_view_h = preview_bounds.h / new_scale;
-
-            center_x = map_x_at_cursor - (mouse_x - preview_bounds.x) / new_scale + new_view_w * 0.5f;
-            center_y = map_y_at_cursor - (mouse_y - preview_bounds.y) / new_scale + new_view_h * 0.5f;
-
-            app->preview_zoom = new_zoom;
-            scale = new_scale;
-            view_w_tiles = new_view_w;
-            view_h_tiles = new_view_h;
-        }
-
-        if (hovered &&
-            (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_RIGHT) ||
-             nk_input_is_mouse_down(&ctx->input, NK_BUTTON_MIDDLE))) {
-            center_x -= ctx->input.mouse.delta.x / scale;
-            center_y -= ctx->input.mouse.delta.y / scale;
-        }
-
-        if (view_w_tiles >= (float)app->map.width) {
-            center_x = (float)app->map.width * 0.5f;
-        } else {
-            center_x = dg_nuklear_clamp_float(
-                center_x,
-                view_w_tiles * 0.5f,
-                (float)app->map.width - view_w_tiles * 0.5f
-            );
-        }
-
-        if (view_h_tiles >= (float)app->map.height) {
-            center_y = (float)app->map.height * 0.5f;
-        } else {
-            center_y = dg_nuklear_clamp_float(
-                center_y,
-                view_h_tiles * 0.5f,
-                (float)app->map.height - view_h_tiles * 0.5f
-            );
-        }
-
-        app->preview_center_x = center_x;
-        app->preview_center_y = center_y;
-
-        origin_x_tiles = center_x - view_w_tiles * 0.5f;
-        origin_y_tiles = center_y - view_h_tiles * 0.5f;
-
-        x_start = dg_nuklear_floor_to_int(origin_x_tiles);
-        y_start = dg_nuklear_floor_to_int(origin_y_tiles);
-        x_end = dg_nuklear_ceil_to_int(origin_x_tiles + view_w_tiles);
-        y_end = dg_nuklear_ceil_to_int(origin_y_tiles + view_h_tiles);
-
-        x_start = dg_nuklear_clamp_int(x_start, 0, app->map.width);
-        y_start = dg_nuklear_clamp_int(y_start, 0, app->map.height);
-        x_end = dg_nuklear_clamp_int(x_end, 0, app->map.width);
-        y_end = dg_nuklear_clamp_int(y_end, 0, app->map.height);
-        if (x_end <= x_start || y_end <= y_start) {
-            return;
-        }
-
-        sample_step = 1;
-        max_preview_quads = 4000u;
-        sampled_quads = (size_t)(x_end - x_start) * (size_t)(y_end - y_start);
-        while (sampled_quads > max_preview_quads) {
-            size_t sampled_w;
-            size_t sampled_h;
-
-            sample_step += 1;
-            sampled_w = ((size_t)(x_end - x_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
-            sampled_h = ((size_t)(y_end - y_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
-            sampled_quads = sampled_w * sampled_h;
-        }
-
-        for (y = y_start; y < y_end; y += sample_step) {
-            int block_h = sample_step;
-            if (y + block_h > y_end) {
-                block_h = y_end - y;
+            center_x = app->preview_center_x;
+            center_y = app->preview_center_y;
+            if (center_x <= 0.0f || center_y <= 0.0f) {
+                center_x = (float)app->map.width * 0.5f;
+                center_y = (float)app->map.height * 0.5f;
             }
 
-            for (x = x_start; x < x_end; x += sample_step) {
-                int block_w = sample_step;
-                dg_tile_t tile;
-                struct nk_color color;
-                struct nk_rect r;
+            hovered = nk_input_is_mouse_hovering_rect(&ctx->input, preview_content_bounds);
+            scroll_delta = ctx->input.mouse.scroll_delta.y;
+            if (hovered && scroll_delta != 0.0f) {
+                float mouse_x = ctx->input.mouse.pos.x;
+                float mouse_y = ctx->input.mouse.pos.y;
+                float old_scale = scale;
+                float old_view_w = view_w_tiles;
+                float old_view_h = view_h_tiles;
+                float map_x_at_cursor;
+                float map_y_at_cursor;
+                float new_zoom;
+                float new_scale;
+                float new_view_w;
+                float new_view_h;
+                float origin_x_before = center_x - old_view_w * 0.5f;
+                float origin_y_before = center_y - old_view_h * 0.5f;
 
-                if (x + block_w > x_end) {
-                    block_w = x_end - x;
+                map_x_at_cursor = origin_x_before + (mouse_x - preview_content_bounds.x) / old_scale;
+                map_y_at_cursor = origin_y_before + (mouse_y - preview_content_bounds.y) / old_scale;
+
+                new_zoom = app->preview_zoom * (1.0f + scroll_delta * 0.12f);
+                new_zoom = dg_nuklear_clamp_float(new_zoom, 0.10f, 24.0f);
+                new_scale = dg_nuklear_max_float(base_scale * new_zoom, 0.01f);
+                new_view_w = preview_content_bounds.w / new_scale;
+                new_view_h = preview_content_bounds.h / new_scale;
+
+                center_x = map_x_at_cursor -
+                           (mouse_x - preview_content_bounds.x) / new_scale +
+                           new_view_w * 0.5f;
+                center_y = map_y_at_cursor -
+                           (mouse_y - preview_content_bounds.y) / new_scale +
+                           new_view_h * 0.5f;
+
+                app->preview_zoom = new_zoom;
+                scale = new_scale;
+                view_w_tiles = new_view_w;
+                view_h_tiles = new_view_h;
+            }
+
+            if (hovered && nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+                center_x -= ctx->input.mouse.delta.x / scale;
+                center_y -= ctx->input.mouse.delta.y / scale;
+            }
+
+            if (view_w_tiles >= (float)app->map.width) {
+                center_x = (float)app->map.width * 0.5f;
+            } else {
+                center_x = dg_nuklear_clamp_float(
+                    center_x,
+                    view_w_tiles * 0.5f,
+                    (float)app->map.width - view_w_tiles * 0.5f
+                );
+            }
+
+            if (view_h_tiles >= (float)app->map.height) {
+                center_y = (float)app->map.height * 0.5f;
+            } else {
+                center_y = dg_nuklear_clamp_float(
+                    center_y,
+                    view_h_tiles * 0.5f,
+                    (float)app->map.height - view_h_tiles * 0.5f
+                );
+            }
+
+            app->preview_center_x = center_x;
+            app->preview_center_y = center_y;
+
+            origin_x_tiles = center_x - view_w_tiles * 0.5f;
+            origin_y_tiles = center_y - view_h_tiles * 0.5f;
+
+            x_start = dg_nuklear_floor_to_int(origin_x_tiles);
+            y_start = dg_nuklear_floor_to_int(origin_y_tiles);
+            x_end = dg_nuklear_ceil_to_int(origin_x_tiles + view_w_tiles);
+            y_end = dg_nuklear_ceil_to_int(origin_y_tiles + view_h_tiles);
+
+            x_start = dg_nuklear_clamp_int(x_start, 0, app->map.width);
+            y_start = dg_nuklear_clamp_int(y_start, 0, app->map.height);
+            x_end = dg_nuklear_clamp_int(x_end, 0, app->map.width);
+            y_end = dg_nuklear_clamp_int(y_end, 0, app->map.height);
+
+            if (x_end > x_start && y_end > y_start) {
+                sample_step = 1;
+                max_preview_quads = 4000u;
+                sampled_quads = (size_t)(x_end - x_start) * (size_t)(y_end - y_start);
+                while (sampled_quads > max_preview_quads) {
+                    size_t sampled_w;
+                    size_t sampled_h;
+
+                    sample_step += 1;
+                    sampled_w =
+                        ((size_t)(x_end - x_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
+                    sampled_h =
+                        ((size_t)(y_end - y_start) + (size_t)sample_step - 1u) / (size_t)sample_step;
+                    sampled_quads = sampled_w * sampled_h;
                 }
 
-                tile = dg_map_get_tile(&app->map, x, y);
-                color = dg_nuklear_tile_color(&app->map, x, y, tile);
-                r = nk_rect(
-                    preview_bounds.x + ((float)x - origin_x_tiles) * scale,
-                    preview_bounds.y + ((float)y - origin_y_tiles) * scale,
-                    scale * (float)block_w,
-                    scale * (float)block_h
-                );
-                nk_fill_rect(canvas, r, 0.0f, color);
+                for (y = y_start; y < y_end; y += sample_step) {
+                    int block_h = sample_step;
+                    if (y + block_h > y_end) {
+                        block_h = y_end - y;
+                    }
+
+                    for (x = x_start; x < x_end; x += sample_step) {
+                        int block_w = sample_step;
+                        dg_tile_t tile;
+                        struct nk_color color;
+                        struct nk_rect r;
+
+                        if (x + block_w > x_end) {
+                            block_w = x_end - x;
+                        }
+
+                        tile = dg_map_get_tile(&app->map, x, y);
+                        color = dg_nuklear_tile_color(&app->map, x, y, tile);
+                        r = nk_rect(
+                            preview_content_bounds.x + ((float)x - origin_x_tiles) * scale,
+                            preview_content_bounds.y + ((float)y - origin_y_tiles) * scale,
+                            scale * (float)block_w,
+                            scale * (float)block_h
+                        );
+                        nk_fill_rect(canvas, r, 0.0f, color);
+                    }
+                }
             }
         }
     }
+
+    nk_push_scissor(canvas, old_clip);
+    nk_stroke_rect(canvas, preview_bounds, 0.0f, 1.0f, nk_rgb(85, 96, 112));
 }
 
 static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_app_t *app)
