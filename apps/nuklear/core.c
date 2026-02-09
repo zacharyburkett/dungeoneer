@@ -1,9 +1,11 @@
 #include "core.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "nuklear_features.h"
 #include "nuklear.h"
@@ -65,12 +67,186 @@ static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
     }
 }
 
+static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
+{
+    return algorithm == DG_ALGORITHM_BSP_TREE || algorithm == DG_ALGORITHM_ROOMS_AND_MAZES;
+}
+
 static float dg_nuklear_min_float(float a, float b)
 {
     return (a < b) ? a : b;
 }
 
-static bool dg_nuklear_point_in_room(const dg_map_t *map, int x, int y)
+static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, int index)
+{
+    if (slot == NULL) {
+        return;
+    }
+
+    memset(slot, 0, sizeof(*slot));
+    slot->enabled = 1;
+    slot->type_id = (index + 1) * 100;
+    slot->min_count = 0;
+    slot->max_count = -1;
+    slot->target_count = -1;
+    slot->area_min = 0;
+    slot->area_max = -1;
+    slot->degree_min = 0;
+    slot->degree_max = -1;
+    slot->border_distance_min = 0;
+    slot->border_distance_max = -1;
+    slot->graph_depth_min = 0;
+    slot->graph_depth_max = -1;
+    slot->weight = 1;
+    slot->larger_room_bias = 0;
+    slot->higher_degree_bias = 0;
+    slot->border_distance_bias = 0;
+
+    if (index == 0) {
+        (void)snprintf(slot->label, sizeof(slot->label), "Large Halls");
+        slot->weight = 2;
+        slot->larger_room_bias = 35;
+    } else if (index == 1) {
+        (void)snprintf(slot->label, sizeof(slot->label), "Junctions");
+        slot->weight = 2;
+        slot->higher_degree_bias = 50;
+    } else if (index == 2) {
+        (void)snprintf(slot->label, sizeof(slot->label), "Inner Rooms");
+        slot->weight = 2;
+        slot->border_distance_bias = 45;
+    } else {
+        (void)snprintf(slot->label, sizeof(slot->label), "Type %d", index + 1);
+    }
+}
+
+static void dg_nuklear_clamp_unbounded_range(int *min_value, int *max_value)
+{
+    if (min_value == NULL || max_value == NULL) {
+        return;
+    }
+
+    if (*min_value < 0) {
+        *min_value = 0;
+    }
+
+    if (*max_value != -1 && *max_value < *min_value) {
+        *max_value = *min_value;
+    }
+}
+
+static void dg_nuklear_sanitize_room_type_slot(dg_nuklear_room_type_ui_t *slot)
+{
+    if (slot == NULL) {
+        return;
+    }
+
+    slot->enabled = slot->enabled ? 1 : 0;
+    slot->type_id = dg_nuklear_clamp_int(slot->type_id, 0, INT_MAX);
+
+    slot->min_count = dg_nuklear_clamp_int(slot->min_count, 0, INT_MAX);
+    if (slot->max_count < -1) {
+        slot->max_count = -1;
+    }
+    if (slot->max_count != -1 && slot->max_count < slot->min_count) {
+        slot->max_count = slot->min_count;
+    }
+
+    if (slot->target_count < -1) {
+        slot->target_count = -1;
+    }
+    if (slot->target_count != -1) {
+        if (slot->target_count < slot->min_count) {
+            slot->target_count = slot->min_count;
+        }
+        if (slot->max_count != -1 && slot->target_count > slot->max_count) {
+            slot->target_count = slot->max_count;
+        }
+    }
+
+    dg_nuklear_clamp_unbounded_range(&slot->area_min, &slot->area_max);
+    dg_nuklear_clamp_unbounded_range(&slot->degree_min, &slot->degree_max);
+    dg_nuklear_clamp_unbounded_range(&slot->border_distance_min, &slot->border_distance_max);
+    dg_nuklear_clamp_unbounded_range(&slot->graph_depth_min, &slot->graph_depth_max);
+
+    slot->weight = dg_nuklear_clamp_int(slot->weight, 0, INT_MAX);
+    slot->larger_room_bias = dg_nuklear_clamp_int(slot->larger_room_bias, -100, 100);
+    slot->higher_degree_bias = dg_nuklear_clamp_int(slot->higher_degree_bias, -100, 100);
+    slot->border_distance_bias = dg_nuklear_clamp_int(slot->border_distance_bias, -100, 100);
+}
+
+static void dg_nuklear_reset_room_type_defaults(dg_nuklear_app_t *app)
+{
+    int i;
+
+    if (app == NULL) {
+        return;
+    }
+
+    app->room_types_enabled = 0;
+    app->room_type_count = 3;
+    app->room_type_strict_mode = 0;
+    app->room_type_allow_untyped = 1;
+    app->room_type_default_type_id = 100;
+
+    for (i = 0; i < DG_NUKLEAR_MAX_ROOM_TYPES; ++i) {
+        dg_nuklear_default_room_type_slot(&app->room_type_slots[i], i);
+    }
+}
+
+static void dg_nuklear_sanitize_room_type_settings(dg_nuklear_app_t *app)
+{
+    int i;
+    int first_enabled_type_id;
+    bool has_default_enabled;
+
+    if (app == NULL) {
+        return;
+    }
+
+    app->room_types_enabled = app->room_types_enabled ? 1 : 0;
+    app->room_type_count = dg_nuklear_clamp_int(app->room_type_count, 1, DG_NUKLEAR_MAX_ROOM_TYPES);
+    app->room_type_strict_mode = app->room_type_strict_mode ? 1 : 0;
+    app->room_type_allow_untyped = app->room_type_allow_untyped ? 1 : 0;
+    app->room_type_default_type_id = dg_nuklear_clamp_int(app->room_type_default_type_id, 0, INT_MAX);
+
+    first_enabled_type_id = -1;
+    has_default_enabled = false;
+    for (i = 0; i < app->room_type_count; ++i) {
+        dg_nuklear_sanitize_room_type_slot(&app->room_type_slots[i]);
+        if (app->room_type_slots[i].enabled) {
+            if (first_enabled_type_id < 0) {
+                first_enabled_type_id = app->room_type_slots[i].type_id;
+            }
+            if (app->room_type_slots[i].type_id == app->room_type_default_type_id) {
+                has_default_enabled = true;
+            }
+        }
+    }
+
+    if (!app->room_type_allow_untyped && app->room_types_enabled) {
+        if (first_enabled_type_id < 0) {
+            app->room_type_slots[0].enabled = 1;
+            first_enabled_type_id = app->room_type_slots[0].type_id;
+            has_default_enabled = (app->room_type_default_type_id == first_enabled_type_id);
+        }
+        if (!has_default_enabled) {
+            app->room_type_default_type_id = first_enabled_type_id;
+        }
+    }
+}
+
+static bool dg_nuklear_point_room_type(const dg_map_t *map, int x, int y, uint32_t *out_type_id)
 {
     size_t i;
 
@@ -81,6 +257,9 @@ static bool dg_nuklear_point_in_room(const dg_map_t *map, int x, int y)
     for (i = 0; i < map->metadata.room_count; ++i) {
         const dg_rect_t *room = &map->metadata.rooms[i].bounds;
         if (x >= room->x && y >= room->y && x < room->x + room->width && y < room->y + room->height) {
+            if (out_type_id != NULL) {
+                *out_type_id = map->metadata.rooms[i].type_id;
+            }
             return true;
         }
     }
@@ -88,18 +267,34 @@ static bool dg_nuklear_point_in_room(const dg_map_t *map, int x, int y)
     return false;
 }
 
+static struct nk_color dg_nuklear_color_for_room_type(uint32_t type_id)
+{
+    uint32_t hash;
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+
+    hash = type_id * 2654435761u;
+    r = (unsigned char)(80u + ((hash >> 0) & 0x5Fu));
+    g = (unsigned char)(95u + ((hash >> 8) & 0x5Fu));
+    b = (unsigned char)(105u + ((hash >> 16) & 0x5Fu));
+    return nk_rgb(r, g, b);
+}
+
 static struct nk_color dg_nuklear_tile_color(const dg_map_t *map, int x, int y, dg_tile_t tile)
 {
     bool room_floor;
+    uint32_t room_type_id;
 
     room_floor = false;
+    room_type_id = DG_ROOM_TYPE_UNASSIGNED;
     if (
         tile == DG_TILE_FLOOR &&
         map != NULL &&
         map->metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE &&
         map->metadata.room_count > 0
     ) {
-        room_floor = dg_nuklear_point_in_room(map, x, y);
+        room_floor = dg_nuklear_point_room_type(map, x, y, &room_type_id);
     }
 
     switch (tile) {
@@ -107,6 +302,9 @@ static struct nk_color dg_nuklear_tile_color(const dg_map_t *map, int x, int y, 
         return nk_rgb(48, 54, 66);
     case DG_TILE_FLOOR:
         if (room_floor) {
+            if (room_type_id != DG_ROOM_TYPE_UNASSIGNED) {
+                return dg_nuklear_color_for_room_type(room_type_id);
+            }
             return nk_rgb(112, 176, 221);
         }
         return nk_rgb(188, 196, 173);
@@ -152,6 +350,7 @@ static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algori
 static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
+    dg_room_type_definition_t room_type_definitions[DG_NUKLEAR_MAX_ROOM_TYPES];
     dg_map_t generated;
     uint64_t seed;
     dg_algorithm_t algorithm;
@@ -173,6 +372,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
     dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
+    dg_nuklear_sanitize_room_type_settings(app);
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
@@ -180,6 +380,39 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
         request.params.rooms_and_mazes = app->rooms_and_mazes_config;
     } else {
         request.params.bsp = app->bsp_config;
+    }
+
+    if (app->room_types_enabled && dg_nuklear_algorithm_supports_room_types(algorithm)) {
+        int i;
+
+        for (i = 0; i < app->room_type_count; ++i) {
+            const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
+            dg_room_type_definition_t *definition = &room_type_definitions[i];
+
+            dg_default_room_type_definition(definition, (uint32_t)slot->type_id);
+            definition->enabled = slot->enabled ? 1 : 0;
+            definition->min_count = slot->min_count;
+            definition->max_count = slot->max_count;
+            definition->target_count = slot->target_count;
+            definition->constraints.area_min = slot->area_min;
+            definition->constraints.area_max = slot->area_max;
+            definition->constraints.degree_min = slot->degree_min;
+            definition->constraints.degree_max = slot->degree_max;
+            definition->constraints.border_distance_min = slot->border_distance_min;
+            definition->constraints.border_distance_max = slot->border_distance_max;
+            definition->constraints.graph_depth_min = slot->graph_depth_min;
+            definition->constraints.graph_depth_max = slot->graph_depth_max;
+            definition->preferences.weight = slot->weight;
+            definition->preferences.larger_room_bias = slot->larger_room_bias;
+            definition->preferences.higher_degree_bias = slot->higher_degree_bias;
+            definition->preferences.border_distance_bias = slot->border_distance_bias;
+        }
+
+        request.room_types.definitions = room_type_definitions;
+        request.room_types.definition_count = (size_t)app->room_type_count;
+        request.room_types.policy.strict_mode = app->room_type_strict_mode ? 1 : 0;
+        request.room_types.policy.allow_untyped_rooms = app->room_type_allow_untyped ? 1 : 0;
+        request.room_types.policy.default_type_id = (uint32_t)app->room_type_default_type_id;
     }
 
     generated = (dg_map_t){0};
@@ -193,13 +426,35 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     app->map = generated;
     app->has_map = true;
 
-    dg_nuklear_set_status(
-        app,
-        "Generated %dx%d %s map.",
-        app->map.width,
-        app->map.height,
-        dg_nuklear_algorithm_name(algorithm)
-    );
+    if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
+        size_t assigned_count;
+        size_t i;
+
+        assigned_count = 0;
+        for (i = 0; i < app->map.metadata.room_count; ++i) {
+            if (app->map.metadata.rooms[i].type_id != DG_ROOM_TYPE_UNASSIGNED) {
+                assigned_count += 1;
+            }
+        }
+
+        dg_nuklear_set_status(
+            app,
+            "Generated %dx%d %s map (typed rooms: %llu/%llu).",
+            app->map.width,
+            app->map.height,
+            dg_nuklear_algorithm_name(algorithm),
+            (unsigned long long)assigned_count,
+            (unsigned long long)app->map.metadata.room_count
+        );
+    } else {
+        dg_nuklear_set_status(
+            app,
+            "Generated %dx%d %s map.",
+            app->map.width,
+            app->map.height,
+            dg_nuklear_algorithm_name(algorithm)
+        );
+    }
 }
 
 static void dg_nuklear_save_map(dg_nuklear_app_t *app)
@@ -330,6 +585,12 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 {
     char line[128];
     double average_room_degree;
+    size_t assigned_room_count;
+    size_t unassigned_room_count;
+    uint32_t shown_type_ids[6];
+    size_t shown_type_counts[6];
+    size_t shown_type_count;
+    size_t i;
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -347,9 +608,40 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     nk_layout_row_dynamic(ctx, 18.0f, 1);
 
     average_room_degree = 0.0;
+    assigned_room_count = 0;
+    unassigned_room_count = 0;
+    shown_type_count = 0;
     if (app->map.metadata.room_count > 0) {
         average_room_degree = (double)app->map.metadata.room_neighbor_count /
                               (double)app->map.metadata.room_count;
+        for (i = 0; i < app->map.metadata.room_count; ++i) {
+            uint32_t type_id = app->map.metadata.rooms[i].type_id;
+
+            if (type_id == DG_ROOM_TYPE_UNASSIGNED) {
+                unassigned_room_count += 1;
+                continue;
+            }
+
+            assigned_room_count += 1;
+            if (shown_type_count < (sizeof(shown_type_ids) / sizeof(shown_type_ids[0]))) {
+                size_t j;
+                bool found;
+
+                found = false;
+                for (j = 0; j < shown_type_count; ++j) {
+                    if (shown_type_ids[j] == type_id) {
+                        shown_type_counts[j] += 1;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    shown_type_ids[shown_type_count] = type_id;
+                    shown_type_counts[shown_type_count] = 1;
+                    shown_type_count += 1;
+                }
+            }
+        }
     }
 
     (void)snprintf(
@@ -383,6 +675,28 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
         (unsigned long long)app->map.metadata.leaf_room_count
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
+
+    if (app->map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "room types: assigned=%llu unassigned=%llu",
+            (unsigned long long)assigned_room_count,
+            (unsigned long long)unassigned_room_count
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+
+        for (i = 0; i < shown_type_count; ++i) {
+            (void)snprintf(
+                line,
+                sizeof(line),
+                "  type %u -> %llu rooms",
+                (unsigned int)shown_type_ids[i],
+                (unsigned long long)shown_type_counts[i]
+            );
+            nk_label(ctx, line, NK_TEXT_LEFT);
+        }
+    }
 
     (void)snprintf(
         line,
@@ -636,6 +950,205 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     }
 }
 
+static void dg_nuklear_draw_room_type_slot(
+    struct nk_context *ctx,
+    dg_nuklear_room_type_ui_t *slot,
+    int slot_index
+)
+{
+    struct nk_color preview_color;
+
+    if (ctx == NULL || slot == NULL) {
+        return;
+    }
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    slot->enabled = nk_check_label(ctx, "Enabled", slot->enabled);
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Label", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 26.0f, 1);
+    (void)nk_edit_string_zero_terminated(
+        ctx,
+        NK_EDIT_FIELD,
+        slot->label,
+        (int)sizeof(slot->label),
+        nk_filter_default
+    );
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Type ID", 0, &slot->type_id, INT_MAX, 1, 0.25f);
+
+    preview_color = dg_nuklear_color_for_room_type((uint32_t)dg_nuklear_clamp_int(slot->type_id, 0, INT_MAX));
+    nk_layout_row_dynamic(ctx, 24.0f, 2);
+    nk_label(ctx, "Color", NK_TEXT_LEFT);
+    (void)nk_button_color(ctx, preview_color);
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Quotas", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Min Count", 0, &slot->min_count, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Max Count (-1=Any)", -1, &slot->max_count, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Target Count (-1=None)", -1, &slot->target_count, INT_MAX, 1, 0.25f);
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Constraints", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Area Min", 0, &slot->area_min, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Area Max (-1=Any)", -1, &slot->area_max, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Degree Min", 0, &slot->degree_min, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Degree Max (-1=Any)", -1, &slot->degree_max, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Border Dist Min", 0, &slot->border_distance_min, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(
+        ctx,
+        "Border Dist Max (-1=Any)",
+        -1,
+        &slot->border_distance_max,
+        INT_MAX,
+        1,
+        0.25f
+    );
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Graph Depth Min", 0, &slot->graph_depth_min, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(
+        ctx,
+        "Graph Depth Max (-1=Any)",
+        -1,
+        &slot->graph_depth_max,
+        INT_MAX,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Preferences", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Weight", 0, &slot->weight, INT_MAX, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Larger Room Bias", -100, &slot->larger_room_bias, 100, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(ctx, "Higher Degree Bias", -100, &slot->higher_degree_bias, 100, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(
+        ctx,
+        "Border Distance Bias",
+        -100,
+        &slot->border_distance_bias,
+        100,
+        1,
+        0.25f
+    );
+
+    (void)slot_index;
+    dg_nuklear_sanitize_room_type_slot(slot);
+}
+
+static void dg_nuklear_draw_room_type_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app,
+    dg_algorithm_t algorithm
+)
+{
+    int i;
+
+    if (ctx == NULL || app == NULL) {
+        return;
+    }
+
+    dg_nuklear_sanitize_room_type_settings(app);
+
+    if (!dg_nuklear_algorithm_supports_room_types(algorithm)) {
+        nk_layout_row_dynamic(ctx, 20.0f, 1);
+        nk_label(ctx, "Room types are only available for room-like algorithms.", NK_TEXT_LEFT);
+        return;
+    }
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->room_types_enabled = nk_check_label(
+        ctx,
+        "Enable Room Type Assignment",
+        app->room_types_enabled
+    );
+
+    if (!app->room_types_enabled) {
+        nk_layout_row_dynamic(ctx, 36.0f, 1);
+        nk_label_wrap(
+            ctx,
+            "Disabled: rooms stay untyped. Enable this to assign configurable type IDs."
+        );
+        return;
+    }
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(
+        ctx,
+        "Type Count",
+        1,
+        &app->room_type_count,
+        DG_NUKLEAR_MAX_ROOM_TYPES,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->room_type_strict_mode = nk_check_label(ctx, "Strict Mode (fail on infeasible)", app->room_type_strict_mode);
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->room_type_allow_untyped = nk_check_label(ctx, "Allow Untyped Rooms", app->room_type_allow_untyped);
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    nk_property_int(
+        ctx,
+        "Default Type ID",
+        0,
+        &app->room_type_default_type_id,
+        INT_MAX,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 36.0f, 1);
+    nk_label_wrap(
+        ctx,
+        "Tip: start with 2-3 broad types, then tighten constraints after checking the typed map preview."
+    );
+
+    for (i = 0; i < app->room_type_count; ++i) {
+        char section_title[96];
+        const char *label;
+
+        label = app->room_type_slots[i].label[0] != '\0' ? app->room_type_slots[i].label : "Type";
+        (void)snprintf(
+            section_title,
+            sizeof(section_title),
+            "Type %d: %s (id %d)",
+            i + 1,
+            label,
+            app->room_type_slots[i].type_id
+        );
+
+        if (nk_tree_push(ctx, NK_TREE_TAB, section_title, NK_MINIMIZED)) {
+            dg_nuklear_draw_room_type_slot(ctx, &app->room_type_slots[i], i);
+            nk_tree_pop(ctx);
+        }
+    }
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Room Type Preset")) {
+        dg_nuklear_reset_room_type_defaults(app);
+        app->room_types_enabled = 1;
+        dg_nuklear_set_status(app, "Room type preset restored.");
+    }
+}
+
 static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     nk_layout_row_dynamic(ctx, 20.0f, 1);
@@ -700,6 +1213,11 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         }
     }
 
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Room Type Assignment", NK_MINIMIZED)) {
+        dg_nuklear_draw_room_type_settings(ctx, app, algorithm);
+        nk_tree_pop(ctx);
+    }
+
     if (nk_tree_push(ctx, NK_TREE_TAB, "Save / Load", NK_MINIMIZED)) {
         dg_nuklear_draw_save_load(ctx, app);
         nk_tree_pop(ctx);
@@ -723,6 +1241,7 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
+    dg_nuklear_reset_room_type_defaults(app);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");
