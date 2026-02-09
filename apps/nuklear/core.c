@@ -518,12 +518,27 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
         0.25f
     );
 
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Prune Steps (-1=All)",
+        -1,
+        &app->rooms_and_mazes_config.dead_end_prune_steps,
+        10000,
+        1,
+        0.25f
+    );
+
     if (app->rooms_and_mazes_config.max_rooms < app->rooms_and_mazes_config.min_rooms) {
         app->rooms_and_mazes_config.max_rooms = app->rooms_and_mazes_config.min_rooms;
     }
 
     if (app->rooms_and_mazes_config.room_max_size < app->rooms_and_mazes_config.room_min_size) {
         app->rooms_and_mazes_config.room_max_size = app->rooms_and_mazes_config.room_min_size;
+    }
+
+    if (app->rooms_and_mazes_config.dead_end_prune_steps < -1) {
+        app->rooms_and_mazes_config.dead_end_prune_steps = -1;
     }
 
     nk_layout_row_dynamic(ctx, 30.0f, 1);

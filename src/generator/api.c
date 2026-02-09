@@ -62,6 +62,10 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (config->dead_end_prune_steps < -1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     return DG_STATUS_OK;
 }
 
@@ -96,6 +100,7 @@ void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
     config->max_rooms = 24;
     config->room_min_size = 4;
     config->room_max_size = 10;
+    config->dead_end_prune_steps = -1;
 }
 
 void dg_default_generate_request(

@@ -248,6 +248,71 @@ static bool corridors_have_unique_room_pairs(const dg_map_t *map)
     return true;
 }
 
+static bool point_is_inside_any_room(const dg_map_t *map, int x, int y)
+{
+    size_t i;
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *room = &map->metadata.rooms[i].bounds;
+        if (
+            x >= room->x &&
+            y >= room->y &&
+            x < room->x + room->width &&
+            y < room->y + room->height
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static size_t count_non_room_dead_ends(const dg_map_t *map)
+{
+    size_t count;
+    int x;
+    int y;
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+
+    count = 0;
+    for (y = 1; y < map->height - 1; ++y) {
+        for (x = 1; x < map->width - 1; ++x) {
+            int neighbors;
+            int d;
+            dg_tile_t tile;
+
+            if (point_is_inside_any_room(map, x, y)) {
+                continue;
+            }
+
+            tile = dg_map_get_tile(map, x, y);
+            if (!is_walkable(tile)) {
+                continue;
+            }
+
+            neighbors = 0;
+            for (d = 0; d < 4; ++d) {
+                int nx = x + directions[d][0];
+                int ny = y + directions[d][1];
+                if (is_walkable(dg_map_get_tile(map, nx, ny))) {
+                    neighbors += 1;
+                }
+            }
+
+            if (neighbors <= 1) {
+                count += 1;
+            }
+        }
+    }
+
+    return count;
+}
+
 static bool is_connected(const dg_map_t *map)
 {
     size_t cell_count;
@@ -576,6 +641,53 @@ static int test_rooms_and_mazes_determinism(void)
     return 0;
 }
 
+static int test_rooms_and_mazes_pruning_control(void)
+{
+    uint64_t seed;
+    bool found_seed_with_pruning_effect;
+
+    found_seed_with_pruning_effect = false;
+    for (seed = 1000u; seed < 1200u; ++seed) {
+        dg_generate_request_t request_off;
+        dg_generate_request_t request_full;
+        dg_map_t map_off = {0};
+        dg_map_t map_full = {0};
+        size_t dead_ends_off;
+        size_t dead_ends_full;
+
+        dg_default_generate_request(&request_off, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        request_off.params.rooms_and_mazes.min_rooms = 9;
+        request_off.params.rooms_and_mazes.max_rooms = 14;
+        request_off.params.rooms_and_mazes.room_min_size = 4;
+        request_off.params.rooms_and_mazes.room_max_size = 10;
+        request_off.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+        request_full = request_off;
+        request_full.params.rooms_and_mazes.dead_end_prune_steps = -1;
+
+        ASSERT_STATUS(dg_generate(&request_off, &map_off), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&request_full, &map_full), DG_STATUS_OK);
+
+        dead_ends_off = count_non_room_dead_ends(&map_off);
+        dead_ends_full = count_non_room_dead_ends(&map_full);
+
+        if (dead_ends_off > 0 && dead_ends_full == 0) {
+            found_seed_with_pruning_effect = true;
+            ASSERT_TRUE(!maps_have_same_tiles(&map_off, &map_full));
+        }
+
+        dg_map_destroy(&map_off);
+        dg_map_destroy(&map_full);
+
+        if (found_seed_with_pruning_effect) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_seed_with_pruning_effect);
+    return 0;
+}
+
 static int test_map_serialization_roundtrip(void)
 {
     const char *path;
@@ -672,6 +784,10 @@ static int test_invalid_generate_request(void)
     request.params.rooms_and_mazes.room_max_size = 8;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
+    request.params.rooms_and_mazes.dead_end_prune_steps = -2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     return 0;
 }
 
@@ -710,6 +826,7 @@ int main(void)
         {"drunkards_wiggle_affects_layout", test_drunkards_wiggle_affects_layout},
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
+        {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"invalid_generate_request", test_invalid_generate_request},

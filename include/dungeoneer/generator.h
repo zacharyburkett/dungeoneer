@@ -34,6 +34,13 @@ typedef struct dg_rooms_and_mazes_config {
     int max_rooms;
     int room_min_size;
     int room_max_size;
+    /*
+     * Dead-end pruning passes after room connections:
+     *   0  = disabled
+     *   >0 = max passes
+     *   -1 = until stable (no more dead-ends)
+     */
+    int dead_end_prune_steps;
 } dg_rooms_and_mazes_config_t;
 
 typedef struct dg_generate_request {

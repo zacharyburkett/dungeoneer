@@ -621,13 +621,23 @@ static dg_status_t dg_connect_rooms_to_other_regions(
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_remove_dead_ends(dg_map_t *map, int *regions, int room_count)
+static dg_status_t dg_remove_dead_ends(
+    dg_map_t *map,
+    int *regions,
+    int room_count,
+    int max_prune_steps
+)
 {
     size_t cell_count;
     size_t *to_remove;
+    int prune_steps;
 
     if (map == NULL || map->tiles == NULL || regions == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (max_prune_steps == 0) {
+        return DG_STATUS_OK;
     }
 
     cell_count = (size_t)map->width * (size_t)map->height;
@@ -636,10 +646,15 @@ static dg_status_t dg_remove_dead_ends(dg_map_t *map, int *regions, int room_cou
         return DG_STATUS_ALLOCATION_FAILED;
     }
 
+    prune_steps = 0;
     while (true) {
         size_t remove_count;
         int x;
         int y;
+
+        if (max_prune_steps > 0 && prune_steps >= max_prune_steps) {
+            break;
+        }
 
         remove_count = 0;
         for (y = 1; y < map->height - 1; ++y) {
@@ -684,6 +699,8 @@ static dg_status_t dg_remove_dead_ends(dg_map_t *map, int *regions, int room_cou
                 regions[index] = -1;
             }
         }
+
+        prune_steps += 1;
     }
 
     free(to_remove);
@@ -738,7 +755,12 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
         return status;
     }
 
-    status = dg_remove_dead_ends(map, regions, (int)map->metadata.room_count);
+    status = dg_remove_dead_ends(
+        map,
+        regions,
+        (int)map->metadata.room_count,
+        config->dead_end_prune_steps
+    );
     free(regions);
     if (status != DG_STATUS_OK) {
         return status;

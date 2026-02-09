@@ -54,7 +54,7 @@ Generation entrypoint and algorithm configs:
 - Config blocks:
   - `dg_bsp_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
   - `dg_drunkards_walk_config_t` (`wiggle_percent`)
-  - `dg_rooms_and_mazes_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
+  - `dg_rooms_and_mazes_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`, `dead_end_prune_steps`)
 
 Internal generator split:
 - `src/generator/api.c`: public API validation + orchestration
