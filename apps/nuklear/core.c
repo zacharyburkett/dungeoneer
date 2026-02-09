@@ -70,12 +70,45 @@ static float dg_nuklear_min_float(float a, float b)
     return (a < b) ? a : b;
 }
 
-static struct nk_color dg_nuklear_tile_color(dg_tile_t tile)
+static bool dg_nuklear_point_in_room(const dg_map_t *map, int x, int y)
 {
+    size_t i;
+
+    if (map == NULL || map->metadata.rooms == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *room = &map->metadata.rooms[i].bounds;
+        if (x >= room->x && y >= room->y && x < room->x + room->width && y < room->y + room->height) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static struct nk_color dg_nuklear_tile_color(const dg_map_t *map, int x, int y, dg_tile_t tile)
+{
+    bool room_floor;
+
+    room_floor = false;
+    if (
+        tile == DG_TILE_FLOOR &&
+        map != NULL &&
+        map->metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE &&
+        map->metadata.room_count > 0
+    ) {
+        room_floor = dg_nuklear_point_in_room(map, x, y);
+    }
+
     switch (tile) {
     case DG_TILE_WALL:
         return nk_rgb(48, 54, 66);
     case DG_TILE_FLOOR:
+        if (room_floor) {
+            return nk_rgb(112, 176, 221);
+        }
         return nk_rgb(188, 196, 173);
     case DG_TILE_DOOR:
         return nk_rgb(224, 176, 85);
@@ -280,7 +313,7 @@ static void dg_nuklear_draw_map(
                 struct nk_rect r;
 
                 tile = dg_map_get_tile(&app->map, x, y);
-                color = dg_nuklear_tile_color(tile);
+                color = dg_nuklear_tile_color(&app->map, x, y, tile);
                 r = nk_rect(
                     origin_x + tile_size * (float)x,
                     origin_y + tile_size * (float)y,
