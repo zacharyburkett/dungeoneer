@@ -264,7 +264,7 @@ void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
     config->max_rooms = 24;
     config->room_min_size = 4;
     config->room_max_size = 10;
-    config->maze_wiggle_percent = 100;
+    config->maze_wiggle_percent = 40;
     config->min_room_connections = 1;
     config->max_room_connections = 1;
     config->ensure_full_connectivity = 1;

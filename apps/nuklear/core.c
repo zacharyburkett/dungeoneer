@@ -115,14 +115,17 @@ static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, i
 
     if (index == 0) {
         (void)snprintf(slot->label, sizeof(slot->label), "Large Halls");
+        slot->min_count = 1;
         slot->weight = 2;
         slot->larger_room_bias = 35;
     } else if (index == 1) {
         (void)snprintf(slot->label, sizeof(slot->label), "Junctions");
+        slot->min_count = 1;
         slot->weight = 2;
         slot->higher_degree_bias = 50;
     } else if (index == 2) {
         (void)snprintf(slot->label, sizeof(slot->label), "Inner Rooms");
+        slot->min_count = 1;
         slot->weight = 2;
         slot->border_distance_bias = 45;
     } else {
@@ -244,6 +247,92 @@ static void dg_nuklear_sanitize_room_type_settings(dg_nuklear_app_t *app)
             app->room_type_default_type_id = first_enabled_type_id;
         }
     }
+}
+
+static bool dg_nuklear_room_type_id_exists(const dg_nuklear_app_t *app, int type_id, int ignore_index)
+{
+    int i;
+
+    if (app == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < app->room_type_count; ++i) {
+        if (i == ignore_index) {
+            continue;
+        }
+        if (app->room_type_slots[i].type_id == type_id) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static int dg_nuklear_next_room_type_id(const dg_nuklear_app_t *app)
+{
+    int candidate;
+    int max_id;
+    int i;
+
+    if (app == NULL) {
+        return 1;
+    }
+
+    max_id = 0;
+    for (i = 0; i < app->room_type_count; ++i) {
+        if (app->room_type_slots[i].type_id > max_id) {
+            max_id = app->room_type_slots[i].type_id;
+        }
+    }
+
+    if (max_id >= INT_MAX - 1) {
+        return INT_MAX;
+    }
+    candidate = max_id + 1;
+
+    while (candidate < INT_MAX && dg_nuklear_room_type_id_exists(app, candidate, -1)) {
+        candidate += 1;
+    }
+
+    return candidate;
+}
+
+static bool dg_nuklear_append_room_type_slot(dg_nuklear_app_t *app)
+{
+    int new_index;
+
+    if (app == NULL || app->room_type_count >= DG_NUKLEAR_MAX_ROOM_TYPES) {
+        return false;
+    }
+
+    new_index = app->room_type_count;
+    dg_nuklear_default_room_type_slot(&app->room_type_slots[new_index], new_index);
+    app->room_type_slots[new_index].type_id = dg_nuklear_next_room_type_id(app);
+    app->room_type_count += 1;
+    dg_nuklear_sanitize_room_type_settings(app);
+    return true;
+}
+
+static bool dg_nuklear_remove_room_type_slot(dg_nuklear_app_t *app, int remove_index)
+{
+    int i;
+
+    if (app == NULL || app->room_type_count <= 1) {
+        return false;
+    }
+
+    if (remove_index < 0 || remove_index >= app->room_type_count) {
+        return false;
+    }
+
+    for (i = remove_index; i < app->room_type_count - 1; ++i) {
+        app->room_type_slots[i] = app->room_type_slots[i + 1];
+    }
+    app->room_type_count -= 1;
+    dg_nuklear_default_room_type_slot(&app->room_type_slots[app->room_type_count], app->room_type_count);
+    dg_nuklear_sanitize_room_type_settings(app);
+    return true;
 }
 
 static bool dg_nuklear_point_room_type(const dg_map_t *map, int x, int y, uint32_t *out_type_id)
@@ -950,11 +1039,7 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     }
 }
 
-static void dg_nuklear_draw_room_type_slot(
-    struct nk_context *ctx,
-    dg_nuklear_room_type_ui_t *slot,
-    int slot_index
-)
+static void dg_nuklear_draw_room_type_slot(struct nk_context *ctx, dg_nuklear_room_type_ui_t *slot)
 {
     struct nk_color preview_color;
 
@@ -1047,7 +1132,6 @@ static void dg_nuklear_draw_room_type_slot(
         0.25f
     );
 
-    (void)slot_index;
     dg_nuklear_sanitize_room_type_slot(slot);
 }
 
@@ -1058,6 +1142,7 @@ static void dg_nuklear_draw_room_type_settings(
 )
 {
     int i;
+    int pending_remove_index;
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -1087,16 +1172,42 @@ static void dg_nuklear_draw_room_type_settings(
         return;
     }
 
+    pending_remove_index = -1;
+
     nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(
-        ctx,
-        "Type Count",
-        1,
-        &app->room_type_count,
-        DG_NUKLEAR_MAX_ROOM_TYPES,
-        1,
-        0.25f
-    );
+    {
+        char line[96];
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "Configured Types: %d / %d",
+            app->room_type_count,
+            DG_NUKLEAR_MAX_ROOM_TYPES
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+    }
+
+    nk_layout_row_dynamic(ctx, 30.0f, 3);
+    if (nk_button_label(ctx, "Add Type")) {
+        if (dg_nuklear_append_room_type_slot(app)) {
+            app->room_types_enabled = 1;
+            dg_nuklear_set_status(app, "Added room type %d.", app->room_type_count);
+        } else {
+            dg_nuklear_set_status(app, "Maximum room type count reached.");
+        }
+    }
+    if (nk_button_label(ctx, "Remove Last")) {
+        if (dg_nuklear_remove_room_type_slot(app, app->room_type_count - 1)) {
+            dg_nuklear_set_status(app, "Removed last room type.");
+        } else {
+            dg_nuklear_set_status(app, "At least one room type slot must remain.");
+        }
+    }
+    if (nk_button_label(ctx, "Reset Preset")) {
+        dg_nuklear_reset_room_type_defaults(app);
+        app->room_types_enabled = 1;
+        dg_nuklear_set_status(app, "Room type preset restored.");
+    }
 
     nk_layout_row_dynamic(ctx, 24.0f, 1);
     app->room_type_strict_mode = nk_check_label(ctx, "Strict Mode (fail on infeasible)", app->room_type_strict_mode);
@@ -1135,17 +1246,34 @@ static void dg_nuklear_draw_room_type_settings(
             app->room_type_slots[i].type_id
         );
 
-        if (nk_tree_push(ctx, NK_TREE_TAB, section_title, NK_MINIMIZED)) {
-            dg_nuklear_draw_room_type_slot(ctx, &app->room_type_slots[i], i);
+        if (nk_tree_push_id(ctx, NK_TREE_TAB, section_title, NK_MINIMIZED, i + 1)) {
+            nk_layout_row_dynamic(ctx, 28.0f, 3);
+            if (nk_button_label(ctx, "Duplicate")) {
+                if (app->room_type_count >= DG_NUKLEAR_MAX_ROOM_TYPES) {
+                    dg_nuklear_set_status(app, "Cannot duplicate: maximum room type count reached.");
+                } else if (dg_nuklear_append_room_type_slot(app)) {
+                    app->room_type_slots[app->room_type_count - 1] = app->room_type_slots[i];
+                    app->room_type_slots[app->room_type_count - 1].type_id = dg_nuklear_next_room_type_id(app);
+                    dg_nuklear_sanitize_room_type_settings(app);
+                    dg_nuklear_set_status(app, "Duplicated type %d into slot %d.", i + 1, app->room_type_count);
+                }
+            }
+            if (nk_button_label(ctx, "Remove")) {
+                pending_remove_index = i;
+            }
+            nk_label(ctx, " ", NK_TEXT_LEFT);
+
+            dg_nuklear_draw_room_type_slot(ctx, &app->room_type_slots[i]);
             nk_tree_pop(ctx);
         }
     }
 
-    nk_layout_row_dynamic(ctx, 30.0f, 1);
-    if (nk_button_label(ctx, "Reset Room Type Preset")) {
-        dg_nuklear_reset_room_type_defaults(app);
-        app->room_types_enabled = 1;
-        dg_nuklear_set_status(app, "Room type preset restored.");
+    if (pending_remove_index >= 0) {
+        if (dg_nuklear_remove_room_type_slot(app, pending_remove_index)) {
+            dg_nuklear_set_status(app, "Removed type %d.", pending_remove_index + 1);
+        } else {
+            dg_nuklear_set_status(app, "At least one room type slot must remain.");
+        }
     }
 }
 
