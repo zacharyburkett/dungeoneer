@@ -12,10 +12,12 @@ struct nk_context;
 typedef struct dg_nuklear_app {
     dg_map_t map;
     bool has_map;
+    int algorithm_index;
     int width;
     int height;
     char seed_text[32];
     dg_bsp_config_t bsp_config;
+    dg_drunkards_walk_config_t drunkards_walk_config;
     char file_path[256];
     char status_text[256];
 } dg_nuklear_app_t;

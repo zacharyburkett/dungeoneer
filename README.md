@@ -2,11 +2,12 @@
 
 `dungeoneer` is a standalone C library for generating 2D procedural dungeon maps.
 
-The generation pipeline has been reset to a clean baseline with one algorithm:
+The generation pipeline is currently focused on two baseline algorithms:
 - **BSP tree dungeon generation**
-- Config controls limited to:
   - `min_rooms` / `max_rooms`
   - `room_min_size` / `room_max_size`
+- **Drunkard's Walk generation**
+  - `wiggle_percent` (0..100)
 
 The library still includes:
 - Deterministic seed-based generation
@@ -49,7 +50,8 @@ ctest --test-dir build --output-on-failure
 ## Demo
 
 ```sh
-./build/dungeoneer_ascii_demo 80 40 42
+./build/dungeoneer_ascii_demo bsp 80 40 42
+./build/dungeoneer_ascii_demo drunkards 80 40 42 75
 # if built with -DDUNGEONEER_BUILD_NUKLEAR_APP=ON
 ./build/dungeoneer_editor
 ```

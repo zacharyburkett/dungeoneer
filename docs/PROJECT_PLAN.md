@@ -9,8 +9,12 @@ Build a standalone C library for 2D procedural dungeon generation that can later
 The generation stack has been intentionally reset to a clean baseline.
 
 Current generator scope is intentionally narrow:
-- One algorithm: vanilla BSP tree dungeon generation
-- One config family: min/max room count and min/max room size
+- Baseline algorithms:
+  - Vanilla BSP tree dungeon generation
+  - Drunkard's Walk generation
+- Config families:
+  - BSP: min/max room count and min/max room size
+  - Drunkard's Walk: wiggle amount
 - Deterministic output by seed
 - Solid tests and editor/demo tooling
 
@@ -23,10 +27,11 @@ This baseline is meant to provide a stable foundation before adding advanced con
 - Repository structure and CMake build
 - Public generation API reduced to BSP essentials
 - BSP room/corridor generation implementation
+- Drunkard's Walk implementation with wiggle control
 - Runtime metadata population
 - Binary map serialization (save/load)
-- Nuklear editor for generate/save/load with BSP controls
-- Test harness and ASCII demo updated to BSP baseline
+- Nuklear editor for generate/save/load with per-algorithm controls
+- Test harness and ASCII demo updated for the current algorithm set
 
 ### Phase 1: BSP quality and diagnostics
 

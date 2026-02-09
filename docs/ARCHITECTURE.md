@@ -44,16 +44,17 @@ Deterministic PRNG wrapper:
 
 ### `generator.h` + `src/generator/`
 
-Generation entrypoint and BSP config:
-- One algorithm enum value: `DG_ALGORITHM_BSP_TREE`
-- One config block: `dg_bsp_config_t`
-- BSP controls only:
-  - `min_rooms` / `max_rooms`
-  - `room_min_size` / `room_max_size`
+Generation entrypoint and algorithm configs:
+- `DG_ALGORITHM_BSP_TREE`
+- `DG_ALGORITHM_DRUNKARDS_WALK`
+- Config blocks:
+  - `dg_bsp_config_t` (`min_rooms`, `max_rooms`, `room_min_size`, `room_max_size`)
+  - `dg_drunkards_walk_config_t` (`wiggle_percent`)
 
 Internal generator split:
 - `src/generator/api.c`: public API validation + orchestration
 - `src/generator/bsp.c`: BSP partitioning, room carving, and corridor linking
+- `src/generator/drunkards_walk.c`: single-walker cave carving with wiggle control
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
 - `src/generator/metadata.c`: metadata population and map-state initialization

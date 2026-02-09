@@ -297,11 +297,11 @@ static int test_bsp_generation(void)
     size_t floors;
     size_t i;
 
-    dg_default_generate_request(&request, 96, 54, 42u);
-    request.bsp.min_rooms = 10;
-    request.bsp.max_rooms = 10;
-    request.bsp.room_min_size = 4;
-    request.bsp.room_max_size = 11;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 96, 54, 42u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 10;
+    request.params.bsp.room_min_size = 4;
+    request.params.bsp.room_max_size = 11;
 
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
 
@@ -319,10 +319,10 @@ static int test_bsp_generation(void)
 
     for (i = 0; i < map.metadata.room_count; ++i) {
         const dg_room_metadata_t *room = &map.metadata.rooms[i];
-        ASSERT_TRUE(room->bounds.width >= request.bsp.room_min_size);
-        ASSERT_TRUE(room->bounds.width <= request.bsp.room_max_size);
-        ASSERT_TRUE(room->bounds.height >= request.bsp.room_min_size);
-        ASSERT_TRUE(room->bounds.height <= request.bsp.room_max_size);
+        ASSERT_TRUE(room->bounds.width >= request.params.bsp.room_min_size);
+        ASSERT_TRUE(room->bounds.width <= request.params.bsp.room_max_size);
+        ASSERT_TRUE(room->bounds.height >= request.params.bsp.room_min_size);
+        ASSERT_TRUE(room->bounds.height <= request.params.bsp.room_max_size);
         ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
         ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
     }
@@ -337,11 +337,11 @@ static int test_bsp_determinism(void)
     dg_map_t a = {0};
     dg_map_t b = {0};
 
-    dg_default_generate_request(&request, 88, 48, 1337u);
-    request.bsp.min_rooms = 9;
-    request.bsp.max_rooms = 13;
-    request.bsp.room_min_size = 4;
-    request.bsp.room_max_size = 10;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 1337u);
+    request.params.bsp.min_rooms = 9;
+    request.params.bsp.max_rooms = 13;
+    request.params.bsp.room_min_size = 4;
+    request.params.bsp.room_max_size = 10;
 
     ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
     ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
@@ -354,6 +354,89 @@ static int test_bsp_determinism(void)
     return 0;
 }
 
+static int test_drunkards_walk_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_DRUNKARDS_WALK, 96, 54, 4242u);
+    request.params.drunkards_walk.wiggle_percent = 70;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_DRUNKARDS_WALK);
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_drunkards_walk_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_DRUNKARDS_WALK, 88, 48, 7070u);
+    request.params.drunkards_walk.wiggle_percent = 45;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_drunkards_wiggle_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 500u; seed < 560u; ++seed) {
+        dg_generate_request_t request_low;
+        dg_generate_request_t request_high;
+        dg_map_t low = {0};
+        dg_map_t high = {0};
+
+        dg_default_generate_request(&request_low, DG_ALGORITHM_DRUNKARDS_WALK, 80, 44, seed);
+        request_low.params.drunkards_walk.wiggle_percent = 5;
+
+        dg_default_generate_request(&request_high, DG_ALGORITHM_DRUNKARDS_WALK, 80, 44, seed);
+        request_high.params.drunkards_walk.wiggle_percent = 95;
+
+        ASSERT_STATUS(dg_generate(&request_low, &low), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&request_high, &high), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&low, &high)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&low);
+        dg_map_destroy(&high);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
 static int test_map_serialization_roundtrip(void)
 {
     const char *path;
@@ -363,9 +446,9 @@ static int test_map_serialization_roundtrip(void)
 
     path = "dungeoneer_test_roundtrip.dgmap";
 
-    dg_default_generate_request(&request, 88, 48, 6060u);
-    request.bsp.min_rooms = 9;
-    request.bsp.max_rooms = 12;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6060u);
+    request.params.bsp.min_rooms = 9;
+    request.params.bsp.max_rooms = 12;
 
     ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
     ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
@@ -403,25 +486,33 @@ static int test_invalid_generate_request(void)
     dg_generate_request_t request;
     dg_map_t map = {0};
 
-    dg_default_generate_request(&request, 7, 48, 1u);
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 7, 48, 1u);
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
-    dg_default_generate_request(&request, 80, 48, 1u);
-    request.bsp.min_rooms = 0;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.params.bsp.min_rooms = 0;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
-    dg_default_generate_request(&request, 80, 48, 1u);
-    request.bsp.min_rooms = 10;
-    request.bsp.max_rooms = 9;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 9;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
-    dg_default_generate_request(&request, 80, 48, 1u);
-    request.bsp.room_min_size = 2;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.params.bsp.room_min_size = 2;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
-    dg_default_generate_request(&request, 80, 48, 1u);
-    request.bsp.room_min_size = 8;
-    request.bsp.room_max_size = 4;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.params.bsp.room_min_size = 8;
+    request.params.bsp.room_max_size = 4;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_DRUNKARDS_WALK, 80, 48, 1u);
+    request.params.drunkards_walk.wiggle_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_DRUNKARDS_WALK, 80, 48, 1u);
+    request.params.drunkards_walk.wiggle_percent = 101;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     return 0;
@@ -432,11 +523,11 @@ static int test_bsp_generation_failure_for_tiny_map(void)
     dg_generate_request_t request;
     dg_map_t map = {0};
 
-    dg_default_generate_request(&request, 16, 16, 99u);
-    request.bsp.min_rooms = 6;
-    request.bsp.max_rooms = 8;
-    request.bsp.room_min_size = 10;
-    request.bsp.room_max_size = 12;
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 16, 16, 99u);
+    request.params.bsp.min_rooms = 6;
+    request.params.bsp.max_rooms = 8;
+    request.params.bsp.room_min_size = 10;
+    request.params.bsp.room_max_size = 12;
 
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_GENERATION_FAILED);
     return 0;
@@ -457,6 +548,9 @@ int main(void)
         {"rng_reproducibility", test_rng_reproducibility},
         {"bsp_generation", test_bsp_generation},
         {"bsp_determinism", test_bsp_determinism},
+        {"drunkards_walk_generation", test_drunkards_walk_generation},
+        {"drunkards_walk_determinism", test_drunkards_walk_determinism},
+        {"drunkards_wiggle_affects_layout", test_drunkards_wiggle_affects_layout},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"invalid_generate_request", test_invalid_generate_request},

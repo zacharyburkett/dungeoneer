@@ -347,7 +347,7 @@ dg_status_t dg_generate_bsp_tree_impl(
     }
     dg_map_clear_metadata(map);
 
-    config = &request->bsp;
+    config = &request->params.bsp;
     target_rooms = dg_rng_range(rng, config->min_rooms, config->max_rooms);
     min_leaf_size = config->room_min_size + 2;
 

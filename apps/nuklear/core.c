@@ -41,6 +41,25 @@ static bool dg_nuklear_parse_u64(const char *text, uint64_t *out_value)
     return true;
 }
 
+static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
+{
+    if (algorithm_index == 1) {
+        return DG_ALGORITHM_DRUNKARDS_WALK;
+    }
+    return DG_ALGORITHM_BSP_TREE;
+}
+
+static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
+{
+    switch (algorithm) {
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        return "drunkards_walk";
+    case DG_ALGORITHM_BSP_TREE:
+    default:
+        return "bsp_tree";
+    }
+}
+
 static float dg_nuklear_min_float(float a, float b)
 {
     return (a < b) ? a : b;
@@ -74,7 +93,7 @@ static void dg_nuklear_destroy_map(dg_nuklear_app_t *app)
     }
 }
 
-static void dg_nuklear_reset_defaults(dg_nuklear_app_t *app)
+static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algorithm_t algorithm)
 {
     dg_generate_request_t defaults;
 
@@ -82,8 +101,12 @@ static void dg_nuklear_reset_defaults(dg_nuklear_app_t *app)
         return;
     }
 
-    dg_default_generate_request(&defaults, app->width, app->height, 1u);
-    app->bsp_config = defaults.bsp;
+    dg_default_generate_request(&defaults, algorithm, app->width, app->height, 1u);
+    if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
+        app->drunkards_walk_config = defaults.params.drunkards_walk;
+    } else {
+        app->bsp_config = defaults.params.bsp;
+    }
 }
 
 static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
@@ -91,6 +114,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     dg_generate_request_t request;
     dg_map_t generated;
     uint64_t seed;
+    dg_algorithm_t algorithm;
     dg_status_t status;
 
     if (app == NULL) {
@@ -107,8 +131,14 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
         return;
     }
 
-    dg_default_generate_request(&request, app->width, app->height, seed);
-    request.bsp = app->bsp_config;
+    algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
+    dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
+
+    if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
+        request.params.drunkards_walk = app->drunkards_walk_config;
+    } else {
+        request.params.bsp = app->bsp_config;
+    }
 
     generated = (dg_map_t){0};
     status = dg_generate(&request, &generated);
@@ -121,7 +151,13 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     app->map = generated;
     app->has_map = true;
 
-    dg_nuklear_set_status(app, "Generated %dx%d BSP map.", app->map.width, app->map.height);
+    dg_nuklear_set_status(
+        app,
+        "Generated %dx%d %s map.",
+        app->map.width,
+        app->map.height,
+        dg_nuklear_algorithm_name(algorithm)
+    );
 }
 
 static void dg_nuklear_save_map(dg_nuklear_app_t *app)
@@ -274,6 +310,14 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
                               (double)app->map.metadata.room_count;
     }
 
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "algorithm: %s",
+        dg_nuklear_algorithm_name((dg_algorithm_t)app->map.metadata.algorithm_id)
+    );
+    nk_label(ctx, line, NK_TEXT_LEFT);
+
     (void)snprintf(line, sizeof(line), "size: %dx%d", app->map.width, app->map.height);
     nk_label(ctx, line, NK_TEXT_LEFT);
 
@@ -322,6 +366,32 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
+    static const char *algorithms[] = {"BSP Tree", "Drunkard's Walk"};
+    int previous_algorithm_index;
+
+    previous_algorithm_index = app->algorithm_index;
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Algorithm", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    app->algorithm_index = nk_combo(
+        ctx,
+        algorithms,
+        (int)(sizeof(algorithms) / sizeof(algorithms[0])),
+        app->algorithm_index,
+        25,
+        nk_vec2(280, 120)
+    );
+
+    if (app->algorithm_index != previous_algorithm_index) {
+        dg_nuklear_set_status(
+            app,
+            "Selected algorithm: %s",
+            dg_nuklear_algorithm_name(dg_nuklear_algorithm_from_index(app->algorithm_index))
+        );
+    }
+
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(ctx, "Width", 8, &app->width, 512, 1, 0.25f);
 
@@ -365,8 +435,28 @@ static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_
 
     nk_layout_row_dynamic(ctx, 30.0f, 1);
     if (nk_button_label(ctx, "Reset BSP Defaults")) {
-        dg_nuklear_reset_defaults(app);
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
         dg_nuklear_set_status(app, "BSP defaults restored.");
+    }
+}
+
+static void dg_nuklear_draw_drunkards_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Wiggle (%)",
+        0,
+        &app->drunkards_walk_config.wiggle_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Drunkard Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
+        dg_nuklear_set_status(app, "Drunkard's Walk defaults restored.");
     }
 }
 
@@ -395,9 +485,13 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
 
 static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
+    dg_algorithm_t algorithm;
+
     if (ctx == NULL || app == NULL) {
         return;
     }
+
+    algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
 
     nk_layout_row_dynamic(ctx, 34.0f, 2);
     if (nk_button_label(ctx, "Generate")) {
@@ -413,9 +507,16 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         nk_tree_pop(ctx);
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "BSP Settings", NK_MAXIMIZED)) {
-        dg_nuklear_draw_bsp_settings(ctx, app);
-        nk_tree_pop(ctx);
+    if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
+        if (nk_tree_push(ctx, NK_TREE_TAB, "Drunkard Settings", NK_MAXIMIZED)) {
+            dg_nuklear_draw_drunkards_settings(ctx, app);
+            nk_tree_pop(ctx);
+        }
+    } else {
+        if (nk_tree_push(ctx, NK_TREE_TAB, "BSP Settings", NK_MAXIMIZED)) {
+            dg_nuklear_draw_bsp_settings(ctx, app);
+            nk_tree_pop(ctx);
+        }
     }
 
     if (nk_tree_push(ctx, NK_TREE_TAB, "Save / Load", NK_MINIMIZED)) {
@@ -434,10 +535,12 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     }
 
     *app = (dg_nuklear_app_t){0};
+    app->algorithm_index = 0;
     app->width = 80;
     app->height = 40;
 
-    dg_nuklear_reset_defaults(app);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");

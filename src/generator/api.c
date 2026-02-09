@@ -27,6 +27,19 @@ static dg_status_t dg_validate_bsp_config(const dg_bsp_config_t *config)
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_validate_drunkards_walk_config(const dg_drunkards_walk_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->wiggle_percent < 0 || config->wiggle_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
 void dg_default_bsp_config(dg_bsp_config_t *config)
 {
     if (config == NULL) {
@@ -39,8 +52,18 @@ void dg_default_bsp_config(dg_bsp_config_t *config)
     config->room_max_size = 12;
 }
 
+void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->wiggle_percent = 65;
+}
+
 void dg_default_generate_request(
     dg_generate_request_t *request,
+    dg_algorithm_t algorithm,
     int width,
     int height,
     uint64_t seed
@@ -54,7 +77,17 @@ void dg_default_generate_request(
     request->width = width;
     request->height = height;
     request->seed = seed;
-    dg_default_bsp_config(&request->bsp);
+    request->algorithm = algorithm;
+
+    switch (algorithm) {
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        dg_default_drunkards_walk_config(&request->params.drunkards_walk);
+        break;
+    case DG_ALGORITHM_BSP_TREE:
+    default:
+        dg_default_bsp_config(&request->params.bsp);
+        break;
+    }
 }
 
 dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
@@ -81,7 +114,17 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    status = dg_validate_bsp_config(&request->bsp);
+    switch (request->algorithm) {
+    case DG_ALGORITHM_BSP_TREE:
+        status = dg_validate_bsp_config(&request->params.bsp);
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        status = dg_validate_drunkards_walk_config(&request->params.drunkards_walk);
+        break;
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     if (status != DG_STATUS_OK) {
         return status;
     }
@@ -94,7 +137,18 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
 
     dg_rng_seed(&rng, request->seed);
 
-    status = dg_generate_bsp_tree_impl(request, &generated, &rng);
+    switch (request->algorithm) {
+    case DG_ALGORITHM_BSP_TREE:
+        status = dg_generate_bsp_tree_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        status = dg_generate_drunkards_walk_impl(request, &generated, &rng);
+        break;
+    default:
+        status = DG_STATUS_INVALID_ARGUMENT;
+        break;
+    }
+
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
         return status;
@@ -110,7 +164,7 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     status = dg_populate_runtime_metadata(
         &generated,
         request->seed,
-        (int)DG_ALGORITHM_BSP_TREE,
+        (int)request->algorithm,
         1u
     );
     if (status != DG_STATUS_OK) {

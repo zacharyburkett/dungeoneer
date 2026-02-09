@@ -19,6 +19,7 @@ add_library(dungeoneer
     src/rng.c
     src/generator/api.c
     src/generator/bsp.c
+    src/generator/drunkards_walk.c
     src/generator/primitives.c
     src/generator/connectivity.c
     src/generator/metadata.c
