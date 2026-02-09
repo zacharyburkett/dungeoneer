@@ -197,12 +197,27 @@ static bool dg_can_carve_maze_step(
     int dir_y
 )
 {
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    static const int diagonal_directions[4][2] = {
+        {1, 1},
+        {1, -1},
+        {-1, 1},
+        {-1, -1}
+    };
     int mid_x;
     int mid_y;
     int dst_x;
     int dst_y;
+    size_t source_index;
     size_t mid_index;
     size_t dst_index;
+    int source_region;
+    int d;
 
     mid_x = x + dir_x;
     mid_y = y + dir_y;
@@ -220,9 +235,128 @@ static bool dg_can_carve_maze_step(
         return false;
     }
 
+    source_index = dg_tile_index(map, x, y);
     mid_index = dg_tile_index(map, mid_x, mid_y);
     dst_index = dg_tile_index(map, dst_x, dst_y);
-    return regions[mid_index] == -1 && regions[dst_index] == -1;
+    source_region = regions[source_index];
+    if (regions[mid_index] != -1 || regions[dst_index] != -1) {
+        return false;
+    }
+
+    /*
+     * Keep a one-wall buffer from existing walkable space.
+     * Mid can touch the source and the new destination.
+     * Destination can only touch the new mid cell.
+     */
+    for (d = 0; d < 4; ++d) {
+        int nx = mid_x + directions[d][0];
+        int ny = mid_y + directions[d][1];
+
+        if (!dg_interior_in_bounds(map, nx, ny)) {
+            continue;
+        }
+
+        if ((nx == x && ny == y) || (nx == dst_x && ny == dst_y)) {
+            continue;
+        }
+
+        if (dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            return false;
+        }
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = dst_x + directions[d][0];
+        int ny = dst_y + directions[d][1];
+
+        if (!dg_interior_in_bounds(map, nx, ny)) {
+            continue;
+        }
+
+        if (nx == mid_x && ny == mid_y) {
+            continue;
+        }
+
+        if (dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            return false;
+        }
+    }
+
+    /*
+     * Also block diagonal touching against foreign walkable regions
+     * (rooms or other maze regions). Same-region diagonals are allowed
+     * so corridors can still make turns.
+     */
+    for (d = 0; d < 4; ++d) {
+        int nx = mid_x + diagonal_directions[d][0];
+        int ny = mid_y + diagonal_directions[d][1];
+        size_t nindex;
+        int neighbor_region;
+
+        if (!dg_interior_in_bounds(map, nx, ny)) {
+            continue;
+        }
+
+        if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            continue;
+        }
+
+        nindex = dg_tile_index(map, nx, ny);
+        neighbor_region = regions[nindex];
+        if (source_region > 0 && neighbor_region == source_region) {
+            continue;
+        }
+        return false;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = dst_x + diagonal_directions[d][0];
+        int ny = dst_y + diagonal_directions[d][1];
+        size_t nindex;
+        int neighbor_region;
+
+        if (!dg_interior_in_bounds(map, nx, ny)) {
+            continue;
+        }
+
+        if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+            continue;
+        }
+
+        nindex = dg_tile_index(map, nx, ny);
+        neighbor_region = regions[nindex];
+        if (source_region > 0 && neighbor_region == source_region) {
+            continue;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+static bool dg_can_start_maze_region(
+    const dg_map_t *map,
+    const int *regions,
+    int start_x,
+    int start_y
+)
+{
+    int d;
+
+    for (d = 0; d < 4; ++d) {
+        if (dg_can_carve_maze_step(
+                map,
+                regions,
+                start_x,
+                start_y,
+                DG_CARDINAL_DIRECTIONS[d][0],
+                DG_CARDINAL_DIRECTIONS[d][1]
+            )) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static dg_status_t dg_carve_maze_region(
@@ -340,6 +474,10 @@ static dg_status_t dg_generate_maze_regions(
             dg_status_t status;
 
             if (map->tiles[index] != DG_TILE_WALL || regions[index] != -1) {
+                continue;
+            }
+
+            if (!dg_can_start_maze_region(map, regions, x, y)) {
                 continue;
             }
 

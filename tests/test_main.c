@@ -313,6 +313,96 @@ static size_t count_non_room_dead_ends(const dg_map_t *map)
     return count;
 }
 
+static size_t count_non_room_isolated_walkable_tiles(const dg_map_t *map)
+{
+    size_t count;
+    int x;
+    int y;
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+
+    count = 0;
+    for (y = 1; y < map->height - 1; ++y) {
+        for (x = 1; x < map->width - 1; ++x) {
+            int neighbors;
+            int d;
+            dg_tile_t tile;
+
+            if (point_is_inside_any_room(map, x, y)) {
+                continue;
+            }
+
+            tile = dg_map_get_tile(map, x, y);
+            if (!is_walkable(tile)) {
+                continue;
+            }
+
+            neighbors = 0;
+            for (d = 0; d < 4; ++d) {
+                int nx = x + directions[d][0];
+                int ny = y + directions[d][1];
+                if (is_walkable(dg_map_get_tile(map, nx, ny))) {
+                    neighbors += 1;
+                }
+            }
+
+            if (neighbors == 0) {
+                count += 1;
+            }
+        }
+    }
+
+    return count;
+}
+
+static size_t count_non_room_diagonal_touches_to_room_tiles(const dg_map_t *map)
+{
+    size_t count;
+    int x;
+    int y;
+    static const int diagonals[4][2] = {
+        {1, 1},
+        {1, -1},
+        {-1, 1},
+        {-1, -1}
+    };
+
+    count = 0;
+    for (y = 1; y < map->height - 1; ++y) {
+        for (x = 1; x < map->width - 1; ++x) {
+            int d;
+            dg_tile_t tile;
+
+            if (point_is_inside_any_room(map, x, y)) {
+                continue;
+            }
+
+            tile = dg_map_get_tile(map, x, y);
+            if (!is_walkable(tile)) {
+                continue;
+            }
+
+            for (d = 0; d < 4; ++d) {
+                int nx = x + diagonals[d][0];
+                int ny = y + diagonals[d][1];
+                if (!point_is_inside_any_room(map, nx, ny)) {
+                    continue;
+                }
+                if (is_walkable(dg_map_get_tile(map, nx, ny))) {
+                    count += 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    return count;
+}
+
 static bool is_connected(const dg_map_t *map)
 {
     size_t cell_count;
@@ -603,6 +693,7 @@ static int test_rooms_and_mazes_generation(void)
     ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(rooms_have_min_wall_separation(&map));
     ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
+    ASSERT_TRUE(count_non_room_diagonal_touches_to_room_tiles(&map) == 0);
 
     for (i = 0; i < map.metadata.room_count; ++i) {
         const dg_room_metadata_t *room = &map.metadata.rooms[i];
@@ -685,6 +776,32 @@ static int test_rooms_and_mazes_pruning_control(void)
     }
 
     ASSERT_TRUE(found_seed_with_pruning_effect);
+    return 0;
+}
+
+static int test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles(void)
+{
+    uint64_t seed;
+
+    for (seed = 2000u; seed < 2120u; ++seed) {
+        dg_generate_request_t request;
+        dg_map_t map = {0};
+        size_t isolated_count;
+
+        dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        request.params.rooms_and_mazes.min_rooms = 9;
+        request.params.rooms_and_mazes.max_rooms = 14;
+        request.params.rooms_and_mazes.room_min_size = 4;
+        request.params.rooms_and_mazes.room_max_size = 10;
+        request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+        ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+        isolated_count = count_non_room_isolated_walkable_tiles(&map);
+        dg_map_destroy(&map);
+
+        ASSERT_TRUE(isolated_count == 0);
+    }
+
     return 0;
 }
 
@@ -827,6 +944,8 @@ int main(void)
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},
+        {"rooms_and_mazes_unpruned_has_no_isolated_seed_tiles",
+         test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"invalid_generate_request", test_invalid_generate_request},
