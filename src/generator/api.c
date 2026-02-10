@@ -694,7 +694,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         out_map->metadata.rooms != NULL ||
         out_map->metadata.corridors != NULL ||
         out_map->metadata.room_adjacency != NULL ||
-        out_map->metadata.room_neighbors != NULL
+        out_map->metadata.room_neighbors != NULL ||
+        out_map->metadata.diagnostics.process_steps != NULL ||
+        out_map->metadata.diagnostics.room_type_quotas != NULL ||
+        out_map->metadata.generation_request.process.methods != NULL ||
+        out_map->metadata.generation_request.room_types.definitions != NULL
     ) {
         return DG_STATUS_INVALID_ARGUMENT;
     }

@@ -3,6 +3,17 @@
 #include <limits.h>
 #include <stdlib.h>
 
+static void dg_clear_process_step_diagnostics(dg_map_t *map)
+{
+    if (map == NULL) {
+        return;
+    }
+
+    free(map->metadata.diagnostics.process_steps);
+    map->metadata.diagnostics.process_steps = NULL;
+    map->metadata.diagnostics.process_step_count = 0;
+}
+
 static bool dg_mul_size_checked(size_t a, size_t b, size_t *out)
 {
     if (out == NULL) {
@@ -415,23 +426,87 @@ dg_status_t dg_apply_post_processes(
 )
 {
     dg_map_generation_class_t generation_class;
+    dg_process_step_diagnostics_t *process_steps;
     size_t i;
 
     if (request == NULL || map == NULL || rng == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    dg_clear_process_step_diagnostics(map);
+    if (request->process.method_count == 0) {
+        return DG_STATUS_OK;
+    }
+
+    if (request->process.method_count > (SIZE_MAX / sizeof(*process_steps))) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+    process_steps = (dg_process_step_diagnostics_t *)calloc(
+        request->process.method_count,
+        sizeof(*process_steps)
+    );
+    if (process_steps == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    map->metadata.diagnostics.process_steps = process_steps;
+    map->metadata.diagnostics.process_step_count = request->process.method_count;
+
     generation_class = dg_algorithm_generation_class(request->algorithm);
     for (i = 0; i < request->process.method_count; ++i) {
-        dg_status_t status = dg_apply_process_method(
+        dg_connectivity_stats_t before_stats;
+        dg_connectivity_stats_t after_stats;
+        size_t walkable_before;
+        size_t walkable_after;
+        dg_process_step_diagnostics_t *step;
+        dg_status_t status;
+        step = &process_steps[i];
+        step->method_type = (int)request->process.methods[i].type;
+
+        status = dg_analyze_connectivity(map, &before_stats);
+        if (status != DG_STATUS_OK) {
+            dg_clear_process_step_diagnostics(map);
+            return status;
+        }
+        walkable_before = dg_count_walkable_tiles(map);
+
+        status = dg_apply_process_method(
             &request->process.methods[i],
             map,
             rng,
             generation_class
         );
         if (status != DG_STATUS_OK) {
+            dg_clear_process_step_diagnostics(map);
             return status;
         }
+
+        status = dg_analyze_connectivity(map, &after_stats);
+        if (status != DG_STATUS_OK) {
+            dg_clear_process_step_diagnostics(map);
+            return status;
+        }
+        walkable_after = dg_count_walkable_tiles(map);
+
+        step->walkable_before = walkable_before;
+        step->walkable_after = walkable_after;
+        if (walkable_after >= walkable_before) {
+            step->walkable_delta = (int64_t)(walkable_after - walkable_before);
+        } else {
+            step->walkable_delta = -((int64_t)(walkable_before - walkable_after));
+        }
+
+        step->components_before = before_stats.component_count;
+        step->components_after = after_stats.component_count;
+        if (after_stats.component_count >= before_stats.component_count) {
+            step->components_delta =
+                (int64_t)(after_stats.component_count - before_stats.component_count);
+        } else {
+            step->components_delta =
+                -((int64_t)(before_stats.component_count - after_stats.component_count));
+        }
+        step->connected_before = before_stats.connected_floor ? 1 : 0;
+        step->connected_after = after_stats.connected_floor ? 1 : 0;
     }
 
     return DG_STATUS_OK;

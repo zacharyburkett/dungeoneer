@@ -294,7 +294,17 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         a->metadata.connected_component_count != b->metadata.connected_component_count ||
         a->metadata.largest_component_size != b->metadata.largest_component_size ||
         a->metadata.connected_floor != b->metadata.connected_floor ||
-        a->metadata.generation_attempts != b->metadata.generation_attempts) {
+        a->metadata.generation_attempts != b->metadata.generation_attempts ||
+        a->metadata.diagnostics.process_step_count != b->metadata.diagnostics.process_step_count ||
+        a->metadata.diagnostics.typed_room_count != b->metadata.diagnostics.typed_room_count ||
+        a->metadata.diagnostics.untyped_room_count != b->metadata.diagnostics.untyped_room_count ||
+        a->metadata.diagnostics.room_type_count != b->metadata.diagnostics.room_type_count ||
+        a->metadata.diagnostics.room_type_min_miss_count !=
+            b->metadata.diagnostics.room_type_min_miss_count ||
+        a->metadata.diagnostics.room_type_max_excess_count !=
+            b->metadata.diagnostics.room_type_max_excess_count ||
+        a->metadata.diagnostics.room_type_target_miss_count !=
+            b->metadata.diagnostics.room_type_target_miss_count) {
         return false;
     }
 
@@ -304,7 +314,13 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         (a->metadata.room_adjacency_count > 0 &&
          (a->metadata.room_adjacency == NULL || b->metadata.room_adjacency == NULL)) ||
         (a->metadata.room_neighbor_count > 0 &&
-         (a->metadata.room_neighbors == NULL || b->metadata.room_neighbors == NULL))) {
+         (a->metadata.room_neighbors == NULL || b->metadata.room_neighbors == NULL)) ||
+        (a->metadata.diagnostics.process_step_count > 0 &&
+         (a->metadata.diagnostics.process_steps == NULL ||
+          b->metadata.diagnostics.process_steps == NULL)) ||
+        (a->metadata.diagnostics.room_type_count > 0 &&
+         (a->metadata.diagnostics.room_type_quotas == NULL ||
+          b->metadata.diagnostics.room_type_quotas == NULL))) {
         return false;
     }
 
@@ -346,6 +362,38 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         const dg_room_neighbor_t *na = &a->metadata.room_neighbors[i];
         const dg_room_neighbor_t *nb = &b->metadata.room_neighbors[i];
         if (na->room_id != nb->room_id || na->corridor_index != nb->corridor_index) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.diagnostics.process_step_count; ++i) {
+        const dg_process_step_diagnostics_t *sa = &a->metadata.diagnostics.process_steps[i];
+        const dg_process_step_diagnostics_t *sb = &b->metadata.diagnostics.process_steps[i];
+        if (sa->method_type != sb->method_type ||
+            sa->walkable_before != sb->walkable_before ||
+            sa->walkable_after != sb->walkable_after ||
+            sa->walkable_delta != sb->walkable_delta ||
+            sa->components_before != sb->components_before ||
+            sa->components_after != sb->components_after ||
+            sa->components_delta != sb->components_delta ||
+            sa->connected_before != sb->connected_before ||
+            sa->connected_after != sb->connected_after) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.diagnostics.room_type_count; ++i) {
+        const dg_room_type_quota_diagnostics_t *qa = &a->metadata.diagnostics.room_type_quotas[i];
+        const dg_room_type_quota_diagnostics_t *qb = &b->metadata.diagnostics.room_type_quotas[i];
+        if (qa->type_id != qb->type_id ||
+            qa->enabled != qb->enabled ||
+            qa->min_count != qb->min_count ||
+            qa->max_count != qb->max_count ||
+            qa->target_count != qb->target_count ||
+            qa->assigned_count != qb->assigned_count ||
+            qa->min_satisfied != qb->min_satisfied ||
+            qa->max_satisfied != qb->max_satisfied ||
+            qa->target_satisfied != qb->target_satisfied) {
             return false;
         }
     }
@@ -1591,6 +1639,74 @@ static int test_post_process_path_smoothing_skips_room_connected_ends(void)
     return 0;
 }
 
+static int test_generation_diagnostics_populated(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_process_method_t methods[2];
+    dg_room_type_definition_t definitions[2];
+    size_t assigned_from_quotas;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 424242u);
+    request.params.rooms_and_mazes.min_rooms = 10;
+    request.params.rooms_and_mazes.max_rooms = 18;
+    request.params.rooms_and_mazes.room_min_size = 4;
+    request.params.rooms_and_mazes.room_max_size = 10;
+    request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+    dg_default_process_method(&methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+    methods[0].params.path_smooth.strength = 2;
+    methods[0].params.path_smooth.inner_enabled = 1;
+    methods[0].params.path_smooth.outer_enabled = 1;
+    dg_default_process_method(&methods[1], DG_PROCESS_METHOD_SCALE);
+    methods[1].params.scale.factor = 2;
+    request.process.methods = methods;
+    request.process.method_count = 2;
+
+    dg_default_room_type_definition(&definitions[0], 100u);
+    definitions[0].enabled = 1;
+    definitions[0].min_count = 1;
+    definitions[0].preferences.larger_room_bias = 30;
+    dg_default_room_type_definition(&definitions[1], 200u);
+    definitions[1].enabled = 1;
+    definitions[1].min_count = 1;
+    definitions[1].preferences.higher_degree_bias = 30;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 2;
+    request.room_types.policy.allow_untyped_rooms = 1;
+    request.room_types.policy.default_type_id = 100u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    ASSERT_TRUE(map.metadata.diagnostics.process_step_count == request.process.method_count);
+    for (i = 0; i < map.metadata.diagnostics.process_step_count; ++i) {
+        const dg_process_step_diagnostics_t *step = &map.metadata.diagnostics.process_steps[i];
+        ASSERT_TRUE(step->method_type == (int)request.process.methods[i].type);
+        ASSERT_TRUE(step->walkable_before > 0);
+        ASSERT_TRUE(step->walkable_after > 0);
+        ASSERT_TRUE(step->connected_before == 0 || step->connected_before == 1);
+        ASSERT_TRUE(step->connected_after == 0 || step->connected_after == 1);
+    }
+
+    ASSERT_TRUE(
+        map.metadata.diagnostics.typed_room_count + map.metadata.diagnostics.untyped_room_count ==
+        map.metadata.room_count
+    );
+    ASSERT_TRUE(map.metadata.diagnostics.room_type_count == request.room_types.definition_count);
+
+    assigned_from_quotas = 0;
+    for (i = 0; i < map.metadata.diagnostics.room_type_count; ++i) {
+        const dg_room_type_quota_diagnostics_t *quota = &map.metadata.diagnostics.room_type_quotas[i];
+        assigned_from_quotas += quota->assigned_count;
+        ASSERT_TRUE(quota->type_id == definitions[i].type_id);
+    }
+    ASSERT_TRUE(assigned_from_quotas == map.metadata.diagnostics.typed_room_count);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
 static int test_generation_request_snapshot_populated(void)
 {
     dg_generate_request_t request;
@@ -2137,6 +2253,7 @@ int main(void)
          test_post_process_path_smoothing_outer_strength_effect},
         {"post_process_path_smoothing_skips_room_connected_ends",
          test_post_process_path_smoothing_skips_room_connected_ends},
+        {"generation_diagnostics_populated", test_generation_diagnostics_populated},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},

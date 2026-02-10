@@ -160,6 +160,44 @@ typedef struct dg_generation_request_snapshot {
     dg_snapshot_room_type_assignment_config_t room_types;
 } dg_generation_request_snapshot_t;
 
+typedef struct dg_process_step_diagnostics {
+    int method_type;
+    size_t walkable_before;
+    size_t walkable_after;
+    int64_t walkable_delta;
+    size_t components_before;
+    size_t components_after;
+    int64_t components_delta;
+    int connected_before;
+    int connected_after;
+} dg_process_step_diagnostics_t;
+
+typedef struct dg_room_type_quota_diagnostics {
+    uint32_t type_id;
+    int enabled;
+    int min_count;
+    int max_count;
+    int target_count;
+    size_t assigned_count;
+    int min_satisfied;
+    int max_satisfied;
+    int target_satisfied;
+} dg_room_type_quota_diagnostics_t;
+
+typedef struct dg_generation_diagnostics {
+    dg_process_step_diagnostics_t *process_steps;
+    size_t process_step_count;
+
+    size_t typed_room_count;
+    size_t untyped_room_count;
+
+    dg_room_type_quota_diagnostics_t *room_type_quotas;
+    size_t room_type_count;
+    size_t room_type_min_miss_count;
+    size_t room_type_max_excess_count;
+    size_t room_type_target_miss_count;
+} dg_generation_diagnostics_t;
+
 typedef struct dg_map_metadata {
     uint64_t seed;
     int algorithm_id;
@@ -198,6 +236,7 @@ typedef struct dg_map_metadata {
     size_t largest_component_size;
     bool connected_floor;
     size_t generation_attempts;
+    dg_generation_diagnostics_t diagnostics;
     dg_generation_request_snapshot_t generation_request;
 } dg_map_metadata_t;
 

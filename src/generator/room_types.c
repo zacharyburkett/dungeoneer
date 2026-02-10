@@ -11,6 +11,126 @@ typedef struct dg_room_feature {
     size_t graph_depth;
 } dg_room_feature_t;
 
+static void dg_clear_room_type_assignment_diagnostics(dg_map_t *map)
+{
+    if (map == NULL) {
+        return;
+    }
+
+    free(map->metadata.diagnostics.room_type_quotas);
+    map->metadata.diagnostics.room_type_quotas = NULL;
+    map->metadata.diagnostics.room_type_count = 0;
+    map->metadata.diagnostics.typed_room_count = 0;
+    map->metadata.diagnostics.untyped_room_count = 0;
+    map->metadata.diagnostics.room_type_min_miss_count = 0;
+    map->metadata.diagnostics.room_type_max_excess_count = 0;
+    map->metadata.diagnostics.room_type_target_miss_count = 0;
+}
+
+static dg_status_t dg_populate_room_type_assignment_diagnostics(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+)
+{
+    size_t i;
+
+    if (map == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_clear_room_type_assignment_diagnostics(map);
+    if (map->metadata.generation_class != DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
+        map->metadata.rooms == NULL ||
+        map->metadata.room_count == 0) {
+        return DG_STATUS_OK;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (map->metadata.rooms[i].type_id == DG_ROOM_TYPE_UNASSIGNED) {
+            map->metadata.diagnostics.untyped_room_count += 1;
+        } else {
+            map->metadata.diagnostics.typed_room_count += 1;
+        }
+    }
+
+    if (request == NULL || request->room_types.definition_count == 0 ||
+        request->room_types.definitions == NULL) {
+        return DG_STATUS_OK;
+    }
+
+    if (request->room_types.definition_count >
+        (SIZE_MAX / sizeof(*map->metadata.diagnostics.room_type_quotas))) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    map->metadata.diagnostics.room_type_quotas = (dg_room_type_quota_diagnostics_t *)calloc(
+        request->room_types.definition_count,
+        sizeof(*map->metadata.diagnostics.room_type_quotas)
+    );
+    if (map->metadata.diagnostics.room_type_quotas == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+    map->metadata.diagnostics.room_type_count = request->room_types.definition_count;
+
+    for (i = 0; i < request->room_types.definition_count; ++i) {
+        const dg_room_type_definition_t *definition = &request->room_types.definitions[i];
+        dg_room_type_quota_diagnostics_t *quota = &map->metadata.diagnostics.room_type_quotas[i];
+
+        quota->type_id = definition->type_id;
+        quota->enabled = definition->enabled;
+        quota->min_count = definition->min_count;
+        quota->max_count = definition->max_count;
+        quota->target_count = definition->target_count;
+        quota->assigned_count = 0;
+        quota->min_satisfied = 1;
+        quota->max_satisfied = 1;
+        quota->target_satisfied = 1;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        uint32_t assigned_type = map->metadata.rooms[i].type_id;
+        size_t j;
+
+        if (assigned_type == DG_ROOM_TYPE_UNASSIGNED) {
+            continue;
+        }
+
+        for (j = 0; j < map->metadata.diagnostics.room_type_count; ++j) {
+            dg_room_type_quota_diagnostics_t *quota = &map->metadata.diagnostics.room_type_quotas[j];
+            if (quota->type_id == assigned_type) {
+                quota->assigned_count += 1;
+                break;
+            }
+        }
+    }
+
+    for (i = 0; i < map->metadata.diagnostics.room_type_count; ++i) {
+        dg_room_type_quota_diagnostics_t *quota = &map->metadata.diagnostics.room_type_quotas[i];
+
+        quota->min_satisfied = quota->assigned_count >= (size_t)dg_max_int(quota->min_count, 0) ? 1 : 0;
+        quota->max_satisfied =
+            (quota->max_count == -1 || quota->assigned_count <= (size_t)quota->max_count) ? 1 : 0;
+        quota->target_satisfied =
+            (quota->target_count == -1 || quota->assigned_count == (size_t)quota->target_count) ? 1 : 0;
+
+        if (quota->enabled != 1) {
+            continue;
+        }
+
+        if (quota->min_satisfied == 0) {
+            map->metadata.diagnostics.room_type_min_miss_count += 1;
+        }
+        if (quota->max_satisfied == 0) {
+            map->metadata.diagnostics.room_type_max_excess_count += 1;
+        }
+        if (quota->target_count != -1 && quota->target_satisfied == 0) {
+            map->metadata.diagnostics.room_type_target_miss_count += 1;
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
 static bool dg_corridor_endpoints_are_valid(const dg_map_t *map, const dg_corridor_metadata_t *corridor)
 {
     if (map == NULL || corridor == NULL) {
@@ -613,6 +733,8 @@ dg_status_t dg_apply_room_type_assignment(
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    dg_clear_room_type_assignment_diagnostics(map);
+
     if (map->metadata.generation_class != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
         return DG_STATUS_OK;
     }
@@ -623,7 +745,7 @@ dg_status_t dg_apply_room_type_assignment(
     }
 
     if (request->room_types.definition_count == 0 || room_count == 0) {
-        return DG_STATUS_OK;
+        return dg_populate_room_type_assignment_diagnostics(request, map);
     }
 
     features = NULL;
@@ -887,5 +1009,5 @@ dg_status_t dg_apply_room_type_assignment(
     free(eligibility_matrix);
     free(enabled_type_indices);
     free(features);
-    return DG_STATUS_OK;
+    return dg_populate_room_type_assignment_diagnostics(request, map);
 }

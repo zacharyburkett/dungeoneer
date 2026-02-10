@@ -1360,6 +1360,61 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
         (unsigned long long)app->map.metadata.connected_component_count
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
+
+    if (app->map.metadata.diagnostics.process_step_count > 0) {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "process diagnostics: %llu step(s)",
+            (unsigned long long)app->map.metadata.diagnostics.process_step_count
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+
+        for (i = 0; i < app->map.metadata.diagnostics.process_step_count; ++i) {
+            const dg_process_step_diagnostics_t *step = &app->map.metadata.diagnostics.process_steps[i];
+            (void)snprintf(
+                line,
+                sizeof(line),
+                "  %llu) %s walk %llu->%llu (%+lld) comp %llu->%llu",
+                (unsigned long long)(i + 1),
+                dg_nuklear_process_method_label((dg_process_method_type_t)step->method_type),
+                (unsigned long long)step->walkable_before,
+                (unsigned long long)step->walkable_after,
+                (long long)step->walkable_delta,
+                (unsigned long long)step->components_before,
+                (unsigned long long)step->components_after
+            );
+            nk_label(ctx, line, NK_TEXT_LEFT);
+        }
+    }
+
+    if (app->map.metadata.diagnostics.room_type_count > 0) {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "type quotas: min_miss=%llu max_excess=%llu target_miss=%llu",
+            (unsigned long long)app->map.metadata.diagnostics.room_type_min_miss_count,
+            (unsigned long long)app->map.metadata.diagnostics.room_type_max_excess_count,
+            (unsigned long long)app->map.metadata.diagnostics.room_type_target_miss_count
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+
+        for (i = 0; i < app->map.metadata.diagnostics.room_type_count; ++i) {
+            const dg_room_type_quota_diagnostics_t *quota =
+                &app->map.metadata.diagnostics.room_type_quotas[i];
+            (void)snprintf(
+                line,
+                sizeof(line),
+                "  type %u assigned=%llu min=%d max=%d target=%d",
+                (unsigned int)quota->type_id,
+                (unsigned long long)quota->assigned_count,
+                quota->min_count,
+                quota->max_count,
+                quota->target_count
+            );
+            nk_label(ctx, line, NK_TEXT_LEFT);
+        }
+    }
 }
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)

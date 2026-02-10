@@ -15,6 +15,19 @@ static void dg_map_clear_generation_request_snapshot(
     *snapshot = (dg_generation_request_snapshot_t){0};
 }
 
+static void dg_map_clear_generation_diagnostics(
+    dg_generation_diagnostics_t *diagnostics
+)
+{
+    if (diagnostics == NULL) {
+        return;
+    }
+
+    free(diagnostics->process_steps);
+    free(diagnostics->room_type_quotas);
+    *diagnostics = (dg_generation_diagnostics_t){0};
+}
+
 static size_t dg_map_index(const dg_map_t *map, int x, int y)
 {
     return ((size_t)y * (size_t)map->width) + (size_t)x;
@@ -82,6 +95,7 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
     map->metadata.generation_attempts = 0;
+    map->metadata.diagnostics = (dg_generation_diagnostics_t){0};
     map->metadata.generation_request = (dg_generation_request_snapshot_t){0};
 
     for (i = 0; i < cell_count; ++i) {
@@ -161,6 +175,7 @@ void dg_map_clear_metadata(dg_map_t *map)
     free(map->metadata.corridors);
     free(map->metadata.room_adjacency);
     free(map->metadata.room_neighbors);
+    dg_map_clear_generation_diagnostics(&map->metadata.diagnostics);
     dg_map_clear_generation_request_snapshot(&map->metadata.generation_request);
     map->metadata.rooms = NULL;
     map->metadata.room_count = 0;
@@ -190,6 +205,7 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
     map->metadata.generation_attempts = 0;
+    map->metadata.diagnostics = (dg_generation_diagnostics_t){0};
     map->metadata.generation_request = (dg_generation_request_snapshot_t){0};
 }
 

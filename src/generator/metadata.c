@@ -299,5 +299,6 @@ void dg_init_empty_map(dg_map_t *map)
     map->metadata.largest_component_size = 0;
     map->metadata.connected_floor = false;
     map->metadata.generation_attempts = 0;
+    map->metadata.diagnostics = (dg_generation_diagnostics_t){0};
     map->metadata.generation_request = (dg_generation_request_snapshot_t){0};
 }

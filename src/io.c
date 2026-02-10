@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 8u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 9u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -49,6 +49,8 @@ static bool dg_map_is_empty(const dg_map_t *map)
            map->metadata.corridors == NULL &&
            map->metadata.room_adjacency == NULL &&
            map->metadata.room_neighbors == NULL &&
+           map->metadata.diagnostics.process_steps == NULL &&
+           map->metadata.diagnostics.room_type_quotas == NULL &&
            map->metadata.generation_request.process.methods == NULL &&
            map->metadata.generation_request.room_types.definitions == NULL;
 }
@@ -123,6 +125,14 @@ static dg_status_t dg_write_u64(FILE *file, uint64_t value)
     return dg_write_exact(file, bytes, sizeof(bytes));
 }
 
+static dg_status_t dg_write_i64(FILE *file, int64_t value)
+{
+    uint64_t raw;
+
+    memcpy(&raw, &value, sizeof(raw));
+    return dg_write_u64(file, raw);
+}
+
 static dg_status_t dg_read_u8(FILE *file, uint8_t *out_value)
 {
     return dg_read_exact(file, out_value, sizeof(*out_value));
@@ -177,6 +187,20 @@ static dg_status_t dg_read_u64(FILE *file, uint64_t *out_value)
                  (((uint64_t)bytes[5]) << 40) |
                  (((uint64_t)bytes[6]) << 48) |
                  (((uint64_t)bytes[7]) << 56);
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_read_i64(FILE *file, int64_t *out_value)
+{
+    uint64_t raw;
+    dg_status_t status;
+
+    status = dg_read_u64(file, &raw);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    memcpy(out_value, &raw, sizeof(raw));
     return DG_STATUS_OK;
 }
 
@@ -413,6 +437,15 @@ static void dg_io_writer_write_u64(dg_io_writer_t *writer, uint64_t value)
     writer->status = dg_write_u64(writer->file, value);
 }
 
+static void dg_io_writer_write_i64(dg_io_writer_t *writer, int64_t value)
+{
+    if (writer == NULL || writer->status != DG_STATUS_OK) {
+        return;
+    }
+
+    writer->status = dg_write_i64(writer->file, value);
+}
+
 static void dg_io_writer_write_size(dg_io_writer_t *writer, size_t value)
 {
     dg_io_writer_write_u64(writer, (uint64_t)value);
@@ -470,6 +503,15 @@ static void dg_io_reader_read_u64(dg_io_reader_t *reader, uint64_t *out_value)
     }
 
     reader->status = dg_read_u64(reader->file, out_value);
+}
+
+static void dg_io_reader_read_i64(dg_io_reader_t *reader, int64_t *out_value)
+{
+    if (reader == NULL || reader->status != DG_STATUS_OK) {
+        return;
+    }
+
+    reader->status = dg_read_i64(reader->file, out_value);
 }
 
 static void dg_io_reader_read_size(dg_io_reader_t *reader, size_t *out_value)
@@ -581,6 +623,14 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
     if (map->metadata.room_neighbor_count > 0 && map->metadata.room_neighbors == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
+    if (map->metadata.diagnostics.process_step_count > 0 &&
+        map->metadata.diagnostics.process_steps == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+    if (map->metadata.diagnostics.room_type_count > 0 &&
+        map->metadata.diagnostics.room_type_quotas == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     snapshot = &map->metadata.generation_request;
     if (snapshot->present != 0 && snapshot->present != 1) {
@@ -618,6 +668,24 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
                 snapshot->room_types.definitions[i].enabled != 1) {
                 return DG_STATUS_INVALID_ARGUMENT;
             }
+        }
+    }
+
+    for (i = 0; i < map->metadata.diagnostics.process_step_count; ++i) {
+        const dg_process_step_diagnostics_t *step = &map->metadata.diagnostics.process_steps[i];
+        if ((step->connected_before != 0 && step->connected_before != 1) ||
+            (step->connected_after != 0 && step->connected_after != 1)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    for (i = 0; i < map->metadata.diagnostics.room_type_count; ++i) {
+        const dg_room_type_quota_diagnostics_t *quota = &map->metadata.diagnostics.room_type_quotas[i];
+        if ((quota->enabled != 0 && quota->enabled != 1) ||
+            (quota->min_satisfied != 0 && quota->min_satisfied != 1) ||
+            (quota->max_satisfied != 0 && quota->max_satisfied != 1) ||
+            (quota->target_satisfied != 0 && quota->target_satisfied != 1)) {
+            return DG_STATUS_INVALID_ARGUMENT;
         }
     }
 
@@ -847,6 +915,51 @@ static void dg_write_generation_request_snapshot(
     }
 }
 
+static void dg_write_generation_diagnostics(
+    dg_io_writer_t *writer,
+    const dg_generation_diagnostics_t *diagnostics
+)
+{
+    size_t i;
+
+    if (writer == NULL || diagnostics == NULL) {
+        return;
+    }
+
+    dg_io_writer_write_size(writer, diagnostics->process_step_count);
+    for (i = 0; i < diagnostics->process_step_count; ++i) {
+        const dg_process_step_diagnostics_t *step = &diagnostics->process_steps[i];
+        dg_io_writer_write_i32(writer, (int32_t)step->method_type);
+        dg_io_writer_write_size(writer, step->walkable_before);
+        dg_io_writer_write_size(writer, step->walkable_after);
+        dg_io_writer_write_i64(writer, step->walkable_delta);
+        dg_io_writer_write_size(writer, step->components_before);
+        dg_io_writer_write_size(writer, step->components_after);
+        dg_io_writer_write_i64(writer, step->components_delta);
+        dg_io_writer_write_i32(writer, (int32_t)step->connected_before);
+        dg_io_writer_write_i32(writer, (int32_t)step->connected_after);
+    }
+
+    dg_io_writer_write_size(writer, diagnostics->typed_room_count);
+    dg_io_writer_write_size(writer, diagnostics->untyped_room_count);
+    dg_io_writer_write_size(writer, diagnostics->room_type_count);
+    dg_io_writer_write_size(writer, diagnostics->room_type_min_miss_count);
+    dg_io_writer_write_size(writer, diagnostics->room_type_max_excess_count);
+    dg_io_writer_write_size(writer, diagnostics->room_type_target_miss_count);
+    for (i = 0; i < diagnostics->room_type_count; ++i) {
+        const dg_room_type_quota_diagnostics_t *quota = &diagnostics->room_type_quotas[i];
+        dg_io_writer_write_u32(writer, quota->type_id);
+        dg_io_writer_write_i32(writer, (int32_t)quota->enabled);
+        dg_io_writer_write_i32(writer, (int32_t)quota->min_count);
+        dg_io_writer_write_i32(writer, (int32_t)quota->max_count);
+        dg_io_writer_write_i32(writer, (int32_t)quota->target_count);
+        dg_io_writer_write_size(writer, quota->assigned_count);
+        dg_io_writer_write_i32(writer, (int32_t)quota->min_satisfied);
+        dg_io_writer_write_i32(writer, (int32_t)quota->max_satisfied);
+        dg_io_writer_write_i32(writer, (int32_t)quota->target_satisfied);
+    }
+}
+
 static dg_status_t dg_finish_write(FILE *file, dg_status_t status)
 {
     if (file == NULL) {
@@ -917,6 +1030,7 @@ static dg_status_t dg_load_header(
         version != 5u &&
         version != 6u &&
         version != 7u &&
+        version != 8u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1508,6 +1622,107 @@ static dg_status_t dg_load_generation_request_snapshot(
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_load_generation_diagnostics(
+    dg_io_reader_t *reader,
+    uint32_t version,
+    dg_map_t *map
+)
+{
+    size_t i;
+    dg_status_t status;
+    dg_generation_diagnostics_t *diagnostics;
+
+    if (reader == NULL || map == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    diagnostics = &map->metadata.diagnostics;
+    free(diagnostics->process_steps);
+    free(diagnostics->room_type_quotas);
+    *diagnostics = (dg_generation_diagnostics_t){0};
+
+    if (version < 9u) {
+        return DG_STATUS_OK;
+    }
+
+    dg_io_reader_read_size(reader, &diagnostics->process_step_count);
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    status = dg_allocate_array(
+        (void **)&diagnostics->process_steps,
+        diagnostics->process_step_count,
+        sizeof(dg_process_step_diagnostics_t)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < diagnostics->process_step_count; ++i) {
+        dg_process_step_diagnostics_t *step = &diagnostics->process_steps[i];
+        dg_io_reader_read_int(reader, &step->method_type);
+        dg_io_reader_read_size(reader, &step->walkable_before);
+        dg_io_reader_read_size(reader, &step->walkable_after);
+        dg_io_reader_read_i64(reader, &step->walkable_delta);
+        dg_io_reader_read_size(reader, &step->components_before);
+        dg_io_reader_read_size(reader, &step->components_after);
+        dg_io_reader_read_i64(reader, &step->components_delta);
+        dg_io_reader_read_int(reader, &step->connected_before);
+        dg_io_reader_read_int(reader, &step->connected_after);
+        if (reader->status != DG_STATUS_OK) {
+            return reader->status;
+        }
+        if ((step->connected_before != 0 && step->connected_before != 1) ||
+            (step->connected_after != 0 && step->connected_after != 1)) {
+            return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
+
+    dg_io_reader_read_size(reader, &diagnostics->typed_room_count);
+    dg_io_reader_read_size(reader, &diagnostics->untyped_room_count);
+    dg_io_reader_read_size(reader, &diagnostics->room_type_count);
+    dg_io_reader_read_size(reader, &diagnostics->room_type_min_miss_count);
+    dg_io_reader_read_size(reader, &diagnostics->room_type_max_excess_count);
+    dg_io_reader_read_size(reader, &diagnostics->room_type_target_miss_count);
+    if (reader->status != DG_STATUS_OK) {
+        return reader->status;
+    }
+
+    status = dg_allocate_array(
+        (void **)&diagnostics->room_type_quotas,
+        diagnostics->room_type_count,
+        sizeof(dg_room_type_quota_diagnostics_t)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < diagnostics->room_type_count; ++i) {
+        dg_room_type_quota_diagnostics_t *quota = &diagnostics->room_type_quotas[i];
+        dg_io_reader_read_u32(reader, &quota->type_id);
+        dg_io_reader_read_int(reader, &quota->enabled);
+        dg_io_reader_read_int(reader, &quota->min_count);
+        dg_io_reader_read_int(reader, &quota->max_count);
+        dg_io_reader_read_int(reader, &quota->target_count);
+        dg_io_reader_read_size(reader, &quota->assigned_count);
+        dg_io_reader_read_int(reader, &quota->min_satisfied);
+        dg_io_reader_read_int(reader, &quota->max_satisfied);
+        dg_io_reader_read_int(reader, &quota->target_satisfied);
+        if (reader->status != DG_STATUS_OK) {
+            return reader->status;
+        }
+        if ((quota->enabled != 0 && quota->enabled != 1) ||
+            (quota->min_satisfied != 0 && quota->min_satisfied != 1) ||
+            (quota->max_satisfied != 0 && quota->max_satisfied != 1) ||
+            (quota->target_satisfied != 0 && quota->target_satisfied != 1)) {
+            return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
 dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
 {
     FILE *file;
@@ -1556,6 +1771,7 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
     dg_write_room_adjacency(&writer, map);
     dg_write_room_neighbors(&writer, map);
     dg_write_generation_request_snapshot(&writer, &map->metadata);
+    dg_write_generation_diagnostics(&writer, &map->metadata.diagnostics);
 
     return dg_finish_write(file, writer.status);
 }
@@ -1634,6 +1850,10 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
     }
 
     status = dg_load_generation_request_snapshot(&reader, version, &loaded);
+    if (status != DG_STATUS_OK) {
+        return dg_fail_load(file, &loaded, status);
+    }
+    status = dg_load_generation_diagnostics(&reader, version, &loaded);
     if (status != DG_STATUS_OK) {
         return dg_fail_load(file, &loaded, status);
     }
