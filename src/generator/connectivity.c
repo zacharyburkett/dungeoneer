@@ -46,6 +46,88 @@ static bool dg_is_corridor_floor_in_tiles(
            !dg_point_in_any_room(map, x, y);
 }
 
+static bool dg_is_walkable_room_tile(const dg_map_t *map, int x, int y)
+{
+    if (map == NULL || !dg_map_in_bounds(map, x, y)) {
+        return false;
+    }
+
+    return dg_point_in_any_room(map, x, y) &&
+           dg_is_walkable_tile(dg_map_get_tile(map, x, y));
+}
+
+static bool dg_is_walkable_room_tile_in_tiles(
+    const dg_map_t *map,
+    const dg_tile_t *tiles,
+    int x,
+    int y
+)
+{
+    if (map == NULL || tiles == NULL || !dg_map_in_bounds(map, x, y)) {
+        return false;
+    }
+
+    return dg_point_in_any_room(map, x, y) &&
+           dg_is_walkable_tile(tiles[dg_tile_index(map, x, y)]);
+}
+
+static bool dg_corridor_touches_room(const dg_map_t *map, int x, int y)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    int d;
+
+    if (!dg_is_corridor_floor(map, x, y)) {
+        return false;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = x + directions[d][0];
+        int ny = y + directions[d][1];
+
+        if (dg_is_walkable_room_tile(map, nx, ny)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool dg_corridor_touches_room_in_tiles(
+    const dg_map_t *map,
+    const dg_tile_t *tiles,
+    int x,
+    int y
+)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    int d;
+
+    if (!dg_is_corridor_floor_in_tiles(map, tiles, x, y)) {
+        return false;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = x + directions[d][0];
+        int ny = y + directions[d][1];
+
+        if (dg_is_walkable_room_tile_in_tiles(map, tiles, nx, ny)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool dg_has_corridor_path_when_blocked(
     const dg_map_t *map,
     const dg_tile_t *tiles,
@@ -380,6 +462,11 @@ dg_status_t dg_smooth_walkable_regions(
 
             for (y = 1; y < map->height - 1; ++y) {
                 for (x = 1; x < map->width - 1; ++x) {
+                    int leg_a_x = x;
+                    int leg_a_y = y;
+                    int leg_b_x = x;
+                    int leg_b_y = y;
+                    bool can_fill = false;
                     bool n;
                     bool e;
                     bool s;
@@ -414,12 +501,45 @@ dg_status_t dg_smooth_walkable_regions(
                      * Inner smoothing:
                      * fill the concave corner wall at 90-degree bends.
                      */
-                    if ((n && e && !s && !w) ||
-                        (e && s && !n && !w) ||
-                        (s && w && !n && !e) ||
-                        (w && n && !s && !e)) {
-                        inner_buffer[index] = DG_TILE_FLOOR;
+                    if (n && e && !s && !w) {
+                        leg_a_x = x;
+                        leg_a_y = y - 1;
+                        leg_b_x = x + 1;
+                        leg_b_y = y;
+                        can_fill = true;
+                    } else if (e && s && !n && !w) {
+                        leg_a_x = x + 1;
+                        leg_a_y = y;
+                        leg_b_x = x;
+                        leg_b_y = y + 1;
+                        can_fill = true;
+                    } else if (s && w && !n && !e) {
+                        leg_a_x = x;
+                        leg_a_y = y + 1;
+                        leg_b_x = x - 1;
+                        leg_b_y = y;
+                        can_fill = true;
+                    } else if (w && n && !s && !e) {
+                        leg_a_x = x - 1;
+                        leg_a_y = y;
+                        leg_b_x = x;
+                        leg_b_y = y - 1;
+                        can_fill = true;
                     }
+
+                    if (!can_fill) {
+                        continue;
+                    }
+
+                    /*
+                     * Do not smooth corridor corners that terminate into rooms.
+                     */
+                    if (dg_corridor_touches_room(map, leg_a_x, leg_a_y) ||
+                        dg_corridor_touches_room(map, leg_b_x, leg_b_y)) {
+                        continue;
+                    }
+
+                    inner_buffer[index] = DG_TILE_FLOOR;
                 }
             }
 
@@ -544,6 +664,11 @@ dg_status_t dg_smooth_walkable_regions(
                     if (!can_trim ||
                         !dg_map_in_bounds(map, bridge_x, bridge_y) ||
                         dg_point_in_any_room(map, bridge_x, bridge_y)) {
+                        continue;
+                    }
+                    if (dg_corridor_touches_room_in_tiles(map, outer_source_tiles, x, y) ||
+                        dg_corridor_touches_room_in_tiles(map, outer_source_tiles, leg_a_x, leg_a_y) ||
+                        dg_corridor_touches_room_in_tiles(map, outer_source_tiles, leg_b_x, leg_b_y)) {
                         continue;
                     }
 

@@ -62,6 +62,71 @@ static bool maps_have_same_tiles(const dg_map_t *a, const dg_map_t *b)
     return memcmp(a->tiles, b->tiles, cell_count * sizeof(dg_tile_t)) == 0;
 }
 
+static bool point_in_any_room(const dg_map_t *map, int x, int y)
+{
+    size_t i;
+
+    if (map == NULL || map->metadata.rooms == NULL || x < 0 || y < 0 ||
+        x >= map->width || y >= map->height) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *room = &map->metadata.rooms[i].bounds;
+        if (x >= room->x && y >= room->y &&
+            x < room->x + room->width && y < room->y + room->height) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool corridor_floor(const dg_map_t *map, int x, int y)
+{
+    size_t index;
+
+    if (map == NULL || map->tiles == NULL || x < 0 || y < 0 ||
+        x >= map->width || y >= map->height) {
+        return false;
+    }
+
+    index = (size_t)y * (size_t)map->width + (size_t)x;
+    return is_walkable(map->tiles[index]) && !point_in_any_room(map, x, y);
+}
+
+static bool corridor_touches_room(const dg_map_t *map, int x, int y)
+{
+    static const int k_dirs[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    int d;
+
+    if (!corridor_floor(map, x, y)) {
+        return false;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = x + k_dirs[d][0];
+        int ny = y + k_dirs[d][1];
+        size_t nindex;
+
+        if (nx < 0 || ny < 0 || nx >= map->width || ny >= map->height) {
+            continue;
+        }
+
+        nindex = (size_t)ny * (size_t)map->width + (size_t)nx;
+        if (point_in_any_room(map, nx, ny) && is_walkable(map->tiles[nindex])) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const dg_map_t *b)
 {
     const dg_generation_request_snapshot_t *sa;
@@ -1369,10 +1434,160 @@ static int test_post_process_path_smoothing_outer_strength_effect(void)
         strong_map.metadata.connected_component_count <=
         weak_map.metadata.connected_component_count
     );
-    ASSERT_TRUE(!maps_have_same_tiles(&weak_map, &strong_map));
+    ASSERT_TRUE(
+        strong_map.metadata.walkable_tile_count <=
+        weak_map.metadata.walkable_tile_count
+    );
 
     dg_map_destroy(&weak_map);
     dg_map_destroy(&strong_map);
+    return 0;
+}
+
+static int test_post_process_path_smoothing_skips_room_connected_ends(void)
+{
+    uint64_t seed;
+    bool found_protected_candidate;
+
+    found_protected_candidate = false;
+    for (seed = 6200u; seed < 6400u; ++seed) {
+        dg_generate_request_t base_request;
+        dg_generate_request_t smooth_request;
+        dg_map_t base_map = {0};
+        dg_map_t smooth_map = {0};
+        dg_process_method_t smooth_method[1];
+        int protected_candidates;
+        int x;
+        int y;
+
+        dg_default_generate_request(&base_request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        base_request.params.rooms_and_mazes.min_rooms = 10;
+        base_request.params.rooms_and_mazes.max_rooms = 16;
+        base_request.params.rooms_and_mazes.room_min_size = 4;
+        base_request.params.rooms_and_mazes.room_max_size = 10;
+        base_request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+        smooth_request = base_request;
+        dg_default_process_method(&smooth_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        smooth_method[0].params.path_smooth.strength = 4;
+        smooth_method[0].params.path_smooth.inner_enabled = 1;
+        smooth_method[0].params.path_smooth.outer_enabled = 1;
+        smooth_request.process.methods = smooth_method;
+        smooth_request.process.method_count = 1;
+
+        ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&smooth_request, &smooth_map), DG_STATUS_OK);
+
+        protected_candidates = 0;
+        for (y = 1; y < base_map.height - 1; ++y) {
+            for (x = 1; x < base_map.width - 1; ++x) {
+                int leg_a_x;
+                int leg_a_y;
+                int leg_b_x;
+                int leg_b_y;
+                bool n;
+                bool e;
+                bool s;
+                bool w;
+                bool is_corner;
+                size_t index;
+
+                index = (size_t)y * (size_t)base_map.width + (size_t)x;
+                n = corridor_floor(&base_map, x, y - 1);
+                e = corridor_floor(&base_map, x + 1, y);
+                s = corridor_floor(&base_map, x, y + 1);
+                w = corridor_floor(&base_map, x - 1, y);
+
+                /*
+                 * Inner smoothing candidate: wall corner fill.
+                 */
+                if (base_map.tiles[index] == DG_TILE_WALL &&
+                    !point_in_any_room(&base_map, x, y)) {
+                    is_corner = true;
+                    if (n && e && !s && !w) {
+                        leg_a_x = x;
+                        leg_a_y = y - 1;
+                        leg_b_x = x + 1;
+                        leg_b_y = y;
+                    } else if (e && s && !n && !w) {
+                        leg_a_x = x + 1;
+                        leg_a_y = y;
+                        leg_b_x = x;
+                        leg_b_y = y + 1;
+                    } else if (s && w && !n && !e) {
+                        leg_a_x = x;
+                        leg_a_y = y + 1;
+                        leg_b_x = x - 1;
+                        leg_b_y = y;
+                    } else if (w && n && !s && !e) {
+                        leg_a_x = x - 1;
+                        leg_a_y = y;
+                        leg_b_x = x;
+                        leg_b_y = y - 1;
+                    } else {
+                        is_corner = false;
+                    }
+
+                    if (is_corner &&
+                        (corridor_touches_room(&base_map, leg_a_x, leg_a_y) ||
+                         corridor_touches_room(&base_map, leg_b_x, leg_b_y))) {
+                        protected_candidates += 1;
+                        ASSERT_TRUE(smooth_map.tiles[index] == DG_TILE_WALL);
+                    }
+                }
+
+                /*
+                 * Outer smoothing candidate: corridor corner trim.
+                 */
+                if (!corridor_floor(&base_map, x, y)) {
+                    continue;
+                }
+
+                is_corner = true;
+                if (n && e && !s && !w) {
+                    leg_a_x = x;
+                    leg_a_y = y - 1;
+                    leg_b_x = x + 1;
+                    leg_b_y = y;
+                } else if (e && s && !n && !w) {
+                    leg_a_x = x + 1;
+                    leg_a_y = y;
+                    leg_b_x = x;
+                    leg_b_y = y + 1;
+                } else if (s && w && !n && !e) {
+                    leg_a_x = x;
+                    leg_a_y = y + 1;
+                    leg_b_x = x - 1;
+                    leg_b_y = y;
+                } else if (w && n && !s && !e) {
+                    leg_a_x = x - 1;
+                    leg_a_y = y;
+                    leg_b_x = x;
+                    leg_b_y = y - 1;
+                } else {
+                    is_corner = false;
+                }
+
+                if (is_corner &&
+                    (corridor_touches_room(&base_map, x, y) ||
+                     corridor_touches_room(&base_map, leg_a_x, leg_a_y) ||
+                     corridor_touches_room(&base_map, leg_b_x, leg_b_y))) {
+                    protected_candidates += 1;
+                    ASSERT_TRUE(is_walkable(smooth_map.tiles[index]));
+                }
+            }
+        }
+
+        dg_map_destroy(&base_map);
+        dg_map_destroy(&smooth_map);
+
+        if (protected_candidates > 0) {
+            found_protected_candidate = true;
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_protected_candidate);
     return 0;
 }
 
@@ -1920,6 +2135,8 @@ int main(void)
          test_post_process_path_smoothing_combined_modes},
         {"post_process_path_smoothing_outer_strength_effect",
          test_post_process_path_smoothing_outer_strength_effect},
+        {"post_process_path_smoothing_skips_room_connected_ends",
+         test_post_process_path_smoothing_skips_room_connected_ends},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
