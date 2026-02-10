@@ -28,7 +28,12 @@ void dg_carve_brush(dg_map_t *map, int cx, int cy, int radius, dg_tile_t tile);
 size_t dg_count_walkable_tiles(const dg_map_t *map);
 dg_status_t dg_enforce_single_connected_region(dg_map_t *map);
 dg_status_t dg_analyze_connectivity(const dg_map_t *map, dg_connectivity_stats_t *out_stats);
-dg_status_t dg_smooth_walkable_regions(dg_map_t *map, int smoothing_passes);
+dg_status_t dg_smooth_walkable_regions(
+    dg_map_t *map,
+    int smoothing_passes,
+    int inner_enabled,
+    int outer_enabled
+);
 
 dg_status_t dg_populate_runtime_metadata(
     dg_map_t *map,

@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 7u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 8u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -239,7 +239,11 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
         return true;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return method->params.path_smooth.strength >= 0 &&
-               method->params.path_smooth.strength <= 12;
+               method->params.path_smooth.strength <= 12 &&
+               (method->params.path_smooth.inner_enabled == 0 ||
+                method->params.path_smooth.inner_enabled == 1) &&
+               (method->params.path_smooth.outer_enabled == 0 ||
+                method->params.path_smooth.outer_enabled == 1);
     default:
         return false;
     }
@@ -807,6 +811,8 @@ static void dg_write_generation_request_snapshot(
             break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.strength);
+            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.inner_enabled);
+            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.outer_enabled);
             break;
         default:
             break;
@@ -910,6 +916,7 @@ static dg_status_t dg_load_header(
         version != 4u &&
         version != 5u &&
         version != 6u &&
+        version != 7u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1403,6 +1410,13 @@ static dg_status_t dg_load_generation_request_snapshot(
                 break;
             case DG_PROCESS_METHOD_PATH_SMOOTH:
                 dg_io_reader_read_int(reader, &method->params.path_smooth.strength);
+                if (version >= 8u) {
+                    dg_io_reader_read_int(reader, &method->params.path_smooth.inner_enabled);
+                    dg_io_reader_read_int(reader, &method->params.path_smooth.outer_enabled);
+                } else {
+                    method->params.path_smooth.inner_enabled = 1;
+                    method->params.path_smooth.outer_enabled = 0;
+                }
                 break;
             default:
                 return DG_STATUS_UNSUPPORTED_FORMAT;

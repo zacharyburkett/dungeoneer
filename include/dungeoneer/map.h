@@ -127,6 +127,8 @@ typedef struct dg_snapshot_process_room_shape_config {
 
 typedef struct dg_snapshot_process_path_smooth_config {
     int strength;
+    int inner_enabled;
+    int outer_enabled;
 } dg_snapshot_process_path_smooth_config_t;
 
 typedef struct dg_snapshot_process_method {

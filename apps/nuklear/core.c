@@ -152,6 +152,10 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         method->params.path_smooth.strength =
             dg_nuklear_clamp_int(method->params.path_smooth.strength, 0, 12);
+        method->params.path_smooth.inner_enabled =
+            method->params.path_smooth.inner_enabled ? 1 : 0;
+        method->params.path_smooth.outer_enabled =
+            method->params.path_smooth.outer_enabled ? 1 : 0;
         break;
     default:
         dg_default_process_method(method, DG_PROCESS_METHOD_SCALE);
@@ -734,6 +738,10 @@ static bool dg_nuklear_apply_generation_request_snapshot(
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             app->process_methods[i].params.path_smooth.strength =
                 snapshot->process.methods[i].params.path_smooth.strength;
+            app->process_methods[i].params.path_smooth.inner_enabled =
+                snapshot->process.methods[i].params.path_smooth.inner_enabled;
+            app->process_methods[i].params.path_smooth.outer_enabled =
+                snapshot->process.methods[i].params.path_smooth.outer_enabled;
             break;
         default:
             dg_default_process_method(&app->process_methods[i], DG_PROCESS_METHOD_SCALE);
@@ -1768,10 +1776,21 @@ static void dg_nuklear_draw_process_settings(
                     1,
                     0.25f
                 );
+                nk_layout_row_dynamic(ctx, 24.0f, 2);
+                method->params.path_smooth.inner_enabled = nk_check_label(
+                    ctx,
+                    "Inner",
+                    method->params.path_smooth.inner_enabled
+                );
+                method->params.path_smooth.outer_enabled = nk_check_label(
+                    ctx,
+                    "Outer",
+                    method->params.path_smooth.outer_enabled
+                );
                 nk_layout_row_dynamic(ctx, 36.0f, 1);
                 nk_label_wrap(
                     ctx,
-                    "Applies smoothing passes to walkable regions. Higher values smooth more aggressively."
+                    "Inner fills bend corners; outer trims matching outer corners while preserving connectivity. In multi-step pipelines, run Inner before Outer."
                 );
             }
 

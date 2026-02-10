@@ -91,6 +91,14 @@ typedef struct dg_process_path_smooth_config {
      * 0 disables the effect for this step.
      */
     int strength;
+    /*
+     * 1 = fill inner bend corners, 0 = disable.
+     */
+    int inner_enabled;
+    /*
+     * 1 = trim outer bend corners where a bridge path exists, 0 = disable.
+     */
+    int outer_enabled;
 } dg_process_path_smooth_config_t;
 
 typedef struct dg_process_method {

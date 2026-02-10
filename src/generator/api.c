@@ -270,6 +270,12 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
                 method->params.path_smooth.strength > 12) {
                 return DG_STATUS_INVALID_ARGUMENT;
             }
+            if ((method->params.path_smooth.inner_enabled != 0 &&
+                 method->params.path_smooth.inner_enabled != 1) ||
+                (method->params.path_smooth.outer_enabled != 0 &&
+                 method->params.path_smooth.outer_enabled != 1)) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
             break;
         default:
             return DG_STATUS_INVALID_ARGUMENT;
@@ -322,6 +328,10 @@ static dg_status_t dg_copy_process_methods_to_snapshot(
             break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             methods[i].params.path_smooth.strength = source_methods[i].params.path_smooth.strength;
+            methods[i].params.path_smooth.inner_enabled =
+                source_methods[i].params.path_smooth.inner_enabled;
+            methods[i].params.path_smooth.outer_enabled =
+                source_methods[i].params.path_smooth.outer_enabled;
             break;
         default:
             free(methods);
@@ -597,6 +607,8 @@ void dg_default_process_method(dg_process_method_t *method, dg_process_method_ty
         break;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         method->params.path_smooth.strength = 2;
+        method->params.path_smooth.inner_enabled = 1;
+        method->params.path_smooth.outer_enabled = 0;
         break;
     default:
         method->type = DG_PROCESS_METHOD_SCALE;

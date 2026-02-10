@@ -156,7 +156,9 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
             }
             break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
-            if (ma->params.path_smooth.strength != mb->params.path_smooth.strength) {
+            if (ma->params.path_smooth.strength != mb->params.path_smooth.strength ||
+                ma->params.path_smooth.inner_enabled != mb->params.path_smooth.inner_enabled ||
+                ma->params.path_smooth.outer_enabled != mb->params.path_smooth.outer_enabled) {
                 return false;
             }
             break;
@@ -1154,27 +1156,15 @@ static int test_post_process_path_smoothing_changes_layout(void)
         smooth_request = base_request;
         dg_default_process_method(&smooth_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
         smooth_methods[0].params.path_smooth.strength = 2;
+        smooth_methods[0].params.path_smooth.inner_enabled = 1;
+        smooth_methods[0].params.path_smooth.outer_enabled = 1;
         smooth_request.process.methods = smooth_methods;
         smooth_request.process.method_count = 1;
 
         ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
         ASSERT_STATUS(dg_generate(&smooth_request, &smooth_map), DG_STATUS_OK);
 
-        ASSERT_TRUE(smooth_map.metadata.walkable_tile_count >= base_map.metadata.walkable_tile_count);
-        ASSERT_TRUE(
-            smooth_map.metadata.connected_component_count <= base_map.metadata.connected_component_count
-        );
-
         if (!maps_have_same_tiles(&base_map, &smooth_map)) {
-            ASSERT_TRUE(smooth_map.metadata.generation_request.process.method_count == 1);
-            ASSERT_TRUE(
-                smooth_map.metadata.generation_request.process.methods[0].type ==
-                (int)DG_PROCESS_METHOD_PATH_SMOOTH
-            );
-            ASSERT_TRUE(
-                smooth_map.metadata.generation_request.process.methods[0].params.path_smooth.strength ==
-                2
-            );
             found_difference = true;
         }
 
@@ -1187,6 +1177,145 @@ static int test_post_process_path_smoothing_changes_layout(void)
     }
 
     ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_post_process_path_smoothing_outer_trim_effect(void)
+{
+    uint64_t seed;
+    bool found_outer_trim;
+
+    found_outer_trim = false;
+    for (seed = 5200u; seed < 5280u; ++seed) {
+        dg_generate_request_t inner_only_request;
+        dg_generate_request_t inner_outer_request;
+        dg_map_t inner_only_map = {0};
+        dg_map_t inner_outer_map = {0};
+        dg_process_method_t inner_method[1];
+        dg_process_method_t inner_outer_method[1];
+
+        dg_default_generate_request(&inner_only_request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        inner_only_request.params.rooms_and_mazes.min_rooms = 10;
+        inner_only_request.params.rooms_and_mazes.max_rooms = 16;
+        inner_only_request.params.rooms_and_mazes.room_min_size = 4;
+        inner_only_request.params.rooms_and_mazes.room_max_size = 10;
+        inner_only_request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+        inner_outer_request = inner_only_request;
+        dg_default_process_method(&inner_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        inner_method[0].params.path_smooth.strength = 2;
+        inner_method[0].params.path_smooth.inner_enabled = 1;
+        inner_method[0].params.path_smooth.outer_enabled = 0;
+        inner_only_request.process.methods = inner_method;
+        inner_only_request.process.method_count = 1;
+
+        dg_default_process_method(&inner_outer_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        inner_outer_method[0].params.path_smooth.strength = 2;
+        inner_outer_method[0].params.path_smooth.inner_enabled = 1;
+        inner_outer_method[0].params.path_smooth.outer_enabled = 1;
+        inner_outer_request.process.methods = inner_outer_method;
+        inner_outer_request.process.method_count = 1;
+
+        ASSERT_STATUS(dg_generate(&inner_only_request, &inner_only_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&inner_outer_request, &inner_outer_map), DG_STATUS_OK);
+
+        ASSERT_TRUE(
+            inner_outer_map.metadata.connected_component_count <=
+            inner_only_map.metadata.connected_component_count
+        );
+        if (inner_outer_map.metadata.walkable_tile_count <
+            inner_only_map.metadata.walkable_tile_count) {
+            found_outer_trim = true;
+        }
+
+        dg_map_destroy(&inner_only_map);
+        dg_map_destroy(&inner_outer_map);
+
+        if (found_outer_trim) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_outer_trim);
+    return 0;
+}
+
+static int test_post_process_path_smoothing_combined_modes(void)
+{
+    uint64_t seed;
+    bool found_combined_behavior;
+
+    found_combined_behavior = false;
+    for (seed = 5400u; seed < 5500u; ++seed) {
+        dg_generate_request_t inner_request;
+        dg_generate_request_t outer_request;
+        dg_generate_request_t combined_request;
+        dg_map_t inner_map = {0};
+        dg_map_t outer_map = {0};
+        dg_map_t combined_map = {0};
+        dg_process_method_t inner_method[1];
+        dg_process_method_t outer_method[1];
+        dg_process_method_t combined_method[1];
+
+        dg_default_generate_request(&inner_request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        inner_request.params.rooms_and_mazes.min_rooms = 10;
+        inner_request.params.rooms_and_mazes.max_rooms = 16;
+        inner_request.params.rooms_and_mazes.room_min_size = 4;
+        inner_request.params.rooms_and_mazes.room_max_size = 10;
+        inner_request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+        outer_request = inner_request;
+        combined_request = inner_request;
+
+        dg_default_process_method(&inner_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        inner_method[0].params.path_smooth.strength = 2;
+        inner_method[0].params.path_smooth.inner_enabled = 1;
+        inner_method[0].params.path_smooth.outer_enabled = 0;
+        inner_request.process.methods = inner_method;
+        inner_request.process.method_count = 1;
+
+        dg_default_process_method(&outer_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        outer_method[0].params.path_smooth.strength = 2;
+        outer_method[0].params.path_smooth.inner_enabled = 0;
+        outer_method[0].params.path_smooth.outer_enabled = 1;
+        outer_request.process.methods = outer_method;
+        outer_request.process.method_count = 1;
+
+        dg_default_process_method(&combined_method[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+        combined_method[0].params.path_smooth.strength = 2;
+        combined_method[0].params.path_smooth.inner_enabled = 1;
+        combined_method[0].params.path_smooth.outer_enabled = 1;
+        combined_request.process.methods = combined_method;
+        combined_request.process.method_count = 1;
+
+        ASSERT_STATUS(dg_generate(&inner_request, &inner_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&outer_request, &outer_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&combined_request, &combined_map), DG_STATUS_OK);
+
+        ASSERT_TRUE(
+            combined_map.metadata.connected_component_count <=
+            inner_map.metadata.connected_component_count
+        );
+        ASSERT_TRUE(
+            combined_map.metadata.connected_component_count <=
+            outer_map.metadata.connected_component_count
+        );
+
+        if (!maps_have_same_tiles(&combined_map, &inner_map) &&
+            !maps_have_same_tiles(&combined_map, &outer_map)) {
+            found_combined_behavior = true;
+        }
+
+        dg_map_destroy(&inner_map);
+        dg_map_destroy(&outer_map);
+        dg_map_destroy(&combined_map);
+
+        if (found_combined_behavior) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_combined_behavior);
     return 0;
 }
 
@@ -1215,6 +1344,8 @@ static int test_generation_request_snapshot_populated(void)
     process_methods[1].params.scale.factor = 2;
     dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_PATH_SMOOTH);
     process_methods[2].params.path_smooth.strength = 3;
+    process_methods[2].params.path_smooth.inner_enabled = 1;
+    process_methods[2].params.path_smooth.outer_enabled = 1;
     request.process.methods = process_methods;
     request.process.method_count = 3;
 
@@ -1248,6 +1379,8 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->process.methods[1].params.scale.factor == 2);
     ASSERT_TRUE(snapshot->process.methods[2].type == (int)DG_PROCESS_METHOD_PATH_SMOOTH);
     ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.strength == 3);
+    ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.inner_enabled == 1);
+    ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.outer_enabled == 1);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_rooms == request.params.rooms_and_mazes.max_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.room_min_size ==
@@ -1302,6 +1435,8 @@ static int test_map_serialization_roundtrip(void)
     process_methods[1].params.scale.factor = 2;
     dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_PATH_SMOOTH);
     process_methods[2].params.path_smooth.strength = 2;
+    process_methods[2].params.path_smooth.inner_enabled = 1;
+    process_methods[2].params.path_smooth.outer_enabled = 1;
     request.process.methods = process_methods;
     request.process.method_count = 3;
     dg_default_room_type_definition(&definitions[0], 51u);
@@ -1616,6 +1751,20 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+    process_methods[0].params.path_smooth.inner_enabled = 2;
+    request.process.methods = process_methods;
+    request.process.method_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+    process_methods[0].params.path_smooth.outer_enabled = 2;
+    request.process.methods = process_methods;
+    request.process.method_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     process_methods[0].type = (dg_process_method_type_t)99;
     request.process.methods = process_methods;
     request.process.method_count = 1;
@@ -1708,6 +1857,10 @@ int main(void)
         {"post_process_scaling", test_post_process_scaling},
         {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
         {"post_process_path_smoothing_changes_layout", test_post_process_path_smoothing_changes_layout},
+        {"post_process_path_smoothing_outer_trim_effect",
+         test_post_process_path_smoothing_outer_trim_effect},
+        {"post_process_path_smoothing_combined_modes",
+         test_post_process_path_smoothing_combined_modes},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},

@@ -397,7 +397,12 @@ static dg_status_t dg_apply_process_method(
         }
         return DG_STATUS_OK;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
-        return dg_smooth_walkable_regions(map, method->params.path_smooth.strength);
+        return dg_smooth_walkable_regions(
+            map,
+            method->params.path_smooth.strength,
+            method->params.path_smooth.inner_enabled,
+            method->params.path_smooth.outer_enabled
+        );
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
