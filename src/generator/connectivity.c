@@ -335,9 +335,12 @@ dg_status_t dg_smooth_walkable_regions(
 )
 {
     size_t cell_count;
+    size_t i;
     dg_tile_t *source_tiles;
+    dg_tile_t *outer_source_tiles;
     dg_tile_t *inner_buffer;
     dg_tile_t *outer_buffer;
+    unsigned char *protected_tiles;
     unsigned char *visited;
     size_t *queue;
     int outer_passes;
@@ -351,15 +354,20 @@ dg_status_t dg_smooth_walkable_regions(
 
     cell_count = (size_t)map->width * (size_t)map->height;
     source_tiles = (dg_tile_t *)malloc(cell_count * sizeof(dg_tile_t));
+    outer_source_tiles = (dg_tile_t *)malloc(cell_count * sizeof(dg_tile_t));
     inner_buffer = (dg_tile_t *)malloc(cell_count * sizeof(dg_tile_t));
     outer_buffer = (dg_tile_t *)malloc(cell_count * sizeof(dg_tile_t));
+    protected_tiles = (unsigned char *)calloc(cell_count, sizeof(*protected_tiles));
     visited = (unsigned char *)malloc(cell_count * sizeof(*visited));
     queue = (size_t *)malloc(cell_count * sizeof(*queue));
-    if (source_tiles == NULL || inner_buffer == NULL || outer_buffer == NULL ||
-        visited == NULL || queue == NULL) {
+    if (source_tiles == NULL || outer_source_tiles == NULL ||
+        inner_buffer == NULL || outer_buffer == NULL ||
+        protected_tiles == NULL || visited == NULL || queue == NULL) {
         free(source_tiles);
+        free(outer_source_tiles);
         free(inner_buffer);
         free(outer_buffer);
+        free(protected_tiles);
         free(visited);
         free(queue);
         return DG_STATUS_ALLOCATION_FAILED;
@@ -420,12 +428,32 @@ dg_status_t dg_smooth_walkable_regions(
     }
 
     if (outer_enabled != 0) {
+        if (inner_enabled != 0) {
+            for (i = 0; i < cell_count; ++i) {
+                int x_index;
+                int y_index;
+
+                if (source_tiles[i] != DG_TILE_WALL || !dg_is_walkable_tile(map->tiles[i])) {
+                    continue;
+                }
+
+                x_index = (int)(i % (size_t)map->width);
+                y_index = (int)(i / (size_t)map->width);
+                if (dg_point_in_any_room(map, x_index, y_index)) {
+                    continue;
+                }
+
+                protected_tiles[i] = 1u;
+            }
+        }
+
         /*
-         * Outer trimming is intentionally single-pass per process step.
-         * Repeating convex-corner trims can over-erode path graphs.
+         * Outer smoothing uses iterative passes up to strength.
+         * Connectivity and bridge checks still gate every trim.
          */
-        outer_passes = dg_min_int(smoothing_passes, 1);
+        outer_passes = smoothing_passes;
         for (pass = 0; pass < outer_passes; ++pass) {
+            memcpy(outer_source_tiles, map->tiles, cell_count * sizeof(dg_tile_t));
             memcpy(outer_buffer, map->tiles, cell_count * sizeof(dg_tile_t));
 
             for (y = 1; y < map->height - 1; ++y) {
@@ -448,19 +476,22 @@ dg_status_t dg_smooth_walkable_regions(
                     if (!dg_is_corridor_floor(map, x, y)) {
                         continue;
                     }
-
-                    /*
-                     * Determine convex-corner candidates from the original
-                     * pre-inner snapshot. This prevents outer mode from
-                     * trimming newly-formed bend legs created by inner fills.
-                     */
-                    if (!dg_is_corridor_floor_in_tiles(map, source_tiles, x, y)) {
+                    if (protected_tiles[index] != 0u) {
                         continue;
                     }
-                    source_n = dg_is_corridor_floor_in_tiles(map, source_tiles, x, y - 1);
-                    source_e = dg_is_corridor_floor_in_tiles(map, source_tiles, x + 1, y);
-                    source_s = dg_is_corridor_floor_in_tiles(map, source_tiles, x, y + 1);
-                    source_w = dg_is_corridor_floor_in_tiles(map, source_tiles, x - 1, y);
+
+                    /*
+                     * Determine convex-corner candidates from this pass source.
+                     * `protected_tiles` prevents trimming inner-added bridge tiles
+                     * when both modes are enabled in one step.
+                     */
+                    if (!dg_is_corridor_floor_in_tiles(map, outer_source_tiles, x, y)) {
+                        continue;
+                    }
+                    source_n = dg_is_corridor_floor_in_tiles(map, outer_source_tiles, x, y - 1);
+                    source_e = dg_is_corridor_floor_in_tiles(map, outer_source_tiles, x + 1, y);
+                    source_s = dg_is_corridor_floor_in_tiles(map, outer_source_tiles, x, y + 1);
+                    source_w = dg_is_corridor_floor_in_tiles(map, outer_source_tiles, x - 1, y);
 
                     /*
                      * Outer smoothing:
@@ -558,8 +589,10 @@ dg_status_t dg_smooth_walkable_regions(
     }
 
     free(source_tiles);
+    free(outer_source_tiles);
     free(inner_buffer);
     free(outer_buffer);
+    free(protected_tiles);
     free(visited);
     free(queue);
     return DG_STATUS_OK;

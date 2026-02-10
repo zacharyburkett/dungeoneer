@@ -1319,6 +1319,63 @@ static int test_post_process_path_smoothing_combined_modes(void)
     return 0;
 }
 
+static int test_post_process_path_smoothing_outer_strength_effect(void)
+{
+    dg_generate_request_t weak_request;
+    dg_generate_request_t strong_request;
+    dg_map_t weak_map = {0};
+    dg_map_t strong_map = {0};
+    dg_process_method_t weak_methods[2];
+    dg_process_method_t strong_methods[2];
+
+    dg_default_generate_request(&weak_request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 5619u);
+    weak_request.params.rooms_and_mazes.min_rooms = 10;
+    weak_request.params.rooms_and_mazes.max_rooms = 16;
+    weak_request.params.rooms_and_mazes.room_min_size = 4;
+    weak_request.params.rooms_and_mazes.room_max_size = 10;
+    weak_request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+    strong_request = weak_request;
+
+    /*
+     * Stage 1 establishes shared inner bridges.
+     * Stage 2 isolates outer trim strength behavior.
+     */
+    dg_default_process_method(&weak_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+    weak_methods[0].params.path_smooth.strength = 2;
+    weak_methods[0].params.path_smooth.inner_enabled = 1;
+    weak_methods[0].params.path_smooth.outer_enabled = 0;
+    dg_default_process_method(&weak_methods[1], DG_PROCESS_METHOD_PATH_SMOOTH);
+    weak_methods[1].params.path_smooth.strength = 1;
+    weak_methods[1].params.path_smooth.inner_enabled = 0;
+    weak_methods[1].params.path_smooth.outer_enabled = 1;
+    weak_request.process.methods = weak_methods;
+    weak_request.process.method_count = 2;
+
+    dg_default_process_method(&strong_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
+    strong_methods[0].params.path_smooth.strength = 2;
+    strong_methods[0].params.path_smooth.inner_enabled = 1;
+    strong_methods[0].params.path_smooth.outer_enabled = 0;
+    dg_default_process_method(&strong_methods[1], DG_PROCESS_METHOD_PATH_SMOOTH);
+    strong_methods[1].params.path_smooth.strength = 4;
+    strong_methods[1].params.path_smooth.inner_enabled = 0;
+    strong_methods[1].params.path_smooth.outer_enabled = 1;
+    strong_request.process.methods = strong_methods;
+    strong_request.process.method_count = 2;
+
+    ASSERT_STATUS(dg_generate(&weak_request, &weak_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&strong_request, &strong_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(
+        strong_map.metadata.connected_component_count <=
+        weak_map.metadata.connected_component_count
+    );
+    ASSERT_TRUE(!maps_have_same_tiles(&weak_map, &strong_map));
+
+    dg_map_destroy(&weak_map);
+    dg_map_destroy(&strong_map);
+    return 0;
+}
+
 static int test_generation_request_snapshot_populated(void)
 {
     dg_generate_request_t request;
@@ -1861,6 +1918,8 @@ int main(void)
          test_post_process_path_smoothing_outer_trim_effect},
         {"post_process_path_smoothing_combined_modes",
          test_post_process_path_smoothing_combined_modes},
+        {"post_process_path_smoothing_outer_strength_effect",
+         test_post_process_path_smoothing_outer_strength_effect},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
