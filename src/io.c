@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 6u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 7u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -237,6 +237,9 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
             return false;
         }
         return true;
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        return method->params.path_smooth.strength >= 0 &&
+               method->params.path_smooth.strength <= 12;
     default:
         return false;
     }
@@ -802,6 +805,9 @@ static void dg_write_generation_request_snapshot(
             dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.mode);
             dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.organicity);
             break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.strength);
+            break;
         default:
             break;
         }
@@ -903,6 +909,7 @@ static dg_status_t dg_load_header(
         version != 3u &&
         version != 4u &&
         version != 5u &&
+        version != 6u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1393,6 +1400,9 @@ static dg_status_t dg_load_generation_request_snapshot(
             case DG_PROCESS_METHOD_ROOM_SHAPE:
                 dg_io_reader_read_int(reader, &method->params.room_shape.mode);
                 dg_io_reader_read_int(reader, &method->params.room_shape.organicity);
+                break;
+            case DG_PROCESS_METHOD_PATH_SMOOTH:
+                dg_io_reader_read_int(reader, &method->params.path_smooth.strength);
                 break;
             default:
                 return DG_STATUS_UNSUPPORTED_FORMAT;

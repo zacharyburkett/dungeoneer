@@ -98,8 +98,36 @@ static const char *dg_nuklear_process_method_label(dg_process_method_type_t type
         return "Scale";
     case DG_PROCESS_METHOD_ROOM_SHAPE:
         return "Room Shape";
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        return "Path Smoothing";
     default:
         return "Unknown";
+    }
+}
+
+static int dg_nuklear_process_type_to_ui_index(dg_process_method_type_t type)
+{
+    switch (type) {
+    case DG_PROCESS_METHOD_ROOM_SHAPE:
+        return 1;
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        return 2;
+    case DG_PROCESS_METHOD_SCALE:
+    default:
+        return 0;
+    }
+}
+
+static dg_process_method_type_t dg_nuklear_process_ui_index_to_type(int index)
+{
+    switch (index) {
+    case 1:
+        return DG_PROCESS_METHOD_ROOM_SHAPE;
+    case 2:
+        return DG_PROCESS_METHOD_PATH_SMOOTH;
+    case 0:
+    default:
+        return DG_PROCESS_METHOD_SCALE;
     }
 }
 
@@ -121,6 +149,10 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
         method->params.room_shape.organicity =
             dg_nuklear_clamp_int(method->params.room_shape.organicity, 0, 100);
         break;
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        method->params.path_smooth.strength =
+            dg_nuklear_clamp_int(method->params.path_smooth.strength, 0, 12);
+        break;
     default:
         dg_default_process_method(method, DG_PROCESS_METHOD_SCALE);
         break;
@@ -141,7 +173,7 @@ static void dg_nuklear_sanitize_process_settings(dg_nuklear_app_t *app)
         DG_NUKLEAR_MAX_PROCESS_METHODS
     );
     app->process_add_method_type_index =
-        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 1);
+        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 2);
 
     for (i = 0; i < app->process_method_count; ++i) {
         dg_nuklear_sanitize_process_method(&app->process_methods[i]);
@@ -698,6 +730,10 @@ static bool dg_nuklear_apply_generation_request_snapshot(
                 (dg_room_shape_mode_t)snapshot->process.methods[i].params.room_shape.mode;
             app->process_methods[i].params.room_shape.organicity =
                 snapshot->process.methods[i].params.room_shape.organicity;
+            break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            app->process_methods[i].params.path_smooth.strength =
+                snapshot->process.methods[i].params.path_smooth.strength;
             break;
         default:
             dg_default_process_method(&app->process_methods[i], DG_PROCESS_METHOD_SCALE);
@@ -1554,7 +1590,7 @@ static void dg_nuklear_draw_process_settings(
     dg_algorithm_t algorithm
 )
 {
-    static const char *process_method_types[] = {"Scale", "Room Shape"};
+    static const char *process_method_types[] = {"Scale", "Room Shape", "Path Smoothing"};
     static const char *room_shape_modes[] = {"Rectangular", "Organic"};
     int i;
     int pending_remove_index;
@@ -1589,9 +1625,8 @@ static void dg_nuklear_draw_process_settings(
         nk_vec2(220.0f, 80.0f)
     );
     if (nk_button_label(ctx, "Add Step")) {
-        dg_process_method_type_t type = app->process_add_method_type_index == 1
-                                            ? DG_PROCESS_METHOD_ROOM_SHAPE
-                                            : DG_PROCESS_METHOD_SCALE;
+        dg_process_method_type_t type =
+            dg_nuklear_process_ui_index_to_type(app->process_add_method_type_index);
         if (dg_nuklear_append_process_method(app, type)) {
             dg_nuklear_set_status(
                 app,
@@ -1652,7 +1687,7 @@ static void dg_nuklear_draw_process_settings(
             }
             nk_label(ctx, " ", NK_TEXT_LEFT);
 
-            type_index = (method->type == DG_PROCESS_METHOD_ROOM_SHAPE) ? 1 : 0;
+            type_index = dg_nuklear_process_type_to_ui_index(method->type);
             nk_layout_row_dynamic(ctx, 24.0f, 1);
             nk_label(ctx, "Type", NK_TEXT_LEFT);
             nk_layout_row_dynamic(ctx, 28.0f, 1);
@@ -1664,11 +1699,13 @@ static void dg_nuklear_draw_process_settings(
                 22,
                 nk_vec2(220.0f, 80.0f)
             );
-            if ((method->type == DG_PROCESS_METHOD_SCALE && type_index == 1) ||
-                (method->type == DG_PROCESS_METHOD_ROOM_SHAPE && type_index == 0)) {
+            if (type_index < 0 || type_index >= (int)(sizeof(process_method_types) / sizeof(process_method_types[0]))) {
+                type_index = 0;
+            }
+            if (dg_nuklear_process_type_to_ui_index(method->type) != type_index) {
                 dg_default_process_method(
                     method,
-                    (type_index == 1) ? DG_PROCESS_METHOD_ROOM_SHAPE : DG_PROCESS_METHOD_SCALE
+                    dg_nuklear_process_ui_index_to_type(type_index)
                 );
             }
 
@@ -1683,7 +1720,7 @@ static void dg_nuklear_draw_process_settings(
                     1,
                     0.25f
                 );
-            } else {
+            } else if (method->type == DG_PROCESS_METHOD_ROOM_SHAPE) {
                 int room_shape_index =
                     (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) ? 1 : 0;
                 nk_layout_row_dynamic(ctx, 24.0f, 1);
@@ -1720,6 +1757,22 @@ static void dg_nuklear_draw_process_settings(
                         "Organic room shape has no effect for cave-like layouts."
                     );
                 }
+            } else if (method->type == DG_PROCESS_METHOD_PATH_SMOOTH) {
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                nk_property_int(
+                    ctx,
+                    "Strength",
+                    0,
+                    &method->params.path_smooth.strength,
+                    12,
+                    1,
+                    0.25f
+                );
+                nk_layout_row_dynamic(ctx, 36.0f, 1);
+                nk_label_wrap(
+                    ctx,
+                    "Applies smoothing passes to walkable regions. Higher values smooth more aggressively."
+                );
             }
 
             dg_nuklear_sanitize_process_method(method);

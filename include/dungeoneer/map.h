@@ -125,11 +125,16 @@ typedef struct dg_snapshot_process_room_shape_config {
     int organicity;
 } dg_snapshot_process_room_shape_config_t;
 
+typedef struct dg_snapshot_process_path_smooth_config {
+    int strength;
+} dg_snapshot_process_path_smooth_config_t;
+
 typedef struct dg_snapshot_process_method {
     int type;
     union {
         dg_snapshot_process_scale_config_t scale;
         dg_snapshot_process_room_shape_config_t room_shape;
+        dg_snapshot_process_path_smooth_config_t path_smooth;
     } params;
 } dg_snapshot_process_method_t;
 

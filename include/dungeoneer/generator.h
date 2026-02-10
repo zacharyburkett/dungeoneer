@@ -58,7 +58,8 @@ typedef enum dg_room_shape_mode {
 
 typedef enum dg_process_method_type {
     DG_PROCESS_METHOD_SCALE = 0,
-    DG_PROCESS_METHOD_ROOM_SHAPE = 1
+    DG_PROCESS_METHOD_ROOM_SHAPE = 1,
+    DG_PROCESS_METHOD_PATH_SMOOTH = 2
 } dg_process_method_type_t;
 
 typedef struct dg_process_scale_config {
@@ -84,11 +85,20 @@ typedef struct dg_process_room_shape_config {
     int organicity;
 } dg_process_room_shape_config_t;
 
+typedef struct dg_process_path_smooth_config {
+    /*
+     * Number of smoothing passes (0..12).
+     * 0 disables the effect for this step.
+     */
+    int strength;
+} dg_process_path_smooth_config_t;
+
 typedef struct dg_process_method {
     dg_process_method_type_t type;
     union {
         dg_process_scale_config_t scale;
         dg_process_room_shape_config_t room_shape;
+        dg_process_path_smooth_config_t path_smooth;
     } params;
 } dg_process_method_t;
 

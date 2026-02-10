@@ -265,6 +265,12 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
                 return DG_STATUS_INVALID_ARGUMENT;
             }
             break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            if (method->params.path_smooth.strength < 0 ||
+                method->params.path_smooth.strength > 12) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            break;
         default:
             return DG_STATUS_INVALID_ARGUMENT;
         }
@@ -313,6 +319,9 @@ static dg_status_t dg_copy_process_methods_to_snapshot(
         case DG_PROCESS_METHOD_ROOM_SHAPE:
             methods[i].params.room_shape.mode = (int)source_methods[i].params.room_shape.mode;
             methods[i].params.room_shape.organicity = source_methods[i].params.room_shape.organicity;
+            break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            methods[i].params.path_smooth.strength = source_methods[i].params.path_smooth.strength;
             break;
         default:
             free(methods);
@@ -585,6 +594,9 @@ void dg_default_process_method(dg_process_method_t *method, dg_process_method_ty
     case DG_PROCESS_METHOD_ROOM_SHAPE:
         method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
         method->params.room_shape.organicity = 45;
+        break;
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        method->params.path_smooth.strength = 2;
         break;
     default:
         method->type = DG_PROCESS_METHOD_SCALE;

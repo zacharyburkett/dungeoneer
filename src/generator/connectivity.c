@@ -3,6 +3,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+static bool dg_point_in_any_room(const dg_map_t *map, int x, int y)
+{
+    size_t i;
+
+    if (map == NULL || map->metadata.rooms == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *room = &map->metadata.rooms[i].bounds;
+        if (x >= room->x && y >= room->y && x < room->x + room->width && y < room->y + room->height) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 size_t dg_count_walkable_tiles(const dg_map_t *map)
 {
     size_t i;
@@ -224,34 +242,52 @@ dg_status_t dg_smooth_walkable_regions(dg_map_t *map, int smoothing_passes)
 
         for (y = 1; y < map->height - 1; ++y) {
             for (x = 1; x < map->width - 1; ++x) {
-                int dx;
-                int dy;
-                int neighbors = 0;
+                bool n;
+                bool e;
+                bool s;
+                bool w;
                 size_t index = dg_tile_index(map, x, y);
 
-                for (dy = -1; dy <= 1; ++dy) {
-                    for (dx = -1; dx <= 1; ++dx) {
-                        int nx;
-                        int ny;
-                        size_t neighbor_index;
-
-                        if (dx == 0 && dy == 0) {
-                            continue;
-                        }
-
-                        nx = x + dx;
-                        ny = y + dy;
-                        neighbor_index = dg_tile_index(map, nx, ny);
-                        if (dg_is_walkable_tile(map->tiles[neighbor_index])) {
-                            neighbors += 1;
-                        }
-                    }
+                if (map->tiles[index] != DG_TILE_WALL) {
+                    continue;
+                }
+                if (dg_point_in_any_room(map, x, y)) {
+                    continue;
                 }
 
-                if (neighbors >= 5) {
+                /*
+                 * Do not open extra room entrances while smoothing corridors.
+                 */
+                if ((dg_point_in_any_room(map, x, y - 1) &&
+                     dg_is_walkable_tile(dg_map_get_tile(map, x, y - 1))) ||
+                    (dg_point_in_any_room(map, x + 1, y) &&
+                     dg_is_walkable_tile(dg_map_get_tile(map, x + 1, y))) ||
+                    (dg_point_in_any_room(map, x, y + 1) &&
+                     dg_is_walkable_tile(dg_map_get_tile(map, x, y + 1))) ||
+                    (dg_point_in_any_room(map, x - 1, y) &&
+                     dg_is_walkable_tile(dg_map_get_tile(map, x - 1, y)))) {
+                    continue;
+                }
+
+                n = dg_is_walkable_tile(dg_map_get_tile(map, x, y - 1)) &&
+                    !dg_point_in_any_room(map, x, y - 1);
+                e = dg_is_walkable_tile(dg_map_get_tile(map, x + 1, y)) &&
+                    !dg_point_in_any_room(map, x + 1, y);
+                s = dg_is_walkable_tile(dg_map_get_tile(map, x, y + 1)) &&
+                    !dg_point_in_any_room(map, x, y + 1);
+                w = dg_is_walkable_tile(dg_map_get_tile(map, x - 1, y)) &&
+                    !dg_point_in_any_room(map, x - 1, y);
+
+                /*
+                 * Corridor path smoothing:
+                 * round inner 90-degree bends by filling the corner wall.
+                 * This is additive only, so it will not break existing paths.
+                 */
+                if ((n && e && !s && !w) ||
+                    (e && s && !n && !w) ||
+                    (s && w && !n && !e) ||
+                    (w && n && !s && !e)) {
                     buffer[index] = DG_TILE_FLOOR;
-                } else if (neighbors <= 2) {
-                    buffer[index] = DG_TILE_WALL;
                 }
             }
         }

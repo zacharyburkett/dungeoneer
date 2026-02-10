@@ -396,6 +396,8 @@ static dg_status_t dg_apply_process_method(
             return dg_apply_organic_room_shapes(map, method->params.room_shape.organicity, rng);
         }
         return DG_STATUS_OK;
+    case DG_PROCESS_METHOD_PATH_SMOOTH:
+        return dg_smooth_walkable_regions(map, method->params.path_smooth.strength);
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
