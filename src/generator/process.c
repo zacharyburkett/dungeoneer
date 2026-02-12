@@ -463,7 +463,12 @@ dg_status_t dg_apply_post_processes(
         step = &process_steps[i];
         step->method_type = (int)request->process.methods[i].type;
 
-        status = dg_analyze_connectivity(map, &before_stats);
+        status = dg_analyze_connectivity_for_request(
+            map,
+            request->perspective,
+            &request->traversal,
+            &before_stats
+        );
         if (status != DG_STATUS_OK) {
             dg_clear_process_step_diagnostics(map);
             return status;
@@ -481,7 +486,12 @@ dg_status_t dg_apply_post_processes(
             return status;
         }
 
-        status = dg_analyze_connectivity(map, &after_stats);
+        status = dg_analyze_connectivity_for_request(
+            map,
+            request->perspective,
+            &request->traversal,
+            &after_stats
+        );
         if (status != DG_STATUS_OK) {
             dg_clear_process_step_diagnostics(map);
             return status;

@@ -37,12 +37,14 @@ typedef struct dg_nuklear_app {
     dg_map_t map;
     bool has_map;
     int algorithm_index;
+    int perspective_index;
     int width;
     int height;
     char seed_text[32];
     dg_bsp_config_t bsp_config;
     dg_drunkards_walk_config_t drunkards_walk_config;
     dg_rooms_and_mazes_config_t rooms_and_mazes_config;
+    dg_traversal_constraints_t traversal;
     dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
     int process_method_count;
     int process_add_method_type_index;

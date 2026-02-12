@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 9u;
+static const uint32_t DG_MAP_FORMAT_VERSION = 11u;
 
 typedef struct dg_io_writer {
     FILE *file;
@@ -230,6 +230,12 @@ static bool dg_algorithm_id_value_is_valid(int32_t value)
     return value == (int32_t)DG_ALGORITHM_BSP_TREE ||
            value == (int32_t)DG_ALGORITHM_DRUNKARDS_WALK ||
            value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES;
+}
+
+static bool dg_generation_perspective_value_is_valid(int32_t value)
+{
+    return value == (int32_t)DG_GENERATION_PERSPECTIVE_TOP_DOWN ||
+           value == (int32_t)DG_GENERATION_PERSPECTIVE_SIDE_VIEW;
 }
 
 static void dg_snapshot_process_config_set_defaults(dg_snapshot_process_config_t *process)
@@ -650,6 +656,16 @@ static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
         if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
             return DG_STATUS_INVALID_ARGUMENT;
         }
+        if (!dg_generation_perspective_value_is_valid((int32_t)snapshot->perspective)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+        if (snapshot->traversal.max_jump_up < 0 ||
+            snapshot->traversal.max_jump_across < 0 ||
+            snapshot->traversal.max_drop_down < 0 ||
+            (snapshot->traversal.require_grounded_connectivity != 0 &&
+             snapshot->traversal.require_grounded_connectivity != 1)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
         if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
             return DG_STATUS_INVALID_ARGUMENT;
         }
@@ -862,6 +878,14 @@ static void dg_write_generation_request_snapshot(
     dg_io_writer_write_i32(writer, (int32_t)snapshot->height);
     dg_io_writer_write_u64(writer, snapshot->seed);
     dg_io_writer_write_i32(writer, (int32_t)snapshot->algorithm_id);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->perspective);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->traversal.max_jump_up);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->traversal.max_jump_across);
+    dg_io_writer_write_i32(writer, (int32_t)snapshot->traversal.max_drop_down);
+    dg_io_writer_write_i32(
+        writer,
+        (int32_t)snapshot->traversal.require_grounded_connectivity
+    );
     dg_write_generation_request_params(writer, snapshot);
 
     dg_io_writer_write_size(writer, snapshot->process.method_count);
@@ -1031,6 +1055,8 @@ static dg_status_t dg_load_header(
         version != 6u &&
         version != 7u &&
         version != 8u &&
+        version != 9u &&
+        version != 10u &&
         version != DG_MAP_FORMAT_VERSION) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
@@ -1474,6 +1500,19 @@ static dg_status_t dg_load_generation_request_snapshot(
     dg_io_reader_read_int(reader, &snapshot->height);
     dg_io_reader_read_u64(reader, &snapshot->seed);
     dg_io_reader_read_int(reader, &snapshot->algorithm_id);
+    if (version >= 11u) {
+        dg_io_reader_read_int(reader, &snapshot->perspective);
+        dg_io_reader_read_int(reader, &snapshot->traversal.max_jump_up);
+        dg_io_reader_read_int(reader, &snapshot->traversal.max_jump_across);
+        dg_io_reader_read_int(reader, &snapshot->traversal.max_drop_down);
+        dg_io_reader_read_int(reader, &snapshot->traversal.require_grounded_connectivity);
+    } else {
+        snapshot->perspective = (int)DG_GENERATION_PERSPECTIVE_TOP_DOWN;
+        snapshot->traversal.max_jump_up = 4;
+        snapshot->traversal.max_jump_across = 6;
+        snapshot->traversal.max_drop_down = 8;
+        snapshot->traversal.require_grounded_connectivity = 0;
+    }
     if (reader->status != DG_STATUS_OK) {
         return reader->status;
     }
@@ -1482,6 +1521,16 @@ static dg_status_t dg_load_generation_request_snapshot(
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
     if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (!dg_generation_perspective_value_is_valid((int32_t)snapshot->perspective)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+    if (snapshot->traversal.max_jump_up < 0 ||
+        snapshot->traversal.max_jump_across < 0 ||
+        snapshot->traversal.max_drop_down < 0 ||
+        (snapshot->traversal.require_grounded_connectivity != 0 &&
+         snapshot->traversal.require_grounded_connectivity != 1)) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 

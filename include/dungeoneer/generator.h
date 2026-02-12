@@ -14,6 +14,28 @@ typedef enum dg_algorithm {
     DG_ALGORITHM_ROOMS_AND_MAZES = 2
 } dg_algorithm_t;
 
+typedef enum dg_generation_perspective {
+    DG_GENERATION_PERSPECTIVE_TOP_DOWN = 0,
+    DG_GENERATION_PERSPECTIVE_SIDE_VIEW = 1
+} dg_generation_perspective_t;
+
+typedef struct dg_traversal_constraints {
+    /*
+     * Side-view traversal constraints (tiles):
+     *   max_jump_up      = max vertical climb from jump
+     *   max_jump_across  = max horizontal jump distance
+     *   max_drop_down    = max safe drop to still be considered reachable
+     */
+    int max_jump_up;
+    int max_jump_across;
+    int max_drop_down;
+    /*
+     * 1 = connectivity should be evaluated with grounded traversal in mind.
+     * 0 = disabled (top-down style connectivity).
+     */
+    int require_grounded_connectivity;
+} dg_traversal_constraints_t;
+
 typedef struct dg_bsp_config {
     int min_rooms;
     int max_rooms;
@@ -189,15 +211,18 @@ typedef struct dg_generate_request {
     int height;
     uint64_t seed;
     dg_algorithm_t algorithm;
+    dg_generation_perspective_t perspective;
     union {
         dg_bsp_config_t bsp;
         dg_drunkards_walk_config_t drunkards_walk;
         dg_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
+    dg_traversal_constraints_t traversal;
     dg_process_config_t process;
     dg_room_type_assignment_config_t room_types;
 } dg_generate_request_t;
 
+void dg_default_traversal_constraints(dg_traversal_constraints_t *constraints);
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
