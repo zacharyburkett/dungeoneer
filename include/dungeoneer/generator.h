@@ -96,10 +96,16 @@ typedef enum dg_room_shape_mode {
     DG_ROOM_SHAPE_ORGANIC = 1
 } dg_room_shape_mode_t;
 
+typedef enum dg_corridor_roughen_mode {
+    DG_CORRIDOR_ROUGHEN_UNIFORM = 0,
+    DG_CORRIDOR_ROUGHEN_ORGANIC = 1
+} dg_corridor_roughen_mode_t;
+
 typedef enum dg_process_method_type {
     DG_PROCESS_METHOD_SCALE = 0,
     DG_PROCESS_METHOD_ROOM_SHAPE = 1,
-    DG_PROCESS_METHOD_PATH_SMOOTH = 2
+    DG_PROCESS_METHOD_PATH_SMOOTH = 2,
+    DG_PROCESS_METHOD_CORRIDOR_ROUGHEN = 3
 } dg_process_method_type_t;
 
 typedef struct dg_process_scale_config {
@@ -141,12 +147,27 @@ typedef struct dg_process_path_smooth_config {
     int outer_enabled;
 } dg_process_path_smooth_config_t;
 
+typedef struct dg_process_corridor_roughen_config {
+    /*
+     * Wall-digging strength (0..100).
+     * Higher values carve more wall tiles along corridor edges.
+     */
+    int strength;
+    /*
+     * Dig distribution mode:
+     *   UNIFORM = independent random digs.
+     *   ORGANIC = correlated/clumped digs for smoother, cave-like edges.
+     */
+    dg_corridor_roughen_mode_t mode;
+} dg_process_corridor_roughen_config_t;
+
 typedef struct dg_process_method {
     dg_process_method_type_t type;
     union {
         dg_process_scale_config_t scale;
         dg_process_room_shape_config_t room_shape;
         dg_process_path_smooth_config_t path_smooth;
+        dg_process_corridor_roughen_config_t corridor_roughen;
     } params;
 } dg_process_method_t;
 

@@ -325,6 +325,16 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
                 return DG_STATUS_INVALID_ARGUMENT;
             }
             break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            if (method->params.corridor_roughen.strength < 0 ||
+                method->params.corridor_roughen.strength > 100) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            if (method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_UNIFORM &&
+                method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_ORGANIC) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            break;
         default:
             return DG_STATUS_INVALID_ARGUMENT;
         }
@@ -380,6 +390,12 @@ static dg_status_t dg_copy_process_methods_to_snapshot(
                 source_methods[i].params.path_smooth.inner_enabled;
             methods[i].params.path_smooth.outer_enabled =
                 source_methods[i].params.path_smooth.outer_enabled;
+            break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            methods[i].params.corridor_roughen.strength =
+                source_methods[i].params.corridor_roughen.strength;
+            methods[i].params.corridor_roughen.mode =
+                (int)source_methods[i].params.corridor_roughen.mode;
             break;
         default:
             free(methods);
@@ -696,6 +712,10 @@ void dg_default_process_method(dg_process_method_t *method, dg_process_method_ty
         method->params.path_smooth.strength = 2;
         method->params.path_smooth.inner_enabled = 1;
         method->params.path_smooth.outer_enabled = 1;
+        break;
+    case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+        method->params.corridor_roughen.strength = 40;
+        method->params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
         break;
     default:
         method->type = DG_PROCESS_METHOD_SCALE;

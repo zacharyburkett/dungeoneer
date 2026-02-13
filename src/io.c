@@ -276,6 +276,11 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
                 method->params.path_smooth.inner_enabled == 1) &&
                (method->params.path_smooth.outer_enabled == 0 ||
                 method->params.path_smooth.outer_enabled == 1);
+    case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+        return method->params.corridor_roughen.strength >= 0 &&
+               method->params.corridor_roughen.strength <= 100 &&
+               (method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_UNIFORM ||
+                method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_ORGANIC);
     default:
         return false;
     }
@@ -677,6 +682,13 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
             }
             status = dg_write_i32(file, (int32_t)method->params.path_smooth.outer_enabled);
             break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            status = dg_write_i32(file, (int32_t)method->params.corridor_roughen.strength);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+            status = dg_write_i32(file, (int32_t)method->params.corridor_roughen.mode);
+            break;
         default:
             return DG_STATUS_INVALID_ARGUMENT;
         }
@@ -1052,6 +1064,22 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
                 return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
             }
             break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                    value_i32,
+                    &method->params.corridor_roughen.strength
+                )) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                    value_i32,
+                    &method->params.corridor_roughen.mode
+                )) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            break;
         default:
             return DG_STATUS_UNSUPPORTED_FORMAT;
         }
@@ -1329,6 +1357,12 @@ static dg_status_t dg_build_request_from_snapshot(
                 snapshot->process.methods[i].params.path_smooth.inner_enabled;
             process_methods[i].params.path_smooth.outer_enabled =
                 snapshot->process.methods[i].params.path_smooth.outer_enabled;
+            break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            process_methods[i].params.corridor_roughen.strength =
+                snapshot->process.methods[i].params.corridor_roughen.strength;
+            process_methods[i].params.corridor_roughen.mode =
+                (dg_corridor_roughen_mode_t)snapshot->process.methods[i].params.corridor_roughen.mode;
             break;
         default:
             free(process_methods);
@@ -2193,6 +2227,22 @@ static dg_status_t dg_export_write_json_generation_request(
                     method->params.path_smooth.strength,
                     method->params.path_smooth.inner_enabled,
                     method->params.path_smooth.outer_enabled
+                ) < 0) {
+                return DG_STATUS_IO_ERROR;
+            }
+            break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            if (fprintf(
+                    file,
+                    "        \"type_name\": \"corridor_roughen\",\n"
+                    "        \"strength\": %d,\n"
+                    "        \"mode\": %d,\n"
+                    "        \"mode_name\": \"%s\"\n",
+                    method->params.corridor_roughen.strength,
+                    method->params.corridor_roughen.mode,
+                    method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_ORGANIC ?
+                        "organic" :
+                        "uniform"
                 ) < 0) {
                 return DG_STATUS_IO_ERROR;
             }

@@ -233,6 +233,8 @@ static const char *dg_nuklear_process_method_label(dg_process_method_type_t type
         return "Room Shape";
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return "Path Smoothing";
+    case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+        return "Corridor Roughen";
     default:
         return "Unknown";
     }
@@ -245,6 +247,8 @@ static int dg_nuklear_process_type_to_ui_index(dg_process_method_type_t type)
         return 1;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return 2;
+    case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+        return 3;
     case DG_PROCESS_METHOD_SCALE:
     default:
         return 0;
@@ -258,6 +262,8 @@ static dg_process_method_type_t dg_nuklear_process_ui_index_to_type(int index)
         return DG_PROCESS_METHOD_ROOM_SHAPE;
     case 2:
         return DG_PROCESS_METHOD_PATH_SMOOTH;
+    case 3:
+        return DG_PROCESS_METHOD_CORRIDOR_ROUGHEN;
     case 0:
     default:
         return DG_PROCESS_METHOD_SCALE;
@@ -290,6 +296,14 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
         method->params.path_smooth.outer_enabled =
             method->params.path_smooth.outer_enabled ? 1 : 0;
         break;
+    case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+        method->params.corridor_roughen.strength =
+            dg_nuklear_clamp_int(method->params.corridor_roughen.strength, 0, 100);
+        if (method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_UNIFORM &&
+            method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_ORGANIC) {
+            method->params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
+        }
+        break;
     default:
         dg_default_process_method(method, DG_PROCESS_METHOD_SCALE);
         break;
@@ -310,7 +324,7 @@ static void dg_nuklear_sanitize_process_settings(dg_nuklear_app_t *app)
         DG_NUKLEAR_MAX_PROCESS_METHODS
     );
     app->process_add_method_type_index =
-        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 2);
+        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 3);
 
     for (i = 0; i < app->process_method_count; ++i) {
         dg_nuklear_sanitize_process_method(&app->process_methods[i]);
@@ -1352,6 +1366,12 @@ static bool dg_nuklear_apply_generation_request_snapshot(
             app->process_methods[i].params.path_smooth.outer_enabled =
                 snapshot->process.methods[i].params.path_smooth.outer_enabled;
             break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            app->process_methods[i].params.corridor_roughen.strength =
+                snapshot->process.methods[i].params.corridor_roughen.strength;
+            app->process_methods[i].params.corridor_roughen.mode =
+                (dg_corridor_roughen_mode_t)snapshot->process.methods[i].params.corridor_roughen.mode;
+            break;
         default:
             dg_default_process_method(&app->process_methods[i], DG_PROCESS_METHOD_SCALE);
             break;
@@ -1506,6 +1526,10 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
             hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.strength);
             hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.inner_enabled);
             hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.outer_enabled);
+            break;
+        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+            hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.strength);
+            hash = dg_nuklear_hash_i32(hash, (int)method->params.corridor_roughen.mode);
             break;
         default:
             break;
@@ -2791,8 +2815,14 @@ static void dg_nuklear_draw_process_settings(
     dg_algorithm_t algorithm
 )
 {
-    static const char *process_method_types[] = {"Scale", "Room Shape", "Path Smoothing"};
+    static const char *process_method_types[] = {
+        "Scale",
+        "Room Shape",
+        "Path Smoothing",
+        "Corridor Roughen"
+    };
     static const char *room_shape_modes[] = {"Rectangular", "Organic"};
+    static const char *corridor_roughen_modes[] = {"Uniform", "Organic"};
     int i;
     int pending_remove_index;
 
@@ -2984,6 +3014,40 @@ static void dg_nuklear_draw_process_settings(
                 nk_label_wrap(
                     ctx,
                     "Inner fills bend corners; outer trims matching outer corners while preserving connectivity. In multi-step pipelines, run Inner before Outer."
+                );
+            } else if (method->type == DG_PROCESS_METHOD_CORRIDOR_ROUGHEN) {
+                int mode_index =
+                    (method->params.corridor_roughen.mode == DG_CORRIDOR_ROUGHEN_UNIFORM) ? 0 : 1;
+
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                nk_property_int(
+                    ctx,
+                    "Strength (%)",
+                    0,
+                    &method->params.corridor_roughen.strength,
+                    100,
+                    1,
+                    0.25f
+                );
+
+                nk_layout_row_dynamic(ctx, 24.0f, 1);
+                nk_label(ctx, "Mode", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                mode_index = nk_combo(
+                    ctx,
+                    corridor_roughen_modes,
+                    (int)(sizeof(corridor_roughen_modes) / sizeof(corridor_roughen_modes[0])),
+                    mode_index,
+                    22,
+                    nk_vec2(220.0f, 72.0f)
+                );
+                method->params.corridor_roughen.mode =
+                    (mode_index == 0) ? DG_CORRIDOR_ROUGHEN_UNIFORM : DG_CORRIDOR_ROUGHEN_ORGANIC;
+
+                nk_layout_row_dynamic(ctx, 36.0f, 1);
+                nk_label_wrap(
+                    ctx,
+                    "Randomly digs wall tiles bordering corridors. Uniform mode uses independent random digs; Organic mode produces smoother, clumped edge variation."
                 );
             }
 
