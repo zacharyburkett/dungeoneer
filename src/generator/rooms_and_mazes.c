@@ -1383,7 +1383,6 @@ static dg_status_t dg_connect_rooms_to_other_regions(
 static dg_status_t dg_remove_dead_ends(
     dg_map_t *map,
     int *regions,
-    int room_count,
     int max_prune_steps
 )
 {
@@ -1426,7 +1425,7 @@ static dg_status_t dg_remove_dead_ends(
                     continue;
                 }
 
-                if (regions[index] > 0 && regions[index] <= room_count) {
+                if (dg_point_inside_any_room(map, x, y)) {
                     continue;
                 }
 
@@ -1524,7 +1523,6 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     status = dg_remove_dead_ends(
         map,
         regions,
-        (int)map->metadata.room_count,
         config->dead_end_prune_steps
     );
     free(regions);

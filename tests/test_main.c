@@ -623,6 +623,56 @@ static size_t count_non_room_dead_ends(const dg_map_t *map)
     return count;
 }
 
+static size_t count_room_connected_nub_dead_ends(const dg_map_t *map)
+{
+    size_t count;
+    int x;
+    int y;
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+
+    count = 0;
+    for (y = 1; y < map->height - 1; ++y) {
+        for (x = 1; x < map->width - 1; ++x) {
+            int neighbors;
+            int d;
+            bool touches_room;
+
+            if (point_is_inside_any_room(map, x, y)) {
+                continue;
+            }
+            if (!is_walkable(dg_map_get_tile(map, x, y))) {
+                continue;
+            }
+
+            neighbors = 0;
+            touches_room = false;
+            for (d = 0; d < 4; ++d) {
+                int nx = x + directions[d][0];
+                int ny = y + directions[d][1];
+                dg_tile_t neighbor_tile = dg_map_get_tile(map, nx, ny);
+
+                if (is_walkable(neighbor_tile)) {
+                    neighbors += 1;
+                    if (point_is_inside_any_room(map, nx, ny)) {
+                        touches_room = true;
+                    }
+                }
+            }
+
+            if (touches_room && neighbors <= 1) {
+                count += 1;
+            }
+        }
+    }
+
+    return count;
+}
+
 static size_t count_non_room_isolated_walkable_tiles(const dg_map_t *map)
 {
     size_t count;
@@ -1359,6 +1409,32 @@ static int test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles(void)
         dg_map_destroy(&map);
 
         ASSERT_TRUE(isolated_count == 0);
+    }
+
+    return 0;
+}
+
+static int test_rooms_and_mazes_pruned_has_no_room_nub_dead_ends(void)
+{
+    uint64_t seed;
+
+    for (seed = 4400u; seed < 4560u; ++seed) {
+        dg_generate_request_t request;
+        dg_map_t map = {0};
+        size_t nub_count;
+
+        dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        request.params.rooms_and_mazes.min_rooms = 9;
+        request.params.rooms_and_mazes.max_rooms = 14;
+        request.params.rooms_and_mazes.room_min_size = 4;
+        request.params.rooms_and_mazes.room_max_size = 10;
+        request.params.rooms_and_mazes.dead_end_prune_steps = -1;
+
+        ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+        nub_count = count_room_connected_nub_dead_ends(&map);
+        dg_map_destroy(&map);
+
+        ASSERT_TRUE(nub_count == 0);
     }
 
     return 0;
@@ -2569,6 +2645,8 @@ int main(void)
         {"rooms_and_mazes_wiggle_affects_layout", test_rooms_and_mazes_wiggle_affects_layout},
         {"rooms_and_mazes_unpruned_has_no_isolated_seed_tiles",
          test_rooms_and_mazes_unpruned_has_no_isolated_seed_tiles},
+        {"rooms_and_mazes_pruned_has_no_room_nub_dead_ends",
+         test_rooms_and_mazes_pruned_has_no_room_nub_dead_ends},
         {"post_process_scaling", test_post_process_scaling},
         {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
         {"post_process_path_smoothing_changes_layout", test_post_process_path_smoothing_changes_layout},
