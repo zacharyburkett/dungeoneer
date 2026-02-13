@@ -53,6 +53,7 @@ typedef struct dg_nuklear_app {
     float preview_zoom;
     float preview_center_x;
     float preview_center_y;
+    int preview_show_grid;
     unsigned char *preview_image_pixels;
     int preview_image_width;
     int preview_image_height;

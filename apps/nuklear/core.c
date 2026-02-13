@@ -1049,6 +1049,81 @@ static void dg_nuklear_rasterize_preview_image(
     }
 }
 
+static void dg_nuklear_draw_preview_grid_overlay(
+    struct nk_command_buffer *canvas,
+    struct nk_rect preview_content_bounds,
+    float origin_x_tiles,
+    float origin_y_tiles,
+    float scale,
+    float view_w_tiles,
+    float view_h_tiles,
+    int map_width,
+    int map_height
+)
+{
+    int grid_step;
+    int x_first;
+    int x_last;
+    int y_first;
+    int y_last;
+    int x;
+    int y;
+    struct nk_color grid_color;
+
+    if (canvas == NULL || scale <= 0.0f || map_width <= 0 || map_height <= 0) {
+        return;
+    }
+
+    grid_step = 1;
+    while (scale * (float)grid_step < 8.0f && grid_step < 1024) {
+        grid_step *= 2;
+    }
+
+    x_first = dg_nuklear_floor_to_int(origin_x_tiles / (float)grid_step) * grid_step;
+    x_last = dg_nuklear_ceil_to_int((origin_x_tiles + view_w_tiles) / (float)grid_step) * grid_step;
+    y_first = dg_nuklear_floor_to_int(origin_y_tiles / (float)grid_step) * grid_step;
+    y_last = dg_nuklear_ceil_to_int((origin_y_tiles + view_h_tiles) / (float)grid_step) * grid_step;
+
+    if (x_first < 0) {
+        x_first = 0;
+    }
+    if (y_first < 0) {
+        y_first = 0;
+    }
+    if (x_last > map_width) {
+        x_last = map_width;
+    }
+    if (y_last > map_height) {
+        y_last = map_height;
+    }
+
+    grid_color = (grid_step == 1) ? nk_rgba(255, 255, 255, 52) : nk_rgba(255, 255, 255, 38);
+    for (x = x_first; x <= x_last; x += grid_step) {
+        float screen_x = preview_content_bounds.x + ((float)x - origin_x_tiles) * scale;
+        nk_stroke_line(
+            canvas,
+            screen_x,
+            preview_content_bounds.y,
+            screen_x,
+            preview_content_bounds.y + preview_content_bounds.h,
+            1.0f,
+            grid_color
+        );
+    }
+    for (y = y_first; y <= y_last; y += grid_step) {
+        float screen_y = preview_content_bounds.y + ((float)y - origin_y_tiles) * scale;
+        nk_stroke_line(
+            canvas,
+            preview_content_bounds.x,
+            screen_y,
+            preview_content_bounds.x + preview_content_bounds.w,
+            screen_y,
+            1.0f,
+            grid_color
+        );
+    }
+}
+
 static void dg_nuklear_reset_preview_camera(dg_nuklear_app_t *app)
 {
     if (app == NULL) {
@@ -1745,12 +1820,13 @@ static void dg_nuklear_draw_map(
     }
 
     if (app->has_map) {
-        nk_layout_row_dynamic(ctx, 28.0f, 3);
+        nk_layout_row_dynamic(ctx, 28.0f, 4);
         nk_label(ctx, "Zoom", NK_TEXT_LEFT);
         nk_property_float(ctx, "x", 0.10f, &app->preview_zoom, 24.0f, 0.10f, 0.01f);
         if (nk_button_label(ctx, "Fit")) {
             dg_nuklear_reset_preview_camera(app);
         }
+        app->preview_show_grid = nk_check_label(ctx, "Grid", app->preview_show_grid);
     } else {
         nk_layout_row_dynamic(ctx, 20.0f, 1);
         nk_label(ctx, "No map loaded. Adjust settings, or load a file.", NK_TEXT_LEFT);
@@ -1976,6 +2052,20 @@ static void dg_nuklear_draw_map(
                         nk_fill_rect(canvas, r, 0.0f, color);
                     }
                 }
+            }
+
+            if (app->preview_show_grid) {
+                dg_nuklear_draw_preview_grid_overlay(
+                    canvas,
+                    preview_content_bounds,
+                    origin_x_tiles,
+                    origin_y_tiles,
+                    scale,
+                    view_w_tiles,
+                    view_h_tiles,
+                    app->map.width,
+                    app->map.height
+                );
             }
         }
     }
