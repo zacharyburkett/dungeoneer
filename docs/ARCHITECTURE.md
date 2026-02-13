@@ -109,14 +109,14 @@ Configuration is split by concern:
 Data model direction:
 - Move from hardcoded role semantics toward user-defined room type IDs.
 - Preserve deterministic assignment with seed-driven tie breaking.
-- Keep serialization additive/versioned for backward compatibility.
+- Persist generation config only (no tile/metadata snapshot), then regenerate maps on load.
 - Keep strict-mode failure local to a single generation attempt; retries are handled by callers.
 
 ## Extensibility direction
 
 - Add new layout algorithms as dedicated files under `src/generator/`.
 - Keep room-typing logic shared and independent from any specific layout algorithm.
-- Keep metadata schema additive so old maps remain readable.
+- Keep metadata schema focused on runtime diagnostics; persistence is config-driven.
 
 ## Quality gates
 

@@ -102,11 +102,12 @@ Add room-type-specific metadata:
 - Aggregate counts by type.
 - Assignment diagnostics summary.
 
-### Backward compatibility
+### Persistence model
 
-- File format remains versioned and additive.
-- Older map versions load with default/untyped assignment.
-- Legacy `dg_room_role_t` is considered transitional and should map into room type IDs internally until removal.
+- Saved files store generation config only (including room type config).
+- Loading regenerates the map from saved config/seed.
+- No compatibility guarantees for older serialized formats.
+- Legacy `dg_room_role_t` is transitional and should map into room type IDs internally until removal.
 
 ## UI/editor model
 
@@ -121,7 +122,7 @@ Editor should expose:
 1. Add API structs and defaults for room-type config (no-op when omitted).
 2. Add room feature extraction pass.
 3. Add assignment pass with deterministic behavior.
-4. Add metadata + serialization updates (version bump).
+4. Add metadata + config serialization updates.
 5. Add GUI controls and diagnostics.
 6. Add test coverage:
   - determinism

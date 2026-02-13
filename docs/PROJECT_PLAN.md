@@ -14,9 +14,9 @@ Implemented baseline:
   - Drunkard's Walk
 - Deterministic generation by seed
 - Room/corridor metadata and connectivity metrics
-- Binary map save/load
+- Config-only save/load (load regenerates exact map from saved request)
 - Nuklear-based editor app for generate/save/load
-- Automated tests for core invariants and serialization roundtrip
+- Automated tests for core invariants and config save/load determinism
 - Two-stage generation flow:
   - Layout stage (algorithm-specific)
   - Process stage (post-layout transforms)
@@ -50,8 +50,8 @@ Detailed design contract: `docs/ROOM_TYPES.md`.
 
 - Freeze terminology and config schema for room typing.
 - Add new public config model for room-type assignment (non-breaking first pass).
-- Define migration strategy from legacy `dg_room_role_t` to generic room type IDs.
-- Expand docs for serialization/versioning implications.
+- Complete migration from legacy `dg_room_role_t` to generic room type IDs.
+- Keep serialization docs aligned with config-only persistence.
 
 ### Phase 2: Room feature extraction
 
@@ -84,8 +84,8 @@ Detailed design contract: `docs/ROOM_TYPES.md`.
 ### Phase 5: Persistence and compatibility
 
 - Extend map format for room type assignments/config snapshots.
-- Maintain backward load compatibility for existing map versions.
-- Add explicit version bump + migration tests.
+- Keep load path simple and strict for current config format only.
+- Add/maintain tests for config roundtrip + deterministic regeneration.
 
 ### Phase 6: Quality gates
 

@@ -6,18 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const unsigned char DG_MAP_MAGIC[4] = {'D', 'G', 'M', 'P'};
-static const uint32_t DG_MAP_FORMAT_VERSION = 10u;
-
-typedef struct dg_io_writer {
-    FILE *file;
-    dg_status_t status;
-} dg_io_writer_t;
-
-typedef struct dg_io_reader {
-    FILE *file;
-    dg_status_t status;
-} dg_io_reader_t;
+static const unsigned char DG_CONFIG_MAGIC[4] = {'D', 'G', 'C', 'F'};
 
 static bool dg_mul_size_would_overflow(size_t a, size_t b, size_t *out)
 {
@@ -36,6 +25,34 @@ static bool dg_mul_size_would_overflow(size_t a, size_t b, size_t *out)
 
     *out = a * b;
     return false;
+}
+
+static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
+{
+    if (out_value == NULL) {
+        return false;
+    }
+
+    if (value > (uint64_t)SIZE_MAX) {
+        return false;
+    }
+
+    *out_value = (size_t)value;
+    return true;
+}
+
+static bool dg_i32_to_int_checked(int32_t value, int *out_value)
+{
+    if (out_value == NULL) {
+        return false;
+    }
+
+    if (value > INT_MAX || value < INT_MIN) {
+        return false;
+    }
+
+    *out_value = (int)value;
+    return true;
 }
 
 static bool dg_map_is_empty(const dg_map_t *map)
@@ -89,11 +106,6 @@ static dg_status_t dg_read_exact(FILE *file, void *data, size_t byte_count)
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_write_u8(FILE *file, uint8_t value)
-{
-    return dg_write_exact(file, &value, sizeof(value));
-}
-
 static dg_status_t dg_write_u32(FILE *file, uint32_t value)
 {
     unsigned char bytes[4];
@@ -125,23 +137,19 @@ static dg_status_t dg_write_u64(FILE *file, uint64_t value)
     return dg_write_exact(file, bytes, sizeof(bytes));
 }
 
-static dg_status_t dg_write_i64(FILE *file, int64_t value)
+static dg_status_t dg_write_size(FILE *file, size_t value)
 {
-    uint64_t raw;
-
-    memcpy(&raw, &value, sizeof(raw));
-    return dg_write_u64(file, raw);
-}
-
-static dg_status_t dg_read_u8(FILE *file, uint8_t *out_value)
-{
-    return dg_read_exact(file, out_value, sizeof(*out_value));
+    return dg_write_u64(file, (uint64_t)value);
 }
 
 static dg_status_t dg_read_u32(FILE *file, uint32_t *out_value)
 {
     unsigned char bytes[4];
     dg_status_t status;
+
+    if (out_value == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     status = dg_read_exact(file, bytes, sizeof(bytes));
     if (status != DG_STATUS_OK) {
@@ -160,6 +168,10 @@ static dg_status_t dg_read_i32(FILE *file, int32_t *out_value)
     uint32_t raw;
     dg_status_t status;
 
+    if (out_value == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     status = dg_read_u32(file, &raw);
     if (status != DG_STATUS_OK) {
         return status;
@@ -173,6 +185,10 @@ static dg_status_t dg_read_u64(FILE *file, uint64_t *out_value)
 {
     unsigned char bytes[8];
     dg_status_t status;
+
+    if (out_value == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     status = dg_read_exact(file, bytes, sizeof(bytes));
     if (status != DG_STATUS_OK) {
@@ -190,39 +206,25 @@ static dg_status_t dg_read_u64(FILE *file, uint64_t *out_value)
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_read_i64(FILE *file, int64_t *out_value)
+static dg_status_t dg_read_size(FILE *file, size_t *out_value)
 {
     uint64_t raw;
     dg_status_t status;
+
+    if (out_value == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     status = dg_read_u64(file, &raw);
     if (status != DG_STATUS_OK) {
         return status;
     }
 
-    memcpy(out_value, &raw, sizeof(raw));
+    if (!dg_u64_to_size_checked(raw, out_value)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
     return DG_STATUS_OK;
-}
-
-static bool dg_tile_value_is_valid(uint8_t value)
-{
-    return value == (uint8_t)DG_TILE_VOID ||
-           value == (uint8_t)DG_TILE_WALL ||
-           value == (uint8_t)DG_TILE_FLOOR ||
-           value == (uint8_t)DG_TILE_DOOR;
-}
-
-static bool dg_room_role_value_is_valid(int32_t value)
-{
-    return value >= (int32_t)DG_ROOM_ROLE_NONE &&
-           value <= (int32_t)DG_ROOM_ROLE_SHOP;
-}
-
-static bool dg_map_generation_class_value_is_valid(int32_t value)
-{
-    return value == (int32_t)DG_MAP_GENERATION_CLASS_UNKNOWN ||
-           value == (int32_t)DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
-           value == (int32_t)DG_MAP_GENERATION_CLASS_CAVE_LIKE;
 }
 
 static bool dg_algorithm_id_value_is_valid(int32_t value)
@@ -234,14 +236,22 @@ static bool dg_algorithm_id_value_is_valid(int32_t value)
            value == (int32_t)DG_ALGORITHM_VALUE_NOISE;
 }
 
-static void dg_snapshot_process_config_set_defaults(dg_snapshot_process_config_t *process)
+static bool dg_nonnegative_range_is_valid(int min_value, int max_value)
 {
-    if (process == NULL) {
-        return;
+    if (min_value < 0) {
+        return false;
     }
 
-    process->methods = NULL;
-    process->method_count = 0;
+    if (max_value == -1) {
+        return true;
+    }
+
+    return max_value >= min_value;
+}
+
+static bool dg_bias_is_valid(int value)
+{
+    return value >= -100 && value <= 100;
 }
 
 static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method_t *method)
@@ -254,15 +264,10 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
     case DG_PROCESS_METHOD_SCALE:
         return method->params.scale.factor >= 1;
     case DG_PROCESS_METHOD_ROOM_SHAPE:
-        if (method->params.room_shape.mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
-            method->params.room_shape.mode != (int)DG_ROOM_SHAPE_ORGANIC) {
-            return false;
-        }
-        if (method->params.room_shape.organicity < 0 ||
-            method->params.room_shape.organicity > 100) {
-            return false;
-        }
-        return true;
+        return (method->params.room_shape.mode == (int)DG_ROOM_SHAPE_RECTANGULAR ||
+                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC) &&
+               method->params.room_shape.organicity >= 0 &&
+               method->params.room_shape.organicity <= 100;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return method->params.path_smooth.strength >= 0 &&
                method->params.path_smooth.strength <= 12 &&
@@ -296,266 +301,152 @@ static bool dg_snapshot_process_config_is_valid(const dg_snapshot_process_config
     return true;
 }
 
-static dg_status_t dg_snapshot_process_config_set_legacy_v5(
-    dg_snapshot_process_config_t *process,
-    int scale_factor,
-    int room_shape_mode,
-    int room_shape_organicity
+static bool dg_snapshot_room_type_config_is_valid(
+    const dg_snapshot_room_type_assignment_config_t *room_types
 )
 {
-    size_t method_count;
-    size_t index;
-    dg_snapshot_process_method_t *methods;
+    size_t i;
 
-    if (process == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    dg_snapshot_process_config_set_defaults(process);
-    if (scale_factor < 1) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-    if (room_shape_mode != (int)DG_ROOM_SHAPE_RECTANGULAR &&
-        room_shape_mode != (int)DG_ROOM_SHAPE_ORGANIC) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-    if (room_shape_organicity < 0 || room_shape_organicity > 100) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    method_count = 0;
-    if (room_shape_mode == (int)DG_ROOM_SHAPE_ORGANIC) {
-        method_count += 1;
-    }
-    if (scale_factor > 1) {
-        method_count += 1;
-    }
-    if (method_count == 0) {
-        return DG_STATUS_OK;
-    }
-
-    methods = (dg_snapshot_process_method_t *)malloc(method_count * sizeof(*methods));
-    if (methods == NULL) {
-        return DG_STATUS_ALLOCATION_FAILED;
-    }
-
-    index = 0;
-    if (room_shape_mode == (int)DG_ROOM_SHAPE_ORGANIC) {
-        methods[index].type = (int)DG_PROCESS_METHOD_ROOM_SHAPE;
-        methods[index].params.room_shape.mode = room_shape_mode;
-        methods[index].params.room_shape.organicity = room_shape_organicity;
-        index += 1;
-    }
-    if (scale_factor > 1) {
-        methods[index].type = (int)DG_PROCESS_METHOD_SCALE;
-        methods[index].params.scale.factor = scale_factor;
-        index += 1;
-    }
-
-    process->methods = methods;
-    process->method_count = index;
-    return DG_STATUS_OK;
-}
-
-static bool dg_u64_to_size_checked(uint64_t value, size_t *out_value)
-{
-    if (out_value == NULL) {
+    if (room_types == NULL) {
         return false;
     }
 
-    if (value > (uint64_t)SIZE_MAX) {
+    if (room_types->definition_count > 0 && room_types->definitions == NULL) {
         return false;
     }
 
-    *out_value = (size_t)value;
+    if ((room_types->policy.strict_mode != 0 && room_types->policy.strict_mode != 1) ||
+        (room_types->policy.allow_untyped_rooms != 0 &&
+         room_types->policy.allow_untyped_rooms != 1)) {
+        return false;
+    }
+
+    for (i = 0; i < room_types->definition_count; ++i) {
+        const dg_snapshot_room_type_definition_t *definition = &room_types->definitions[i];
+
+        if (definition->enabled != 0 && definition->enabled != 1) {
+            return false;
+        }
+
+        if (definition->min_count < 0) {
+            return false;
+        }
+
+        if (definition->max_count != -1 && definition->max_count < definition->min_count) {
+            return false;
+        }
+
+        if (definition->target_count != -1) {
+            if (definition->target_count < definition->min_count) {
+                return false;
+            }
+            if (definition->max_count != -1 && definition->target_count > definition->max_count) {
+                return false;
+            }
+        }
+
+        if (!dg_nonnegative_range_is_valid(
+                definition->constraints.area_min,
+                definition->constraints.area_max
+            ) ||
+            !dg_nonnegative_range_is_valid(
+                definition->constraints.degree_min,
+                definition->constraints.degree_max
+            ) ||
+            !dg_nonnegative_range_is_valid(
+                definition->constraints.border_distance_min,
+                definition->constraints.border_distance_max
+            ) ||
+            !dg_nonnegative_range_is_valid(
+                definition->constraints.graph_depth_min,
+                definition->constraints.graph_depth_max
+            )) {
+            return false;
+        }
+
+        if (definition->preferences.weight < 0 ||
+            !dg_bias_is_valid(definition->preferences.larger_room_bias) ||
+            !dg_bias_is_valid(definition->preferences.higher_degree_bias) ||
+            !dg_bias_is_valid(definition->preferences.border_distance_bias)) {
+            return false;
+        }
+    }
+
     return true;
 }
 
-static bool dg_i32_to_int_checked(int32_t value, int *out_value)
+static bool dg_snapshot_algorithm_params_are_valid(const dg_generation_request_snapshot_t *snapshot)
 {
-    if (out_value == NULL) {
+    if (snapshot == NULL) {
         return false;
     }
 
-    if (value > INT_MAX || value < INT_MIN) {
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        return snapshot->params.bsp.min_rooms >= 1 &&
+               snapshot->params.bsp.max_rooms >= snapshot->params.bsp.min_rooms &&
+               snapshot->params.bsp.room_min_size >= 3 &&
+               snapshot->params.bsp.room_max_size >= snapshot->params.bsp.room_min_size;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        return snapshot->params.drunkards_walk.wiggle_percent >= 0 &&
+               snapshot->params.drunkards_walk.wiggle_percent <= 100;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        return snapshot->params.cellular_automata.initial_wall_percent >= 0 &&
+               snapshot->params.cellular_automata.initial_wall_percent <= 100 &&
+               snapshot->params.cellular_automata.simulation_steps >= 1 &&
+               snapshot->params.cellular_automata.simulation_steps <= 12 &&
+               snapshot->params.cellular_automata.wall_threshold >= 0 &&
+               snapshot->params.cellular_automata.wall_threshold <= 8;
+    case DG_ALGORITHM_VALUE_NOISE:
+        return snapshot->params.value_noise.feature_size >= 2 &&
+               snapshot->params.value_noise.feature_size <= 64 &&
+               snapshot->params.value_noise.octaves >= 1 &&
+               snapshot->params.value_noise.octaves <= 6 &&
+               snapshot->params.value_noise.persistence_percent >= 10 &&
+               snapshot->params.value_noise.persistence_percent <= 90 &&
+               snapshot->params.value_noise.floor_threshold_percent >= 0 &&
+               snapshot->params.value_noise.floor_threshold_percent <= 100;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        return snapshot->params.rooms_and_mazes.min_rooms >= 1 &&
+               snapshot->params.rooms_and_mazes.max_rooms >=
+                   snapshot->params.rooms_and_mazes.min_rooms &&
+               snapshot->params.rooms_and_mazes.room_min_size >= 3 &&
+               snapshot->params.rooms_and_mazes.room_max_size >=
+                   snapshot->params.rooms_and_mazes.room_min_size &&
+               snapshot->params.rooms_and_mazes.maze_wiggle_percent >= 0 &&
+               snapshot->params.rooms_and_mazes.maze_wiggle_percent <= 100 &&
+               snapshot->params.rooms_and_mazes.min_room_connections >= 1 &&
+               snapshot->params.rooms_and_mazes.max_room_connections >=
+                   snapshot->params.rooms_and_mazes.min_room_connections &&
+               (snapshot->params.rooms_and_mazes.ensure_full_connectivity == 0 ||
+                snapshot->params.rooms_and_mazes.ensure_full_connectivity == 1) &&
+               snapshot->params.rooms_and_mazes.dead_end_prune_steps >= -1;
+    default:
+        return false;
+    }
+}
+
+static bool dg_snapshot_is_valid(const dg_generation_request_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
         return false;
     }
 
-    *out_value = (int)value;
-    return true;
-}
-
-static dg_io_writer_t dg_io_writer_begin(FILE *file)
-{
-    dg_io_writer_t writer;
-
-    writer.file = file;
-    writer.status = DG_STATUS_OK;
-    return writer;
-}
-
-static void dg_io_writer_write_exact(dg_io_writer_t *writer, const void *data, size_t byte_count)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
+    if (snapshot->present != 1) {
+        return false;
     }
 
-    writer->status = dg_write_exact(writer->file, data, byte_count);
-}
-
-static void dg_io_writer_write_u8(dg_io_writer_t *writer, uint8_t value)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
+    if (snapshot->width < 1 || snapshot->height < 1) {
+        return false;
     }
 
-    writer->status = dg_write_u8(writer->file, value);
-}
-
-static void dg_io_writer_write_u32(dg_io_writer_t *writer, uint32_t value)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
+    if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
+        return false;
     }
 
-    writer->status = dg_write_u32(writer->file, value);
-}
-
-static void dg_io_writer_write_i32(dg_io_writer_t *writer, int32_t value)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
-    }
-
-    writer->status = dg_write_i32(writer->file, value);
-}
-
-static void dg_io_writer_write_u64(dg_io_writer_t *writer, uint64_t value)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
-    }
-
-    writer->status = dg_write_u64(writer->file, value);
-}
-
-static void dg_io_writer_write_i64(dg_io_writer_t *writer, int64_t value)
-{
-    if (writer == NULL || writer->status != DG_STATUS_OK) {
-        return;
-    }
-
-    writer->status = dg_write_i64(writer->file, value);
-}
-
-static void dg_io_writer_write_size(dg_io_writer_t *writer, size_t value)
-{
-    dg_io_writer_write_u64(writer, (uint64_t)value);
-}
-
-static dg_io_reader_t dg_io_reader_begin(FILE *file)
-{
-    dg_io_reader_t reader;
-
-    reader.file = file;
-    reader.status = DG_STATUS_OK;
-    return reader;
-}
-
-static void dg_io_reader_read_exact(dg_io_reader_t *reader, void *data, size_t byte_count)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_exact(reader->file, data, byte_count);
-}
-
-static void dg_io_reader_read_u8(dg_io_reader_t *reader, uint8_t *out_value)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_u8(reader->file, out_value);
-}
-
-static void dg_io_reader_read_u32(dg_io_reader_t *reader, uint32_t *out_value)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_u32(reader->file, out_value);
-}
-
-static void dg_io_reader_read_i32(dg_io_reader_t *reader, int32_t *out_value)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_i32(reader->file, out_value);
-}
-
-static void dg_io_reader_read_u64(dg_io_reader_t *reader, uint64_t *out_value)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_u64(reader->file, out_value);
-}
-
-static void dg_io_reader_read_i64(dg_io_reader_t *reader, int64_t *out_value)
-{
-    if (reader == NULL || reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    reader->status = dg_read_i64(reader->file, out_value);
-}
-
-static void dg_io_reader_read_size(dg_io_reader_t *reader, size_t *out_value)
-{
-    uint64_t raw_value = 0;
-
-    if (reader == NULL || out_value == NULL) {
-        if (reader != NULL && reader->status == DG_STATUS_OK) {
-            reader->status = DG_STATUS_INVALID_ARGUMENT;
-        }
-        return;
-    }
-
-    dg_io_reader_read_u64(reader, &raw_value);
-    if (reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    if (!dg_u64_to_size_checked(raw_value, out_value)) {
-        reader->status = DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-}
-
-static void dg_io_reader_read_int(dg_io_reader_t *reader, int *out_value)
-{
-    int32_t raw_value = 0;
-
-    if (reader == NULL || out_value == NULL) {
-        if (reader != NULL && reader->status == DG_STATUS_OK) {
-            reader->status = DG_STATUS_INVALID_ARGUMENT;
-        }
-        return;
-    }
-
-    dg_io_reader_read_i32(reader, &raw_value);
-    if (reader->status != DG_STATUS_OK) {
-        return;
-    }
-
-    if (!dg_i32_to_int_checked(raw_value, out_value)) {
-        reader->status = DG_STATUS_UNSUPPORTED_FORMAT;
-    }
+    return dg_snapshot_algorithm_params_are_valid(snapshot) &&
+           dg_snapshot_process_config_is_valid(&snapshot->process) &&
+           dg_snapshot_room_type_config_is_valid(&snapshot->room_types);
 }
 
 static dg_status_t dg_allocate_array(void **out_ptr, size_t count, size_t element_size)
@@ -585,1050 +476,608 @@ static dg_status_t dg_allocate_array(void **out_ptr, size_t count, size_t elemen
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
+static void dg_snapshot_clear(dg_generation_request_snapshot_t *snapshot)
 {
-    const dg_generation_request_snapshot_t *snapshot;
-    size_t i;
-
-    if (map == NULL || map->tiles == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
+    if (snapshot == NULL) {
+        return;
     }
 
-    if (map->width <= 0 || map->height <= 0) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->width > INT32_MAX || map->height > INT32_MAX) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if ((long long)map->width * (long long)map->height <= 0) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (!dg_map_generation_class_value_is_valid((int32_t)map->metadata.generation_class)) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_count > 0 && map->metadata.rooms == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.corridor_count > 0 && map->metadata.corridors == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_adjacency_count > 0 && map->metadata.room_adjacency == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_neighbor_count > 0 && map->metadata.room_neighbors == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-    if (map->metadata.diagnostics.process_step_count > 0 &&
-        map->metadata.diagnostics.process_steps == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-    if (map->metadata.diagnostics.room_type_count > 0 &&
-        map->metadata.diagnostics.room_type_quotas == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    snapshot = &map->metadata.generation_request;
-    if (snapshot->present != 0 && snapshot->present != 1) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-    if (snapshot->process.method_count > 0 && snapshot->process.methods == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-    if (snapshot->room_types.definition_count > 0 && snapshot->room_types.definitions == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (snapshot->present == 1) {
-        if (snapshot->width < 1 || snapshot->height < 1) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-        if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-        if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-
-        if (snapshot->room_types.policy.strict_mode != 0 &&
-            snapshot->room_types.policy.strict_mode != 1) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-        if (snapshot->room_types.policy.allow_untyped_rooms != 0 &&
-            snapshot->room_types.policy.allow_untyped_rooms != 1) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-
-        for (i = 0; i < snapshot->room_types.definition_count; ++i) {
-            if (snapshot->room_types.definitions[i].enabled != 0 &&
-                snapshot->room_types.definitions[i].enabled != 1) {
-                return DG_STATUS_INVALID_ARGUMENT;
-            }
-        }
-    }
-
-    for (i = 0; i < map->metadata.diagnostics.process_step_count; ++i) {
-        const dg_process_step_diagnostics_t *step = &map->metadata.diagnostics.process_steps[i];
-        if ((step->connected_before != 0 && step->connected_before != 1) ||
-            (step->connected_after != 0 && step->connected_after != 1)) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-    }
-
-    for (i = 0; i < map->metadata.diagnostics.room_type_count; ++i) {
-        const dg_room_type_quota_diagnostics_t *quota = &map->metadata.diagnostics.room_type_quotas[i];
-        if ((quota->enabled != 0 && quota->enabled != 1) ||
-            (quota->min_satisfied != 0 && quota->min_satisfied != 1) ||
-            (quota->max_satisfied != 0 && quota->max_satisfied != 1) ||
-            (quota->target_satisfied != 0 && quota->target_satisfied != 1)) {
-            return DG_STATUS_INVALID_ARGUMENT;
-        }
-    }
-
-    return DG_STATUS_OK;
+    free(snapshot->process.methods);
+    free(snapshot->room_types.definitions);
+    *snapshot = (dg_generation_request_snapshot_t){0};
 }
 
-static void dg_write_metadata_counts(dg_io_writer_t *writer, const dg_map_metadata_t *metadata)
-{
-    dg_io_writer_write_size(writer, metadata->room_count);
-    dg_io_writer_write_size(writer, metadata->corridor_count);
-    dg_io_writer_write_size(writer, metadata->room_adjacency_count);
-    dg_io_writer_write_size(writer, metadata->room_neighbor_count);
-}
-
-static void dg_write_metadata_metrics(dg_io_writer_t *writer, const dg_map_metadata_t *metadata)
-{
-    const size_t *leading_size_fields[] = {
-        &metadata->walkable_tile_count,
-        &metadata->wall_tile_count,
-        &metadata->special_room_count,
-        &metadata->entrance_room_count,
-        &metadata->exit_room_count,
-        &metadata->boss_room_count,
-        &metadata->treasure_room_count,
-        &metadata->shop_room_count,
-        &metadata->leaf_room_count,
-        &metadata->corridor_total_length
-    };
-    size_t i;
-
-    for (i = 0; i < sizeof(leading_size_fields) / sizeof(leading_size_fields[0]); ++i) {
-        dg_io_writer_write_size(writer, *leading_size_fields[i]);
-    }
-
-    dg_io_writer_write_i32(writer, (int32_t)metadata->entrance_exit_distance);
-    dg_io_writer_write_size(writer, metadata->connected_component_count);
-    dg_io_writer_write_size(writer, metadata->largest_component_size);
-}
-
-static void dg_write_tiles(dg_io_writer_t *writer, const dg_tile_t *tiles, size_t tile_count)
-{
-    size_t i;
-
-    for (i = 0; i < tile_count; ++i) {
-        dg_io_writer_write_u8(writer, (uint8_t)tiles[i]);
-    }
-}
-
-static void dg_write_rooms(dg_io_writer_t *writer, const dg_map_t *map)
-{
-    size_t i;
-
-    for (i = 0; i < map->metadata.room_count; ++i) {
-        const dg_room_metadata_t *room = &map->metadata.rooms[i];
-
-        dg_io_writer_write_i32(writer, (int32_t)room->id);
-        dg_io_writer_write_i32(writer, (int32_t)room->bounds.x);
-        dg_io_writer_write_i32(writer, (int32_t)room->bounds.y);
-        dg_io_writer_write_i32(writer, (int32_t)room->bounds.width);
-        dg_io_writer_write_i32(writer, (int32_t)room->bounds.height);
-        dg_io_writer_write_u32(writer, (uint32_t)room->flags);
-        dg_io_writer_write_i32(writer, (int32_t)room->role);
-        dg_io_writer_write_u32(writer, room->type_id);
-    }
-}
-
-static void dg_write_corridors(dg_io_writer_t *writer, const dg_map_t *map)
-{
-    size_t i;
-
-    for (i = 0; i < map->metadata.corridor_count; ++i) {
-        const dg_corridor_metadata_t *corridor = &map->metadata.corridors[i];
-
-        dg_io_writer_write_i32(writer, (int32_t)corridor->from_room_id);
-        dg_io_writer_write_i32(writer, (int32_t)corridor->to_room_id);
-        dg_io_writer_write_i32(writer, (int32_t)corridor->width);
-        dg_io_writer_write_i32(writer, (int32_t)corridor->length);
-    }
-}
-
-static void dg_write_room_adjacency(dg_io_writer_t *writer, const dg_map_t *map)
-{
-    size_t i;
-
-    for (i = 0; i < map->metadata.room_adjacency_count; ++i) {
-        const dg_room_adjacency_span_t *span = &map->metadata.room_adjacency[i];
-
-        dg_io_writer_write_size(writer, span->start_index);
-        dg_io_writer_write_size(writer, span->count);
-    }
-}
-
-static void dg_write_room_neighbors(dg_io_writer_t *writer, const dg_map_t *map)
-{
-    size_t i;
-
-    for (i = 0; i < map->metadata.room_neighbor_count; ++i) {
-        const dg_room_neighbor_t *neighbor = &map->metadata.room_neighbors[i];
-
-        dg_io_writer_write_i32(writer, (int32_t)neighbor->room_id);
-        dg_io_writer_write_i32(writer, (int32_t)neighbor->corridor_index);
-    }
-}
-
-static void dg_write_generation_request_params(
-    dg_io_writer_t *writer,
+static dg_status_t dg_write_snapshot_algorithm_params(
+    FILE *file,
     const dg_generation_request_snapshot_t *snapshot
 )
 {
-    if (writer == NULL || snapshot == NULL) {
-        return;
+    dg_status_t status;
+
+    if (file == NULL || snapshot == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
     switch ((dg_algorithm_t)snapshot->algorithm_id) {
     case DG_ALGORITHM_BSP_TREE:
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.min_rooms);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.max_rooms);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.room_min_size);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.bsp.room_max_size);
-        break;
+        status = dg_write_i32(file, (int32_t)snapshot->params.bsp.min_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.bsp.max_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.bsp.room_min_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(file, (int32_t)snapshot->params.bsp.room_max_size);
     case DG_ALGORITHM_DRUNKARDS_WALK:
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.drunkards_walk.wiggle_percent);
-        break;
+        return dg_write_i32(file, (int32_t)snapshot->params.drunkards_walk.wiggle_percent);
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
-        dg_io_writer_write_i32(
-            writer,
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.cellular_automata.initial_wall_percent
         );
-        dg_io_writer_write_i32(
-            writer,
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.cellular_automata.simulation_steps
         );
-        dg_io_writer_write_i32(
-            writer,
-            (int32_t)snapshot->params.cellular_automata.wall_threshold
-        );
-        break;
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(file, (int32_t)snapshot->params.cellular_automata.wall_threshold);
     case DG_ALGORITHM_VALUE_NOISE:
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.value_noise.feature_size);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.value_noise.octaves);
-        dg_io_writer_write_i32(
-            writer,
-            (int32_t)snapshot->params.value_noise.persistence_percent
-        );
-        dg_io_writer_write_i32(
-            writer,
+        status = dg_write_i32(file, (int32_t)snapshot->params.value_noise.feature_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.value_noise.octaves);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.value_noise.persistence_percent);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(
+            file,
             (int32_t)snapshot->params.value_noise.floor_threshold_percent
         );
-        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.min_rooms);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.max_rooms);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.room_min_size);
-        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.room_max_size);
-        dg_io_writer_write_i32(
-            writer,
+        status = dg_write_i32(file, (int32_t)snapshot->params.rooms_and_mazes.min_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.rooms_and_mazes.max_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.rooms_and_mazes.room_min_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.rooms_and_mazes.room_max_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.rooms_and_mazes.maze_wiggle_percent
         );
-        dg_io_writer_write_i32(
-            writer,
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.rooms_and_mazes.min_room_connections
         );
-        dg_io_writer_write_i32(
-            writer,
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.rooms_and_mazes.max_room_connections
         );
-        dg_io_writer_write_i32(
-            writer,
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
             (int32_t)snapshot->params.rooms_and_mazes.ensure_full_connectivity
         );
-        dg_io_writer_write_i32(
-            writer,
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(
+            file,
             (int32_t)snapshot->params.rooms_and_mazes.dead_end_prune_steps
         );
-        break;
     default:
-        break;
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 }
 
-static void dg_write_generation_request_snapshot(
-    dg_io_writer_t *writer,
-    const dg_map_metadata_t *metadata
-)
+static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_snapshot_t *snapshot)
 {
-    const dg_generation_request_snapshot_t *snapshot;
+    dg_status_t status;
     size_t i;
 
-    if (writer == NULL || metadata == NULL) {
-        return;
+    if (file == NULL || snapshot == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    snapshot = &metadata->generation_request;
-    dg_io_writer_write_u8(writer, snapshot->present ? 1u : 0u);
-    if (snapshot->present == 0) {
-        return;
+    status = dg_write_exact(file, DG_CONFIG_MAGIC, sizeof(DG_CONFIG_MAGIC));
+    if (status != DG_STATUS_OK) {
+        return status;
     }
 
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->width);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->height);
-    dg_io_writer_write_u64(writer, snapshot->seed);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->algorithm_id);
-    dg_write_generation_request_params(writer, snapshot);
+    status = dg_write_i32(file, (int32_t)snapshot->width);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
 
-    dg_io_writer_write_size(writer, snapshot->process.method_count);
+    status = dg_write_i32(file, (int32_t)snapshot->height);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_u64(file, snapshot->seed);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_i32(file, (int32_t)snapshot->algorithm_id);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_snapshot_algorithm_params(file, snapshot);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_size(file, snapshot->process.method_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
     for (i = 0; i < snapshot->process.method_count; ++i) {
         const dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
 
-        dg_io_writer_write_i32(writer, (int32_t)method->type);
+        status = dg_write_i32(file, (int32_t)method->type);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+
         switch ((dg_process_method_type_t)method->type) {
         case DG_PROCESS_METHOD_SCALE:
-            dg_io_writer_write_i32(writer, (int32_t)method->params.scale.factor);
+            status = dg_write_i32(file, (int32_t)method->params.scale.factor);
             break;
         case DG_PROCESS_METHOD_ROOM_SHAPE:
-            dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.mode);
-            dg_io_writer_write_i32(writer, (int32_t)method->params.room_shape.organicity);
+            status = dg_write_i32(file, (int32_t)method->params.room_shape.mode);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+            status = dg_write_i32(file, (int32_t)method->params.room_shape.organicity);
             break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
-            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.strength);
-            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.inner_enabled);
-            dg_io_writer_write_i32(writer, (int32_t)method->params.path_smooth.outer_enabled);
+            status = dg_write_i32(file, (int32_t)method->params.path_smooth.strength);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+            status = dg_write_i32(file, (int32_t)method->params.path_smooth.inner_enabled);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+            status = dg_write_i32(file, (int32_t)method->params.path_smooth.outer_enabled);
             break;
         default:
-            break;
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        if (status != DG_STATUS_OK) {
+            return status;
         }
     }
 
-    dg_io_writer_write_size(writer, snapshot->room_types.definition_count);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.strict_mode);
-    dg_io_writer_write_i32(writer, (int32_t)snapshot->room_types.policy.allow_untyped_rooms);
-    dg_io_writer_write_u32(writer, snapshot->room_types.policy.default_type_id);
+    status = dg_write_size(file, snapshot->room_types.definition_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_i32(file, (int32_t)snapshot->room_types.policy.strict_mode);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_i32(file, (int32_t)snapshot->room_types.policy.allow_untyped_rooms);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_u32(file, snapshot->room_types.policy.default_type_id);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
 
     for (i = 0; i < snapshot->room_types.definition_count; ++i) {
         const dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
 
-        dg_io_writer_write_u32(writer, definition->type_id);
-        dg_io_writer_write_i32(writer, (int32_t)definition->enabled);
-        dg_io_writer_write_i32(writer, (int32_t)definition->min_count);
-        dg_io_writer_write_i32(writer, (int32_t)definition->max_count);
-        dg_io_writer_write_i32(writer, (int32_t)definition->target_count);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.area_min);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.area_max);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.degree_min);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.degree_max);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.border_distance_min);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.border_distance_max);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.graph_depth_min);
-        dg_io_writer_write_i32(writer, (int32_t)definition->constraints.graph_depth_max);
-        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.weight);
-        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.larger_room_bias);
-        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.higher_degree_bias);
-        dg_io_writer_write_i32(writer, (int32_t)definition->preferences.border_distance_bias);
-    }
-}
-
-static void dg_write_generation_diagnostics(
-    dg_io_writer_t *writer,
-    const dg_generation_diagnostics_t *diagnostics
-)
-{
-    size_t i;
-
-    if (writer == NULL || diagnostics == NULL) {
-        return;
-    }
-
-    dg_io_writer_write_size(writer, diagnostics->process_step_count);
-    for (i = 0; i < diagnostics->process_step_count; ++i) {
-        const dg_process_step_diagnostics_t *step = &diagnostics->process_steps[i];
-        dg_io_writer_write_i32(writer, (int32_t)step->method_type);
-        dg_io_writer_write_size(writer, step->walkable_before);
-        dg_io_writer_write_size(writer, step->walkable_after);
-        dg_io_writer_write_i64(writer, step->walkable_delta);
-        dg_io_writer_write_size(writer, step->components_before);
-        dg_io_writer_write_size(writer, step->components_after);
-        dg_io_writer_write_i64(writer, step->components_delta);
-        dg_io_writer_write_i32(writer, (int32_t)step->connected_before);
-        dg_io_writer_write_i32(writer, (int32_t)step->connected_after);
-    }
-
-    dg_io_writer_write_size(writer, diagnostics->typed_room_count);
-    dg_io_writer_write_size(writer, diagnostics->untyped_room_count);
-    dg_io_writer_write_size(writer, diagnostics->room_type_count);
-    dg_io_writer_write_size(writer, diagnostics->room_type_min_miss_count);
-    dg_io_writer_write_size(writer, diagnostics->room_type_max_excess_count);
-    dg_io_writer_write_size(writer, diagnostics->room_type_target_miss_count);
-    for (i = 0; i < diagnostics->room_type_count; ++i) {
-        const dg_room_type_quota_diagnostics_t *quota = &diagnostics->room_type_quotas[i];
-        dg_io_writer_write_u32(writer, quota->type_id);
-        dg_io_writer_write_i32(writer, (int32_t)quota->enabled);
-        dg_io_writer_write_i32(writer, (int32_t)quota->min_count);
-        dg_io_writer_write_i32(writer, (int32_t)quota->max_count);
-        dg_io_writer_write_i32(writer, (int32_t)quota->target_count);
-        dg_io_writer_write_size(writer, quota->assigned_count);
-        dg_io_writer_write_i32(writer, (int32_t)quota->min_satisfied);
-        dg_io_writer_write_i32(writer, (int32_t)quota->max_satisfied);
-        dg_io_writer_write_i32(writer, (int32_t)quota->target_satisfied);
-    }
-}
-
-static dg_status_t dg_finish_write(FILE *file, dg_status_t status)
-{
-    if (file == NULL) {
-        return status == DG_STATUS_OK ? DG_STATUS_INVALID_ARGUMENT : status;
-    }
-
-    if (status != DG_STATUS_OK) {
-        (void)fclose(file);
-        return status;
-    }
-
-    if (fclose(file) != 0) {
-        return DG_STATUS_IO_ERROR;
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_fail_load(FILE *file, dg_map_t *loaded, dg_status_t status)
-{
-    if (loaded != NULL) {
-        dg_map_destroy(loaded);
-    }
-
-    if (file != NULL) {
-        (void)fclose(file);
-    }
-
-    return status;
-}
-
-static dg_status_t dg_load_header(
-    dg_io_reader_t *reader,
-    uint32_t *out_version,
-    int *out_width,
-    int *out_height,
-    size_t *out_tile_count
-)
-{
-    unsigned char magic[sizeof(DG_MAP_MAGIC)];
-    uint32_t version = 0;
-    uint32_t width_u32 = 0;
-    uint32_t height_u32 = 0;
-    uint64_t tile_count_u64 = 0;
-    size_t tile_count = 0;
-
-    if (reader == NULL || out_version == NULL || out_width == NULL ||
-        out_height == NULL || out_tile_count == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    dg_io_reader_read_exact(reader, magic, sizeof(magic));
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-    if (memcmp(magic, DG_MAP_MAGIC, sizeof(DG_MAP_MAGIC)) != 0) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    dg_io_reader_read_u32(reader, &version);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-    if (version != 1u &&
-        version != 2u &&
-        version != 3u &&
-        version != 4u &&
-        version != 5u &&
-        version != 6u &&
-        version != 7u &&
-        version != 8u &&
-        version != 9u &&
-        version != 10u &&
-        version != 11u &&
-        version != DG_MAP_FORMAT_VERSION) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    dg_io_reader_read_u32(reader, &width_u32);
-    dg_io_reader_read_u32(reader, &height_u32);
-    dg_io_reader_read_u64(reader, &tile_count_u64);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    if (width_u32 < 1u || height_u32 < 1u ||
-        width_u32 > (uint32_t)INT_MAX ||
-        height_u32 > (uint32_t)INT_MAX) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    if (dg_mul_size_would_overflow((size_t)width_u32, (size_t)height_u32, &tile_count)) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    if ((uint64_t)tile_count != tile_count_u64) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    *out_version = version;
-    *out_width = (int)width_u32;
-    *out_height = (int)height_u32;
-    *out_tile_count = tile_count;
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_metadata_core(dg_io_reader_t *reader, uint32_t version, dg_map_t *map)
-{
-    int32_t algorithm_id_i32 = 0;
-    int32_t generation_class_i32 = 0;
-    uint8_t connected_floor_u8 = 0;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    dg_io_reader_read_u64(reader, &map->metadata.seed);
-    dg_io_reader_read_i32(reader, &algorithm_id_i32);
-
-    if (version >= 2u) {
-        dg_io_reader_read_i32(reader, &generation_class_i32);
-    }
-
-    dg_io_reader_read_size(reader, &map->metadata.generation_attempts);
-    dg_io_reader_read_u8(reader, &connected_floor_u8);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    if (!dg_i32_to_int_checked(algorithm_id_i32, &map->metadata.algorithm_id)) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    if (version >= 2u) {
-        if (!dg_map_generation_class_value_is_valid(generation_class_i32)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
+        status = dg_write_u32(file, definition->type_id);
+        if (status != DG_STATUS_OK) {
+            return status;
         }
-        map->metadata.generation_class = (dg_map_generation_class_t)generation_class_i32;
-    } else {
-        map->metadata.generation_class = DG_MAP_GENERATION_CLASS_UNKNOWN;
-    }
-
-    map->metadata.connected_floor = connected_floor_u8 != 0u;
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_metadata_counts(dg_io_reader_t *reader, dg_map_t *map)
-{
-    uint64_t room_count_u64 = 0;
-    uint64_t corridor_count_u64 = 0;
-    uint64_t room_adjacency_count_u64 = 0;
-    uint64_t room_neighbor_count_u64 = 0;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    dg_io_reader_read_u64(reader, &room_count_u64);
-    dg_io_reader_read_u64(reader, &corridor_count_u64);
-    dg_io_reader_read_u64(reader, &room_adjacency_count_u64);
-    dg_io_reader_read_u64(reader, &room_neighbor_count_u64);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    if (room_count_u64 > (uint64_t)SIZE_MAX ||
-        corridor_count_u64 > (uint64_t)SIZE_MAX ||
-        room_adjacency_count_u64 > (uint64_t)SIZE_MAX ||
-        room_neighbor_count_u64 > (uint64_t)SIZE_MAX) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    map->metadata.room_count = (size_t)room_count_u64;
-    map->metadata.room_capacity = map->metadata.room_count;
-    map->metadata.corridor_count = (size_t)corridor_count_u64;
-    map->metadata.corridor_capacity = map->metadata.corridor_count;
-    map->metadata.room_adjacency_count = (size_t)room_adjacency_count_u64;
-    map->metadata.room_neighbor_count = (size_t)room_neighbor_count_u64;
-
-    if (map->metadata.generation_class == DG_MAP_GENERATION_CLASS_UNKNOWN) {
-        if (map->metadata.room_count > 0 || map->metadata.corridor_count > 0) {
-            map->metadata.generation_class = DG_MAP_GENERATION_CLASS_ROOM_LIKE;
-        } else {
-            map->metadata.generation_class = DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+        status = dg_write_i32(file, (int32_t)definition->enabled);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->min_count);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->max_count);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->target_count);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.area_min);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.area_max);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.degree_min);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.degree_max);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.border_distance_min);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.border_distance_max);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.graph_depth_min);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->constraints.graph_depth_max);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->preferences.weight);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->preferences.larger_room_bias);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->preferences.higher_degree_bias);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->preferences.border_distance_bias);
+        if (status != DG_STATUS_OK) {
+            return status;
         }
     }
 
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_load_metadata_metrics(dg_io_reader_t *reader, dg_map_t *map)
-{
-    size_t *size_fields[] = {
-        &map->metadata.walkable_tile_count,
-        &map->metadata.wall_tile_count,
-        &map->metadata.special_room_count,
-        &map->metadata.entrance_room_count,
-        &map->metadata.exit_room_count,
-        &map->metadata.boss_room_count,
-        &map->metadata.treasure_room_count,
-        &map->metadata.shop_room_count,
-        &map->metadata.leaf_room_count,
-        &map->metadata.corridor_total_length
-    };
-    size_t i;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    for (i = 0; i < sizeof(size_fields) / sizeof(size_fields[0]); ++i) {
-        dg_io_reader_read_size(reader, size_fields[i]);
-    }
-
-    dg_io_reader_read_int(reader, &map->metadata.entrance_exit_distance);
-    dg_io_reader_read_size(reader, &map->metadata.connected_component_count);
-    dg_io_reader_read_size(reader, &map->metadata.largest_component_size);
-
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_tiles(dg_io_reader_t *reader, dg_map_t *map, size_t tile_count)
-{
-    size_t i;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    for (i = 0; i < tile_count; ++i) {
-        uint8_t tile_value = 0;
-
-        dg_io_reader_read_u8(reader, &tile_value);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        if (!dg_tile_value_is_valid(tile_value)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-
-        map->tiles[i] = (dg_tile_t)tile_value;
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_rooms(dg_io_reader_t *reader, uint32_t version, dg_map_t *map)
-{
-    size_t i;
-    dg_status_t status;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_count == 0) {
-        return DG_STATUS_OK;
-    }
-
-    status = dg_allocate_array(
-        (void **)&map->metadata.rooms,
-        map->metadata.room_count,
-        sizeof(dg_room_metadata_t)
-    );
-    if (status != DG_STATUS_OK) {
-        return status;
-    }
-
-    for (i = 0; i < map->metadata.room_count; ++i) {
-        dg_room_metadata_t *room = &map->metadata.rooms[i];
-        int32_t role_i32 = 0;
-
-        dg_io_reader_read_int(reader, &room->id);
-        dg_io_reader_read_int(reader, &room->bounds.x);
-        dg_io_reader_read_int(reader, &room->bounds.y);
-        dg_io_reader_read_int(reader, &room->bounds.width);
-        dg_io_reader_read_int(reader, &room->bounds.height);
-        dg_io_reader_read_u32(reader, &room->flags);
-        dg_io_reader_read_i32(reader, &role_i32);
-        if (version >= 3u) {
-            dg_io_reader_read_u32(reader, &room->type_id);
-        } else {
-            room->type_id = DG_ROOM_TYPE_UNASSIGNED;
-        }
-
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        if (!dg_room_role_value_is_valid(role_i32)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-
-        room->role = (dg_room_role_t)role_i32;
-        if (room->bounds.width <= 0 || room->bounds.height <= 0) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_corridors(dg_io_reader_t *reader, dg_map_t *map)
-{
-    size_t i;
-    dg_status_t status;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.corridor_count == 0) {
-        return DG_STATUS_OK;
-    }
-
-    status = dg_allocate_array(
-        (void **)&map->metadata.corridors,
-        map->metadata.corridor_count,
-        sizeof(dg_corridor_metadata_t)
-    );
-    if (status != DG_STATUS_OK) {
-        return status;
-    }
-
-    for (i = 0; i < map->metadata.corridor_count; ++i) {
-        dg_corridor_metadata_t *corridor = &map->metadata.corridors[i];
-
-        dg_io_reader_read_int(reader, &corridor->from_room_id);
-        dg_io_reader_read_int(reader, &corridor->to_room_id);
-        dg_io_reader_read_int(reader, &corridor->width);
-        dg_io_reader_read_int(reader, &corridor->length);
-
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        if (corridor->width <= 0 || corridor->length <= 0) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_room_adjacency(dg_io_reader_t *reader, dg_map_t *map)
-{
-    size_t i;
-    dg_status_t status;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_adjacency_count == 0) {
-        return DG_STATUS_OK;
-    }
-
-    status = dg_allocate_array(
-        (void **)&map->metadata.room_adjacency,
-        map->metadata.room_adjacency_count,
-        sizeof(dg_room_adjacency_span_t)
-    );
-    if (status != DG_STATUS_OK) {
-        return status;
-    }
-
-    for (i = 0; i < map->metadata.room_adjacency_count; ++i) {
-        dg_room_adjacency_span_t *span = &map->metadata.room_adjacency[i];
-
-        dg_io_reader_read_size(reader, &span->start_index);
-        dg_io_reader_read_size(reader, &span->count);
-
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        if (span->start_index > map->metadata.room_neighbor_count ||
-            span->count > map->metadata.room_neighbor_count ||
-            span->count > map->metadata.room_neighbor_count - span->start_index) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_room_neighbors(dg_io_reader_t *reader, dg_map_t *map)
-{
-    size_t i;
-    dg_status_t status;
-
-    if (reader == NULL || map == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (map->metadata.room_neighbor_count == 0) {
-        return DG_STATUS_OK;
-    }
-
-    status = dg_allocate_array(
-        (void **)&map->metadata.room_neighbors,
-        map->metadata.room_neighbor_count,
-        sizeof(dg_room_neighbor_t)
-    );
-    if (status != DG_STATUS_OK) {
-        return status;
-    }
-
-    for (i = 0; i < map->metadata.room_neighbor_count; ++i) {
-        dg_room_neighbor_t *neighbor = &map->metadata.room_neighbors[i];
-
-        dg_io_reader_read_int(reader, &neighbor->room_id);
-        dg_io_reader_read_int(reader, &neighbor->corridor_index);
-
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        if (neighbor->room_id < 0 || (size_t)neighbor->room_id >= map->metadata.room_count) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-
-        if (neighbor->corridor_index < 0 ||
-            (size_t)neighbor->corridor_index >= map->metadata.corridor_count) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
-    }
-
-    return DG_STATUS_OK;
-}
-
-static dg_status_t dg_load_generation_request_params(
-    dg_io_reader_t *reader,
+static dg_status_t dg_read_snapshot_algorithm_params(
+    FILE *file,
     dg_generation_request_snapshot_t *snapshot
 )
 {
-    if (reader == NULL || snapshot == NULL) {
+    int32_t value;
+    dg_status_t status;
+
+    if (file == NULL || snapshot == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
     switch ((dg_algorithm_t)snapshot->algorithm_id) {
     case DG_ALGORITHM_BSP_TREE:
-        dg_io_reader_read_int(reader, &snapshot->params.bsp.min_rooms);
-        dg_io_reader_read_int(reader, &snapshot->params.bsp.max_rooms);
-        dg_io_reader_read_int(reader, &snapshot->params.bsp.room_min_size);
-        dg_io_reader_read_int(reader, &snapshot->params.bsp.room_max_size);
-        break;
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value, &snapshot->params.bsp.min_rooms)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value, &snapshot->params.bsp.max_rooms)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.bsp.room_min_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.bsp.room_max_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
     case DG_ALGORITHM_DRUNKARDS_WALK:
-        dg_io_reader_read_int(reader, &snapshot->params.drunkards_walk.wiggle_percent);
-        break;
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.drunkards_walk.wiggle_percent)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
-        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.initial_wall_percent);
-        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.simulation_steps);
-        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.wall_threshold);
-        break;
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.cellular_automata.initial_wall_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.cellular_automata.simulation_steps
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.cellular_automata.wall_threshold
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
     case DG_ALGORITHM_VALUE_NOISE:
-        dg_io_reader_read_int(reader, &snapshot->params.value_noise.feature_size);
-        dg_io_reader_read_int(reader, &snapshot->params.value_noise.octaves);
-        dg_io_reader_read_int(reader, &snapshot->params.value_noise.persistence_percent);
-        dg_io_reader_read_int(reader, &snapshot->params.value_noise.floor_threshold_percent);
-        break;
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.value_noise.feature_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.value_noise.octaves)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.value_noise.persistence_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.value_noise.floor_threshold_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.min_rooms);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.max_rooms);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.room_min_size);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.room_max_size);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.maze_wiggle_percent);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.min_room_connections);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.max_room_connections);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.ensure_full_connectivity);
-        dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.dead_end_prune_steps);
-        break;
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.min_rooms
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.max_rooms
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.room_min_size
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.room_max_size
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.maze_wiggle_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.min_room_connections
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.max_room_connections
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.ensure_full_connectivity
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.rooms_and_mazes.dead_end_prune_steps
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
     default:
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
-
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    return DG_STATUS_OK;
 }
 
-static dg_status_t dg_load_generation_request_snapshot(
-    dg_io_reader_t *reader,
-    uint32_t version,
-    dg_map_t *map
-)
+static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t *snapshot)
 {
-    dg_generation_request_snapshot_t *snapshot;
-    uint8_t present_u8;
-    int ignored_i32;
-    size_t i;
+    unsigned char magic[sizeof(DG_CONFIG_MAGIC)];
+    int32_t value_i32;
     dg_status_t status;
+    size_t i;
 
-    if (reader == NULL || map == NULL) {
+    if (file == NULL || snapshot == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    snapshot = &map->metadata.generation_request;
     *snapshot = (dg_generation_request_snapshot_t){0};
-
-    if (version < 4u) {
-        return DG_STATUS_OK;
-    }
-
-    present_u8 = 0;
-    dg_io_reader_read_u8(reader, &present_u8);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
-
-    if (present_u8 != 0u && present_u8 != 1u) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-    if (present_u8 == 0u) {
-        return DG_STATUS_OK;
-    }
-
     snapshot->present = 1;
-    dg_io_reader_read_int(reader, &snapshot->width);
-    dg_io_reader_read_int(reader, &snapshot->height);
-    dg_io_reader_read_u64(reader, &snapshot->seed);
-    dg_io_reader_read_int(reader, &snapshot->algorithm_id);
-    if (version >= 11u) {
-        dg_io_reader_read_int(reader, &ignored_i32);
-        dg_io_reader_read_int(reader, &ignored_i32);
-        dg_io_reader_read_int(reader, &ignored_i32);
-        dg_io_reader_read_int(reader, &ignored_i32);
-        dg_io_reader_read_int(reader, &ignored_i32);
-    }
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
 
-    if (snapshot->width < 1 || snapshot->height < 1) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-    if (!dg_algorithm_id_value_is_valid((int32_t)snapshot->algorithm_id)) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
-    }
-
-    status = dg_load_generation_request_params(reader, snapshot);
+    status = dg_read_exact(file, magic, sizeof(magic));
     if (status != DG_STATUS_OK) {
         return status;
     }
 
-    dg_snapshot_process_config_set_defaults(&snapshot->process);
-    if (version >= 6u) {
-        dg_io_reader_read_size(reader, &snapshot->process.method_count);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        status = dg_allocate_array(
-            (void **)&snapshot->process.methods,
-            snapshot->process.method_count,
-            sizeof(dg_snapshot_process_method_t)
-        );
-        if (status != DG_STATUS_OK) {
-            return status;
-        }
-
-        for (i = 0; i < snapshot->process.method_count; ++i) {
-            dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
-
-            dg_io_reader_read_int(reader, &method->type);
-            if (reader->status != DG_STATUS_OK) {
-                return reader->status;
-            }
-
-            switch ((dg_process_method_type_t)method->type) {
-            case DG_PROCESS_METHOD_SCALE:
-                dg_io_reader_read_int(reader, &method->params.scale.factor);
-                break;
-            case DG_PROCESS_METHOD_ROOM_SHAPE:
-                dg_io_reader_read_int(reader, &method->params.room_shape.mode);
-                dg_io_reader_read_int(reader, &method->params.room_shape.organicity);
-                break;
-            case DG_PROCESS_METHOD_PATH_SMOOTH:
-                dg_io_reader_read_int(reader, &method->params.path_smooth.strength);
-                if (version >= 8u) {
-                    dg_io_reader_read_int(reader, &method->params.path_smooth.inner_enabled);
-                    dg_io_reader_read_int(reader, &method->params.path_smooth.outer_enabled);
-                } else {
-                    method->params.path_smooth.inner_enabled = 1;
-                    method->params.path_smooth.outer_enabled = 0;
-                }
-                break;
-            default:
-                return DG_STATUS_UNSUPPORTED_FORMAT;
-            }
-            if (reader->status != DG_STATUS_OK) {
-                return reader->status;
-            }
-        }
-    } else if (version >= 5u) {
-        int legacy_scale_factor = 1;
-        int legacy_room_shape_mode = (int)DG_ROOM_SHAPE_RECTANGULAR;
-        int legacy_room_shape_organicity = 45;
-
-        dg_io_reader_read_int(reader, &legacy_scale_factor);
-        dg_io_reader_read_int(reader, &legacy_room_shape_mode);
-        dg_io_reader_read_int(reader, &legacy_room_shape_organicity);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-
-        status = dg_snapshot_process_config_set_legacy_v5(
-            &snapshot->process,
-            legacy_scale_factor,
-            legacy_room_shape_mode,
-            legacy_room_shape_organicity
-        );
-        if (status != DG_STATUS_OK) {
-            return status;
-        }
-    }
-
-    if (!dg_snapshot_process_config_is_valid(&snapshot->process)) {
+    if (memcmp(magic, DG_CONFIG_MAGIC, sizeof(DG_CONFIG_MAGIC)) != 0) {
         return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
-    dg_io_reader_read_size(reader, &snapshot->room_types.definition_count);
-    dg_io_reader_read_int(reader, &snapshot->room_types.policy.strict_mode);
-    dg_io_reader_read_int(reader, &snapshot->room_types.policy.allow_untyped_rooms);
-    dg_io_reader_read_u32(reader, &snapshot->room_types.policy.default_type_id);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &snapshot->width)) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
-    if ((snapshot->room_types.policy.strict_mode != 0 &&
-         snapshot->room_types.policy.strict_mode != 1) ||
-        (snapshot->room_types.policy.allow_untyped_rooms != 0 &&
-         snapshot->room_types.policy.allow_untyped_rooms != 1)) {
-        return DG_STATUS_UNSUPPORTED_FORMAT;
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &snapshot->height)) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_read_u64(file, &snapshot->seed);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &snapshot->algorithm_id)) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_read_snapshot_algorithm_params(file, snapshot);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_read_size(file, &snapshot->process.method_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_allocate_array(
+        (void **)&snapshot->process.methods,
+        snapshot->process.method_count,
+        sizeof(dg_snapshot_process_method_t)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < snapshot->process.method_count; ++i) {
+        dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
+
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &method->type)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+
+        switch ((dg_process_method_type_t)method->type) {
+        case DG_PROCESS_METHOD_SCALE:
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK ||
+                !dg_i32_to_int_checked(value_i32, &method->params.scale.factor)) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK ||
+                !dg_i32_to_int_checked(value_i32, &method->params.room_shape.mode)) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK ||
+                !dg_i32_to_int_checked(value_i32, &method->params.room_shape.organicity)) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK ||
+                !dg_i32_to_int_checked(value_i32, &method->params.path_smooth.strength)) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                    value_i32,
+                    &method->params.path_smooth.inner_enabled
+                )) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                    value_i32,
+                    &method->params.path_smooth.outer_enabled
+                )) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            break;
+        default:
+            return DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
+
+    status = dg_read_size(file, &snapshot->room_types.definition_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK ||
+        !dg_i32_to_int_checked(value_i32, &snapshot->room_types.policy.strict_mode)) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+            value_i32,
+            &snapshot->room_types.policy.allow_untyped_rooms
+        )) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+    }
+
+    status = dg_read_u32(file, &snapshot->room_types.policy.default_type_id);
+    if (status != DG_STATUS_OK) {
+        return status;
     }
 
     status = dg_allocate_array(
@@ -1643,133 +1092,306 @@ static dg_status_t dg_load_generation_request_snapshot(
     for (i = 0; i < snapshot->room_types.definition_count; ++i) {
         dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
 
-        dg_io_reader_read_u32(reader, &definition->type_id);
-        dg_io_reader_read_int(reader, &definition->enabled);
-        dg_io_reader_read_int(reader, &definition->min_count);
-        dg_io_reader_read_int(reader, &definition->max_count);
-        dg_io_reader_read_int(reader, &definition->target_count);
-        dg_io_reader_read_int(reader, &definition->constraints.area_min);
-        dg_io_reader_read_int(reader, &definition->constraints.area_max);
-        dg_io_reader_read_int(reader, &definition->constraints.degree_min);
-        dg_io_reader_read_int(reader, &definition->constraints.degree_max);
-        dg_io_reader_read_int(reader, &definition->constraints.border_distance_min);
-        dg_io_reader_read_int(reader, &definition->constraints.border_distance_max);
-        dg_io_reader_read_int(reader, &definition->constraints.graph_depth_min);
-        dg_io_reader_read_int(reader, &definition->constraints.graph_depth_max);
-        dg_io_reader_read_int(reader, &definition->preferences.weight);
-        dg_io_reader_read_int(reader, &definition->preferences.larger_room_bias);
-        dg_io_reader_read_int(reader, &definition->preferences.higher_degree_bias);
-        dg_io_reader_read_int(reader, &definition->preferences.border_distance_bias);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
+        status = dg_read_u32(file, &definition->type_id);
+        if (status != DG_STATUS_OK) {
+            return status;
         }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &definition->enabled)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &definition->min_count)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &definition->max_count)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &definition->target_count)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.area_min
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.area_max
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.degree_min
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.degree_max
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.border_distance_min
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.border_distance_max
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.graph_depth_min
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->constraints.graph_depth_max
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value_i32, &definition->preferences.weight)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->preferences.larger_room_bias
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->preferences.higher_degree_bias
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->preferences.border_distance_bias
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
 
-        if (definition->enabled != 0 && definition->enabled != 1) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
+    if (!dg_snapshot_is_valid(snapshot)) {
+        return DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_load_generation_diagnostics(
-    dg_io_reader_t *reader,
-    uint32_t version,
-    dg_map_t *map
-)
+static dg_status_t dg_validate_map_for_save(const dg_map_t *map)
 {
-    size_t i;
-    dg_status_t status;
-    dg_generation_diagnostics_t *diagnostics;
-
-    if (reader == NULL || map == NULL) {
+    if (map == NULL || map->tiles == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    diagnostics = &map->metadata.diagnostics;
-    free(diagnostics->process_steps);
-    free(diagnostics->room_type_quotas);
-    *diagnostics = (dg_generation_diagnostics_t){0};
-
-    if (version < 9u) {
-        return DG_STATUS_OK;
+    if (map->metadata.generation_request.present != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    dg_io_reader_read_size(reader, &diagnostics->process_step_count);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
+    if (!dg_snapshot_is_valid(&map->metadata.generation_request)) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_build_request_from_snapshot(
+    const dg_generation_request_snapshot_t *snapshot,
+    dg_generate_request_t *out_request,
+    dg_process_method_t **out_process_methods,
+    dg_room_type_definition_t **out_room_type_definitions
+)
+{
+    dg_generate_request_t request;
+    dg_process_method_t *process_methods;
+    dg_room_type_definition_t *room_type_definitions;
+    dg_status_t status;
+    size_t i;
+
+    if (snapshot == NULL || out_request == NULL ||
+        out_process_methods == NULL || out_room_type_definitions == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_process_methods = NULL;
+    *out_room_type_definitions = NULL;
+
+    if (!dg_snapshot_is_valid(snapshot)) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_default_generate_request(
+        &request,
+        (dg_algorithm_t)snapshot->algorithm_id,
+        snapshot->width,
+        snapshot->height,
+        snapshot->seed
+    );
+
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        request.params.bsp.min_rooms = snapshot->params.bsp.min_rooms;
+        request.params.bsp.max_rooms = snapshot->params.bsp.max_rooms;
+        request.params.bsp.room_min_size = snapshot->params.bsp.room_min_size;
+        request.params.bsp.room_max_size = snapshot->params.bsp.room_max_size;
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        request.params.drunkards_walk.wiggle_percent = snapshot->params.drunkards_walk.wiggle_percent;
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        request.params.cellular_automata.initial_wall_percent =
+            snapshot->params.cellular_automata.initial_wall_percent;
+        request.params.cellular_automata.simulation_steps =
+            snapshot->params.cellular_automata.simulation_steps;
+        request.params.cellular_automata.wall_threshold =
+            snapshot->params.cellular_automata.wall_threshold;
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        request.params.value_noise.feature_size = snapshot->params.value_noise.feature_size;
+        request.params.value_noise.octaves = snapshot->params.value_noise.octaves;
+        request.params.value_noise.persistence_percent =
+            snapshot->params.value_noise.persistence_percent;
+        request.params.value_noise.floor_threshold_percent =
+            snapshot->params.value_noise.floor_threshold_percent;
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        request.params.rooms_and_mazes.min_rooms = snapshot->params.rooms_and_mazes.min_rooms;
+        request.params.rooms_and_mazes.max_rooms = snapshot->params.rooms_and_mazes.max_rooms;
+        request.params.rooms_and_mazes.room_min_size = snapshot->params.rooms_and_mazes.room_min_size;
+        request.params.rooms_and_mazes.room_max_size = snapshot->params.rooms_and_mazes.room_max_size;
+        request.params.rooms_and_mazes.maze_wiggle_percent =
+            snapshot->params.rooms_and_mazes.maze_wiggle_percent;
+        request.params.rooms_and_mazes.min_room_connections =
+            snapshot->params.rooms_and_mazes.min_room_connections;
+        request.params.rooms_and_mazes.max_room_connections =
+            snapshot->params.rooms_and_mazes.max_room_connections;
+        request.params.rooms_and_mazes.ensure_full_connectivity =
+            snapshot->params.rooms_and_mazes.ensure_full_connectivity;
+        request.params.rooms_and_mazes.dead_end_prune_steps =
+            snapshot->params.rooms_and_mazes.dead_end_prune_steps;
+        break;
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    process_methods = NULL;
     status = dg_allocate_array(
-        (void **)&diagnostics->process_steps,
-        diagnostics->process_step_count,
-        sizeof(dg_process_step_diagnostics_t)
+        (void **)&process_methods,
+        snapshot->process.method_count,
+        sizeof(dg_process_method_t)
     );
     if (status != DG_STATUS_OK) {
         return status;
     }
 
-    for (i = 0; i < diagnostics->process_step_count; ++i) {
-        dg_process_step_diagnostics_t *step = &diagnostics->process_steps[i];
-        dg_io_reader_read_int(reader, &step->method_type);
-        dg_io_reader_read_size(reader, &step->walkable_before);
-        dg_io_reader_read_size(reader, &step->walkable_after);
-        dg_io_reader_read_i64(reader, &step->walkable_delta);
-        dg_io_reader_read_size(reader, &step->components_before);
-        dg_io_reader_read_size(reader, &step->components_after);
-        dg_io_reader_read_i64(reader, &step->components_delta);
-        dg_io_reader_read_int(reader, &step->connected_before);
-        dg_io_reader_read_int(reader, &step->connected_after);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-        if ((step->connected_before != 0 && step->connected_before != 1) ||
-            (step->connected_after != 0 && step->connected_after != 1)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
+    for (i = 0; i < snapshot->process.method_count; ++i) {
+        process_methods[i].type = (dg_process_method_type_t)snapshot->process.methods[i].type;
+        switch (process_methods[i].type) {
+        case DG_PROCESS_METHOD_SCALE:
+            process_methods[i].params.scale.factor = snapshot->process.methods[i].params.scale.factor;
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            process_methods[i].params.room_shape.mode =
+                (dg_room_shape_mode_t)snapshot->process.methods[i].params.room_shape.mode;
+            process_methods[i].params.room_shape.organicity =
+                snapshot->process.methods[i].params.room_shape.organicity;
+            break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            process_methods[i].params.path_smooth.strength =
+                snapshot->process.methods[i].params.path_smooth.strength;
+            process_methods[i].params.path_smooth.inner_enabled =
+                snapshot->process.methods[i].params.path_smooth.inner_enabled;
+            process_methods[i].params.path_smooth.outer_enabled =
+                snapshot->process.methods[i].params.path_smooth.outer_enabled;
+            break;
+        default:
+            free(process_methods);
+            return DG_STATUS_INVALID_ARGUMENT;
         }
     }
 
-    dg_io_reader_read_size(reader, &diagnostics->typed_room_count);
-    dg_io_reader_read_size(reader, &diagnostics->untyped_room_count);
-    dg_io_reader_read_size(reader, &diagnostics->room_type_count);
-    dg_io_reader_read_size(reader, &diagnostics->room_type_min_miss_count);
-    dg_io_reader_read_size(reader, &diagnostics->room_type_max_excess_count);
-    dg_io_reader_read_size(reader, &diagnostics->room_type_target_miss_count);
-    if (reader->status != DG_STATUS_OK) {
-        return reader->status;
-    }
+    request.process.methods = process_methods;
+    request.process.method_count = snapshot->process.method_count;
 
+    room_type_definitions = NULL;
     status = dg_allocate_array(
-        (void **)&diagnostics->room_type_quotas,
-        diagnostics->room_type_count,
-        sizeof(dg_room_type_quota_diagnostics_t)
+        (void **)&room_type_definitions,
+        snapshot->room_types.definition_count,
+        sizeof(dg_room_type_definition_t)
     );
     if (status != DG_STATUS_OK) {
+        free(process_methods);
         return status;
     }
 
-    for (i = 0; i < diagnostics->room_type_count; ++i) {
-        dg_room_type_quota_diagnostics_t *quota = &diagnostics->room_type_quotas[i];
-        dg_io_reader_read_u32(reader, &quota->type_id);
-        dg_io_reader_read_int(reader, &quota->enabled);
-        dg_io_reader_read_int(reader, &quota->min_count);
-        dg_io_reader_read_int(reader, &quota->max_count);
-        dg_io_reader_read_int(reader, &quota->target_count);
-        dg_io_reader_read_size(reader, &quota->assigned_count);
-        dg_io_reader_read_int(reader, &quota->min_satisfied);
-        dg_io_reader_read_int(reader, &quota->max_satisfied);
-        dg_io_reader_read_int(reader, &quota->target_satisfied);
-        if (reader->status != DG_STATUS_OK) {
-            return reader->status;
-        }
-        if ((quota->enabled != 0 && quota->enabled != 1) ||
-            (quota->min_satisfied != 0 && quota->min_satisfied != 1) ||
-            (quota->max_satisfied != 0 && quota->max_satisfied != 1) ||
-            (quota->target_satisfied != 0 && quota->target_satisfied != 1)) {
-            return DG_STATUS_UNSUPPORTED_FORMAT;
-        }
+    for (i = 0; i < snapshot->room_types.definition_count; ++i) {
+        room_type_definitions[i].type_id = snapshot->room_types.definitions[i].type_id;
+        room_type_definitions[i].enabled = snapshot->room_types.definitions[i].enabled;
+        room_type_definitions[i].min_count = snapshot->room_types.definitions[i].min_count;
+        room_type_definitions[i].max_count = snapshot->room_types.definitions[i].max_count;
+        room_type_definitions[i].target_count = snapshot->room_types.definitions[i].target_count;
+
+        room_type_definitions[i].constraints.area_min =
+            snapshot->room_types.definitions[i].constraints.area_min;
+        room_type_definitions[i].constraints.area_max =
+            snapshot->room_types.definitions[i].constraints.area_max;
+        room_type_definitions[i].constraints.degree_min =
+            snapshot->room_types.definitions[i].constraints.degree_min;
+        room_type_definitions[i].constraints.degree_max =
+            snapshot->room_types.definitions[i].constraints.degree_max;
+        room_type_definitions[i].constraints.border_distance_min =
+            snapshot->room_types.definitions[i].constraints.border_distance_min;
+        room_type_definitions[i].constraints.border_distance_max =
+            snapshot->room_types.definitions[i].constraints.border_distance_max;
+        room_type_definitions[i].constraints.graph_depth_min =
+            snapshot->room_types.definitions[i].constraints.graph_depth_min;
+        room_type_definitions[i].constraints.graph_depth_max =
+            snapshot->room_types.definitions[i].constraints.graph_depth_max;
+
+        room_type_definitions[i].preferences.weight =
+            snapshot->room_types.definitions[i].preferences.weight;
+        room_type_definitions[i].preferences.larger_room_bias =
+            snapshot->room_types.definitions[i].preferences.larger_room_bias;
+        room_type_definitions[i].preferences.higher_degree_bias =
+            snapshot->room_types.definitions[i].preferences.higher_degree_bias;
+        room_type_definitions[i].preferences.border_distance_bias =
+            snapshot->room_types.definitions[i].preferences.border_distance_bias;
     }
 
+    request.room_types.definitions = room_type_definitions;
+    request.room_types.definition_count = snapshot->room_types.definition_count;
+    request.room_types.policy.strict_mode = snapshot->room_types.policy.strict_mode;
+    request.room_types.policy.allow_untyped_rooms = snapshot->room_types.policy.allow_untyped_rooms;
+    request.room_types.policy.default_type_id = snapshot->room_types.policy.default_type_id;
+
+    *out_request = request;
+    *out_process_methods = process_methods;
+    *out_room_type_definitions = room_type_definitions;
     return DG_STATUS_OK;
 }
 
@@ -1777,8 +1399,6 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
 {
     FILE *file;
     dg_status_t status;
-    size_t tile_count;
-    dg_io_writer_t writer;
 
     if (path == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -1789,53 +1409,32 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path)
         return status;
     }
 
-    if (dg_mul_size_would_overflow((size_t)map->width, (size_t)map->height, &tile_count)) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
     file = fopen(path, "wb");
     if (file == NULL) {
         return DG_STATUS_IO_ERROR;
     }
 
-    writer = dg_io_writer_begin(file);
+    status = dg_write_snapshot(file, &map->metadata.generation_request);
+    if (status != DG_STATUS_OK) {
+        (void)fclose(file);
+        return status;
+    }
 
-    dg_io_writer_write_exact(&writer, DG_MAP_MAGIC, sizeof(DG_MAP_MAGIC));
-    dg_io_writer_write_u32(&writer, DG_MAP_FORMAT_VERSION);
-    dg_io_writer_write_u32(&writer, (uint32_t)map->width);
-    dg_io_writer_write_u32(&writer, (uint32_t)map->height);
-    dg_io_writer_write_size(&writer, tile_count);
+    if (fclose(file) != 0) {
+        return DG_STATUS_IO_ERROR;
+    }
 
-    dg_io_writer_write_u64(&writer, map->metadata.seed);
-    dg_io_writer_write_i32(&writer, (int32_t)map->metadata.algorithm_id);
-    dg_io_writer_write_i32(&writer, (int32_t)map->metadata.generation_class);
-    dg_io_writer_write_size(&writer, map->metadata.generation_attempts);
-    dg_io_writer_write_u8(&writer, map->metadata.connected_floor ? 1u : 0u);
-
-    dg_write_metadata_counts(&writer, &map->metadata);
-    dg_write_metadata_metrics(&writer, &map->metadata);
-
-    dg_write_tiles(&writer, map->tiles, tile_count);
-    dg_write_rooms(&writer, map);
-    dg_write_corridors(&writer, map);
-    dg_write_room_adjacency(&writer, map);
-    dg_write_room_neighbors(&writer, map);
-    dg_write_generation_request_snapshot(&writer, &map->metadata);
-    dg_write_generation_diagnostics(&writer, &map->metadata.diagnostics);
-
-    return dg_finish_write(file, writer.status);
+    return DG_STATUS_OK;
 }
 
 dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
 {
     FILE *file;
-    uint32_t version = 0;
-    int width = 0;
-    int height = 0;
-    size_t tile_count = 0;
-    dg_map_t loaded;
+    dg_generation_request_snapshot_t snapshot;
+    dg_generate_request_t request;
+    dg_process_method_t *process_methods;
+    dg_room_type_definition_t *room_type_definitions;
     dg_status_t status;
-    dg_io_reader_t reader;
 
     if (path == NULL || out_map == NULL || !dg_map_is_empty(out_map)) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -1846,73 +1445,34 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
         return DG_STATUS_IO_ERROR;
     }
 
-    memset(&loaded, 0, sizeof(loaded));
-    reader = dg_io_reader_begin(file);
-
-    status = dg_load_header(&reader, &version, &width, &height, &tile_count);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_map_init(&loaded, width, height, DG_TILE_WALL);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_metadata_core(&reader, version, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_metadata_counts(&reader, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_metadata_metrics(&reader, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_tiles(&reader, &loaded, tile_count);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_rooms(&reader, version, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_corridors(&reader, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_room_adjacency(&reader, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_room_neighbors(&reader, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    status = dg_load_generation_request_snapshot(&reader, version, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-    status = dg_load_generation_diagnostics(&reader, version, &loaded);
-    if (status != DG_STATUS_OK) {
-        return dg_fail_load(file, &loaded, status);
-    }
-
-    if (fclose(file) != 0) {
-        dg_map_destroy(&loaded);
+    snapshot = (dg_generation_request_snapshot_t){0};
+    status = dg_read_snapshot(file, &snapshot);
+    if (fclose(file) != 0 && status == DG_STATUS_OK) {
+        dg_snapshot_clear(&snapshot);
         return DG_STATUS_IO_ERROR;
     }
+    if (status != DG_STATUS_OK) {
+        dg_snapshot_clear(&snapshot);
+        return status;
+    }
 
-    *out_map = loaded;
-    return DG_STATUS_OK;
+    process_methods = NULL;
+    room_type_definitions = NULL;
+    status = dg_build_request_from_snapshot(
+        &snapshot,
+        &request,
+        &process_methods,
+        &room_type_definitions
+    );
+    dg_snapshot_clear(&snapshot);
+    if (status != DG_STATUS_OK) {
+        free(process_methods);
+        free(room_type_definitions);
+        return status;
+    }
+
+    status = dg_generate(&request, out_map);
+    free(process_methods);
+    free(room_type_definitions);
+    return status;
 }
