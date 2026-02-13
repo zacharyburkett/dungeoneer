@@ -58,6 +58,7 @@ typedef struct dg_nuklear_app {
     dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
     int process_method_count;
     int process_add_method_type_index;
+    int process_selected_index;
     int controls_workflow_tab;
     float preview_zoom;
     float preview_center_x;
