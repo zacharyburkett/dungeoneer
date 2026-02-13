@@ -17,6 +17,9 @@ add_library(dungeoneer
     src/map.c
     src/rng.c
     src/generator/api.c
+    src/generator/defaults.c
+    src/generator/request_validation.c
+    src/generator/request_snapshot.c
     src/generator/bsp.c
     src/generator/drunkards_walk.c
     src/generator/cellular_automata.c

@@ -29,10 +29,10 @@ Owns map storage and metadata:
 
 ### `io.h` + `src/io.c`
 
-Versioned binary map persistence:
-- Save full map snapshots (tiles + metadata)
-- Load full map snapshots
-- Format validation with explicit unsupported-format errors
+Persistence and export:
+- Save/load generation configuration snapshots (`.dgmap`) for deterministic regeneration
+- PNG + JSON export for engine-agnostic consumption
+- Snapshot validation and strict schema checks
 
 ### `rng.h` + `src/rng.c`
 
@@ -47,23 +47,42 @@ Generation entrypoint and algorithm configs:
 - `DG_ALGORITHM_BSP_TREE`
 - `DG_ALGORITHM_DRUNKARDS_WALK`
 - `DG_ALGORITHM_ROOMS_AND_MAZES`
+- `DG_ALGORITHM_ROOM_GRAPH`
+- `DG_ALGORITHM_WORM_CAVES`
+- `DG_ALGORITHM_CELLULAR_AUTOMATA`
+- `DG_ALGORITHM_VALUE_NOISE`
+- `DG_ALGORITHM_SIMPLEX_NOISE`
 
 Algorithms map into two classes:
-- Room-like: BSP, Rooms + Mazes
-- Cave-like: Drunkard's Walk
+- Room-like: BSP, Rooms + Mazes, Room Graph
+- Cave-like: Drunkard's Walk, Worm Caves, Cellular Automata, Value Noise, Simplex Noise
 
 Current config blocks:
 - `dg_bsp_config_t`
 - `dg_drunkards_walk_config_t`
 - `dg_rooms_and_mazes_config_t`
+- `dg_room_graph_config_t`
+- `dg_worm_caves_config_t`
+- `dg_cellular_automata_config_t`
+- `dg_value_noise_config_t`
+- `dg_simplex_noise_config_t`
 - `dg_process_config_t` (post-layout transforms)
 
 Internal generator split:
-- `src/generator/api.c`: public API validation + orchestration
+- `src/generator/api.c`: generation orchestration only
+- `src/generator/request_validation.c`: request/config validation
+- `src/generator/request_snapshot.c`: request-to-metadata snapshot capture
+- `src/generator/defaults.c`: default config and request builders
 - `src/generator/bsp.c`: BSP room and corridor generation
 - `src/generator/drunkards_walk.c`: cave carving by random walk
+- `src/generator/room_graph_mst.c`: room packing + MST/loop graph corridors
+- `src/generator/worm_caves.c`: multi-agent cave digging
+- `src/generator/cellular_automata.c`: cellular cave generation
+- `src/generator/value_noise.c`: value-noise cave generation
+- `src/generator/simplex_noise.c`: simplex-noise cave generation
 - `src/generator/rooms_and_mazes.c`: room placement + maze carving + connectors + pruning
-- `src/generator/process.c`: post-layout transforms (scaling, room shaping)
+- `src/generator/process.c`: post-layout transforms (scaling, room shaping, path smoothing, corridor roughening)
+- `src/generator/room_types.c`: room type assignment and constraints
 - `src/generator/primitives.c`: shared geometry/tile helpers
 - `src/generator/connectivity.c`: connectivity analysis helpers
 - `src/generator/metadata.c`: class-aware metadata population and map-state initialization
@@ -88,9 +107,9 @@ Simple presenter shell:
 Pipeline is being standardized as:
 1. Input validation + seed setup
 2. Layout generation (algorithm-specific)
-3. Process transforms (algorithm-agnostic post passes)
-4. Room graph/feature extraction (room-like only)
-5. Room type assignment (algorithm-agnostic)
+3. Room feature extraction / metadata bootstrap
+4. Room type assignment (room-like only)
+5. Process transforms (algorithm-agnostic post passes)
 6. Metadata finalize + return
 
 This keeps algorithm code focused on geometry while shared logic handles room semantics.
@@ -109,7 +128,7 @@ Configuration is split by concern:
 Data model direction:
 - Move from hardcoded role semantics toward user-defined room type IDs.
 - Preserve deterministic assignment with seed-driven tie breaking.
-- Persist generation config only (no tile/metadata snapshot), then regenerate maps on load.
+- Persist generation config only, then regenerate maps on load.
 - Keep strict-mode failure local to a single generation attempt; retries are handled by callers.
 
 ## Extensibility direction

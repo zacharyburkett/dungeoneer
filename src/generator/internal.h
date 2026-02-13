@@ -96,5 +96,7 @@ dg_status_t dg_apply_room_type_assignment(
     dg_map_t *map,
     dg_rng_t *rng
 );
+dg_status_t dg_validate_generate_request(const dg_generate_request_t *request);
+dg_status_t dg_snapshot_generation_request(const dg_generate_request_t *request, dg_map_t *map);
 
 #endif
