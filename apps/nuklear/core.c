@@ -1565,8 +1565,8 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         generation_classes,
         (int)(sizeof(generation_classes) / sizeof(generation_classes[0])),
         app->generation_class_index,
-        8,
-        nk_vec2(220.0f, 80.0f)
+        24,
+        nk_vec2(220.0f, 96.0f)
     );
     app->generation_class_index = dg_nuklear_clamp_int(app->generation_class_index, 0, 1);
     dg_nuklear_ensure_algorithm_matches_class(app);
@@ -1606,8 +1606,8 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         algorithm_labels,
         filtered_count,
         selected_filtered_index,
-        10,
-        nk_vec2(280, 120)
+        24,
+        nk_vec2(280.0f, 160.0f)
     );
     if (selected_filtered_index < 0 || selected_filtered_index >= filtered_count) {
         selected_filtered_index = 0;
@@ -2468,9 +2468,11 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         nk_tree_pop(ctx);
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Room Type Assignment", NK_MINIMIZED)) {
-        dg_nuklear_draw_room_type_settings(ctx, app, algorithm);
-        nk_tree_pop(ctx);
+    if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
+        if (nk_tree_push(ctx, NK_TREE_TAB, "Room Type Assignment", NK_MINIMIZED)) {
+            dg_nuklear_draw_room_type_settings(ctx, app, algorithm);
+            nk_tree_pop(ctx);
+        }
     }
 
     if (nk_tree_push(ctx, NK_TREE_TAB, "Save / Load", NK_MINIMIZED)) {
