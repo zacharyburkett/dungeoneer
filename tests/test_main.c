@@ -1531,10 +1531,15 @@ static int test_post_process_scaling(void)
 static int test_post_process_room_shape_changes_layout(void)
 {
     dg_generate_request_t rectangular_request;
-    dg_generate_request_t organic_request;
+    dg_generate_request_t shaped_request;
     dg_map_t rectangular_map = {0};
-    dg_map_t organic_map = {0};
-    dg_process_method_t organic_methods[1];
+    dg_process_method_t shape_methods[1];
+    const dg_room_shape_mode_t modes[] = {
+        DG_ROOM_SHAPE_ORGANIC,
+        DG_ROOM_SHAPE_CELLULAR,
+        DG_ROOM_SHAPE_CHAMFERED
+    };
+    size_t i;
 
     dg_default_generate_request(&rectangular_request, DG_ALGORITHM_BSP_TREE, 80, 48, 222333u);
     rectangular_request.params.bsp.min_rooms = 10;
@@ -1542,29 +1547,65 @@ static int test_post_process_room_shape_changes_layout(void)
     rectangular_request.params.bsp.room_min_size = 5;
     rectangular_request.params.bsp.room_max_size = 10;
 
-    organic_request = rectangular_request;
-    dg_default_process_method(&organic_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    organic_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-    organic_methods[0].params.room_shape.organicity = 65;
-    organic_request.process.methods = organic_methods;
-    organic_request.process.method_count = 1;
-
     ASSERT_STATUS(dg_generate(&rectangular_request, &rectangular_map), DG_STATUS_OK);
-    ASSERT_STATUS(dg_generate(&organic_request, &organic_map), DG_STATUS_OK);
 
-    ASSERT_TRUE(!maps_have_same_tiles(&rectangular_map, &organic_map));
-    ASSERT_TRUE(organic_map.metadata.generation_request.process.method_count == 1);
-    ASSERT_TRUE(
-        organic_map.metadata.generation_request.process.methods[0].type ==
-        (int)DG_PROCESS_METHOD_ROOM_SHAPE
-    );
-    ASSERT_TRUE(
-        organic_map.metadata.generation_request.process.methods[0].params.room_shape.mode ==
-        (int)DG_ROOM_SHAPE_ORGANIC
-    );
+    for (i = 0; i < (sizeof(modes) / sizeof(modes[0])); ++i) {
+        dg_map_t shaped_map = {0};
+
+        shaped_request = rectangular_request;
+        dg_default_process_method(&shape_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
+        shape_methods[0].params.room_shape.mode = modes[i];
+        shape_methods[0].params.room_shape.organicity = 75;
+        shaped_request.process.methods = shape_methods;
+        shaped_request.process.method_count = 1;
+
+        ASSERT_STATUS(dg_generate(&shaped_request, &shaped_map), DG_STATUS_OK);
+        ASSERT_TRUE(!maps_have_same_tiles(&rectangular_map, &shaped_map));
+        ASSERT_TRUE(shaped_map.metadata.generation_request.process.method_count == 1);
+        ASSERT_TRUE(
+            shaped_map.metadata.generation_request.process.methods[0].type ==
+            (int)DG_PROCESS_METHOD_ROOM_SHAPE
+        );
+        ASSERT_TRUE(
+            shaped_map.metadata.generation_request.process.methods[0].params.room_shape.mode ==
+            (int)modes[i]
+        );
+
+        dg_map_destroy(&shaped_map);
+    }
 
     dg_map_destroy(&rectangular_map);
-    dg_map_destroy(&organic_map);
+    return 0;
+}
+
+static int test_post_process_room_shape_no_effect_on_cave_layout(void)
+{
+    dg_generate_request_t base_request;
+    dg_generate_request_t shaped_request;
+    dg_map_t base_map = {0};
+    dg_map_t shaped_map = {0};
+    dg_process_method_t shape_methods[1];
+
+    dg_default_generate_request(&base_request, DG_ALGORITHM_VALUE_NOISE, 88, 48, 99331u);
+    base_request.params.value_noise.feature_size = 9;
+    base_request.params.value_noise.octaves = 3;
+    base_request.params.value_noise.persistence_percent = 52;
+    base_request.params.value_noise.floor_threshold_percent = 49;
+
+    shaped_request = base_request;
+    dg_default_process_method(&shape_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
+    shape_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_CELLULAR;
+    shape_methods[0].params.room_shape.organicity = 80;
+    shaped_request.process.methods = shape_methods;
+    shaped_request.process.method_count = 1;
+
+    ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&shaped_request, &shaped_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&base_map, &shaped_map));
+
+    dg_map_destroy(&base_map);
+    dg_map_destroy(&shaped_map);
     return 0;
 }
 
@@ -3049,6 +3090,8 @@ int main(void)
          test_rooms_and_mazes_pruned_has_no_room_nub_dead_ends},
         {"post_process_scaling", test_post_process_scaling},
         {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
+        {"post_process_room_shape_no_effect_on_cave_layout",
+         test_post_process_room_shape_no_effect_on_cave_layout},
         {"post_process_path_smoothing_changes_layout", test_post_process_path_smoothing_changes_layout},
         {"post_process_path_smoothing_outer_trim_effect",
          test_post_process_path_smoothing_outer_trim_effect},

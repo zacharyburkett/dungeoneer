@@ -228,13 +228,13 @@ static const char *dg_nuklear_process_method_label(dg_process_method_type_t type
 {
     switch (type) {
     case DG_PROCESS_METHOD_SCALE:
-        return "Scale";
+        return "General: Scale";
     case DG_PROCESS_METHOD_ROOM_SHAPE:
-        return "Room Shape";
+        return "Room: Shape";
     case DG_PROCESS_METHOD_PATH_SMOOTH:
-        return "Path Smoothing";
+        return "Corridor: Path Smoothing";
     case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
-        return "Corridor Roughen";
+        return "Corridor: Roughen";
     default:
         return "Unknown";
     }
@@ -270,6 +270,38 @@ static dg_process_method_type_t dg_nuklear_process_ui_index_to_type(int index)
     }
 }
 
+static int dg_nuklear_room_shape_mode_to_ui_index(dg_room_shape_mode_t mode)
+{
+    switch (mode) {
+    case DG_ROOM_SHAPE_RECTANGULAR:
+        return 0;
+    case DG_ROOM_SHAPE_ORGANIC:
+        return 1;
+    case DG_ROOM_SHAPE_CELLULAR:
+        return 2;
+    case DG_ROOM_SHAPE_CHAMFERED:
+        return 3;
+    default:
+        return 1;
+    }
+}
+
+static dg_room_shape_mode_t dg_nuklear_room_shape_ui_index_to_mode(int index)
+{
+    switch (index) {
+    case 0:
+        return DG_ROOM_SHAPE_RECTANGULAR;
+    case 1:
+        return DG_ROOM_SHAPE_ORGANIC;
+    case 2:
+        return DG_ROOM_SHAPE_CELLULAR;
+    case 3:
+        return DG_ROOM_SHAPE_CHAMFERED;
+    default:
+        return DG_ROOM_SHAPE_ORGANIC;
+    }
+}
+
 static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
 {
     if (method == NULL) {
@@ -282,7 +314,9 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
         break;
     case DG_PROCESS_METHOD_ROOM_SHAPE:
         if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
-            method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC) {
+            method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC &&
+            method->params.room_shape.mode != DG_ROOM_SHAPE_CELLULAR &&
+            method->params.room_shape.mode != DG_ROOM_SHAPE_CHAMFERED) {
             method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
         }
         method->params.room_shape.organicity =
@@ -2821,12 +2855,17 @@ static void dg_nuklear_draw_process_settings(
 )
 {
     static const char *process_method_types[] = {
-        "Scale",
-        "Room Shape",
-        "Path Smoothing",
-        "Corridor Roughen"
+        "General: Scale",
+        "Room: Shape",
+        "Corridor: Path Smoothing",
+        "Corridor: Roughen"
     };
-    static const char *room_shape_modes[] = {"Rectangular", "Organic"};
+    static const char *room_shape_modes[] = {
+        "Rectangular",
+        "Organic (Noise Blob)",
+        "Cellular",
+        "Chamfered"
+    };
     static const char *corridor_roughen_modes[] = {"Uniform", "Organic"};
     int i;
     int pending_remove_index;
@@ -2958,7 +2997,7 @@ static void dg_nuklear_draw_process_settings(
                 );
             } else if (method->type == DG_PROCESS_METHOD_ROOM_SHAPE) {
                 int room_shape_index =
-                    (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) ? 1 : 0;
+                    dg_nuklear_room_shape_mode_to_ui_index(method->params.room_shape.mode);
                 nk_layout_row_dynamic(ctx, 24.0f, 1);
                 nk_label(ctx, "Room Shape Mode", NK_TEXT_LEFT);
                 nk_layout_row_dynamic(ctx, 28.0f, 1);
@@ -2968,16 +3007,16 @@ static void dg_nuklear_draw_process_settings(
                     (int)(sizeof(room_shape_modes) / sizeof(room_shape_modes[0])),
                     room_shape_index,
                     22,
-                    nk_vec2(220.0f, 80.0f)
+                    nk_vec2(260.0f, 110.0f)
                 );
                 method->params.room_shape.mode =
-                    (room_shape_index == 1) ? DG_ROOM_SHAPE_ORGANIC : DG_ROOM_SHAPE_RECTANGULAR;
+                    dg_nuklear_room_shape_ui_index_to_mode(room_shape_index);
 
-                if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) {
+                if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR) {
                     nk_layout_row_dynamic(ctx, 28.0f, 1);
                     nk_property_int(
                         ctx,
-                        "Organicity (%)",
+                        "Strength (%)",
                         0,
                         &method->params.room_shape.organicity,
                         100,
@@ -2985,12 +3024,30 @@ static void dg_nuklear_draw_process_settings(
                         0.25f
                     );
                 }
-                if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC &&
+                if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
                     dg_algorithm_generation_class(algorithm) != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
                     nk_layout_row_dynamic(ctx, 36.0f, 1);
                     nk_label_wrap(
                         ctx,
-                        "Organic room shape has no effect for cave-like layouts."
+                        "Room shape processing only affects room-like layouts."
+                    );
+                } else if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC) {
+                    nk_layout_row_dynamic(ctx, 36.0f, 1);
+                    nk_label_wrap(
+                        ctx,
+                        "Noise-blob mode creates organic room silhouettes with coherent variation."
+                    );
+                } else if (method->params.room_shape.mode == DG_ROOM_SHAPE_CELLULAR) {
+                    nk_layout_row_dynamic(ctx, 36.0f, 1);
+                    nk_label_wrap(
+                        ctx,
+                        "Cellular mode generates cave-like room interiors while preserving entrances."
+                    );
+                } else if (method->params.room_shape.mode == DG_ROOM_SHAPE_CHAMFERED) {
+                    nk_layout_row_dynamic(ctx, 36.0f, 1);
+                    nk_label_wrap(
+                        ctx,
+                        "Chamfered mode rounds room corners for cleaner, less boxy rooms."
                     );
                 }
             } else if (method->type == DG_PROCESS_METHOD_PATH_SMOOTH) {

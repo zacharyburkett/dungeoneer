@@ -266,7 +266,9 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
         return method->params.scale.factor >= 1;
     case DG_PROCESS_METHOD_ROOM_SHAPE:
         return (method->params.room_shape.mode == (int)DG_ROOM_SHAPE_RECTANGULAR ||
-                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC) &&
+                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC ||
+                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_CELLULAR ||
+                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_CHAMFERED) &&
                method->params.room_shape.organicity >= 0 &&
                method->params.room_shape.organicity <= 100;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
@@ -2225,8 +2227,16 @@ static dg_status_t dg_export_write_json_generation_request(
                     file,
                     "        \"type_name\": \"room_shape\",\n"
                     "        \"mode\": %d,\n"
+                    "        \"mode_name\": \"%s\",\n"
                     "        \"organicity\": %d\n",
                     method->params.room_shape.mode,
+                    method->params.room_shape.mode == (int)DG_ROOM_SHAPE_RECTANGULAR ?
+                        "rectangular" :
+                        (method->params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC ?
+                            "organic" :
+                            (method->params.room_shape.mode == (int)DG_ROOM_SHAPE_CELLULAR ?
+                                "cellular" :
+                                "chamfered")),
                     method->params.room_shape.organicity
                 ) < 0) {
                 return DG_STATUS_IO_ERROR;

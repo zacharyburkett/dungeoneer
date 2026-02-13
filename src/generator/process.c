@@ -512,9 +512,504 @@ static size_t dg_collect_room_entrances(
     return count;
 }
 
-static dg_status_t dg_carve_organic_room(
+static uint32_t dg_hash_mix_u32(uint32_t value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+static uint32_t dg_hash_noise_coords(uint32_t seed, int x, int y)
+{
+    uint32_t value;
+
+    value = seed ^ ((uint32_t)x * 0x1f123bb5u) ^ ((uint32_t)y * 0x5f356495u);
+    return dg_hash_mix_u32(value);
+}
+
+static double dg_lerp_double(double a, double b, double t)
+{
+    return a + (b - a) * t;
+}
+
+static double dg_value_noise_2d(uint32_t seed, int x, int y, int cell_size)
+{
+    int gx;
+    int gy;
+    int rx;
+    int ry;
+    double tx;
+    double ty;
+    double v00;
+    double v10;
+    double v01;
+    double v11;
+    double vx0;
+    double vx1;
+
+    if (cell_size < 1) {
+        cell_size = 1;
+    }
+
+    gx = x / cell_size;
+    gy = y / cell_size;
+    rx = x % cell_size;
+    ry = y % cell_size;
+    tx = (double)rx / (double)cell_size;
+    ty = (double)ry / (double)cell_size;
+
+    v00 = (double)(dg_hash_noise_coords(seed, gx, gy) & 0x00ffffffu) / 16777215.0;
+    v10 = (double)(dg_hash_noise_coords(seed, gx + 1, gy) & 0x00ffffffu) / 16777215.0;
+    v01 = (double)(dg_hash_noise_coords(seed, gx, gy + 1) & 0x00ffffffu) / 16777215.0;
+    v11 = (double)(dg_hash_noise_coords(seed, gx + 1, gy + 1) & 0x00ffffffu) / 16777215.0;
+
+    vx0 = dg_lerp_double(v00, v10, tx);
+    vx1 = dg_lerp_double(v01, v11, tx);
+    return dg_lerp_double(vx0, vx1, ty);
+}
+
+static double dg_fbm_noise_2d(uint32_t seed, int x, int y, int base_cell_size, int octaves)
+{
+    int octave;
+    int cell_size;
+    double value;
+    double amplitude;
+    double amplitude_sum;
+
+    if (base_cell_size < 1) {
+        base_cell_size = 1;
+    }
+    if (octaves < 1) {
+        octaves = 1;
+    }
+
+    value = 0.0;
+    amplitude = 1.0;
+    amplitude_sum = 0.0;
+    for (octave = 0; octave < octaves; ++octave) {
+        double sample;
+
+        cell_size = base_cell_size >> octave;
+        if (cell_size < 1) {
+            cell_size = 1;
+        }
+
+        sample = dg_value_noise_2d(seed + (uint32_t)(octave * 92821), x, y, cell_size);
+        value += sample * amplitude;
+        amplitude_sum += amplitude;
+        amplitude *= 0.55;
+    }
+
+    if (amplitude_sum <= 0.0) {
+        return 0.0;
+    }
+    return value / amplitude_sum;
+}
+
+static void dg_fill_room_keep_mask(unsigned char *keep_mask, int width, int height, unsigned char value)
+{
+    int x;
+    int y;
+
+    if (keep_mask == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+
+    for (y = 0; y < height; ++y) {
+        for (x = 0; x < width; ++x) {
+            keep_mask[(size_t)y * (size_t)width + (size_t)x] = value;
+        }
+    }
+}
+
+static dg_status_t dg_build_organic_room_keep_mask(
+    const dg_rect_t *room,
+    int organicity,
+    dg_rng_t *rng,
+    unsigned char *keep_mask
+)
+{
+    uint32_t noise_seed;
+    int base_cell;
+    double strength;
+    double cx;
+    double cy;
+    double rx;
+    double ry;
+    int x;
+    int y;
+
+    if (room == NULL || rng == NULL || keep_mask == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    strength = (double)dg_clamp_int(organicity, 0, 100) / 100.0;
+    cx = ((double)room->width - 1.0) * 0.5;
+    cy = ((double)room->height - 1.0) * 0.5;
+    rx = dg_max_int(room->width - 1, 1) * 0.5;
+    ry = dg_max_int(room->height - 1, 1) * 0.5;
+    noise_seed = dg_rng_next_u32(rng);
+    base_cell = dg_clamp_int(dg_min_int(room->width, room->height) / 2, 2, 12);
+
+    dg_fill_room_keep_mask(keep_mask, room->width, room->height, 0u);
+    for (y = 0; y < room->height; ++y) {
+        for (x = 0; x < room->width; ++x) {
+            double nx;
+            double ny;
+            double ellipse;
+            double noise;
+            double perturbation;
+            double threshold;
+            size_t index;
+
+            nx = ((double)x - cx) / rx;
+            ny = ((double)y - cy) / ry;
+            ellipse = nx * nx + ny * ny;
+            noise = dg_fbm_noise_2d(noise_seed, x, y, base_cell, 3);
+            perturbation = (noise - 0.5) * (0.25 + 0.55 * strength);
+            threshold = 1.0 - (0.08 * strength);
+            index = (size_t)y * (size_t)room->width + (size_t)x;
+            if (ellipse + perturbation <= threshold) {
+                keep_mask[index] = 1u;
+            }
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_build_cellular_room_keep_mask(
+    const dg_rect_t *room,
+    int organicity,
+    dg_rng_t *rng,
+    unsigned char *keep_mask
+)
+{
+    size_t room_area;
+    unsigned char *scratch;
+    unsigned char *current;
+    unsigned char *next;
+    double strength;
+    double cx;
+    double cy;
+    double rx;
+    double ry;
+    int steps;
+    int step;
+    int x;
+    int y;
+
+    if (room == NULL || rng == NULL || keep_mask == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (!dg_mul_size_checked((size_t)room->width, (size_t)room->height, &room_area)) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    scratch = (unsigned char *)calloc(room_area, sizeof(unsigned char));
+    if (scratch == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    strength = (double)dg_clamp_int(organicity, 0, 100) / 100.0;
+    cx = ((double)room->width - 1.0) * 0.5;
+    cy = ((double)room->height - 1.0) * 0.5;
+    rx = dg_max_int(room->width - 1, 1) * 0.5;
+    ry = dg_max_int(room->height - 1, 1) * 0.5;
+    dg_fill_room_keep_mask(keep_mask, room->width, room->height, 0u);
+
+    for (y = 0; y < room->height; ++y) {
+        for (x = 0; x < room->width; ++x) {
+            size_t index;
+            double nx;
+            double ny;
+            double ellipse;
+            int base_open;
+            int center_bonus;
+            int chance;
+
+            nx = ((double)x - cx) / rx;
+            ny = ((double)y - cy) / ry;
+            ellipse = nx * nx + ny * ny;
+
+            base_open = 68 - (int)(strength * 24.0);
+            center_bonus = (int)((1.2 - ellipse) * 22.0);
+            chance = base_open + center_bonus + dg_rng_range(rng, -12, 12);
+            chance = dg_clamp_int(chance, 8, 95);
+
+            index = (size_t)y * (size_t)room->width + (size_t)x;
+            keep_mask[index] = (dg_rng_range(rng, 0, 99) < chance) ? 1u : 0u;
+        }
+    }
+
+    steps = 2 + (dg_clamp_int(organicity, 0, 100) / 30);
+    current = keep_mask;
+    next = scratch;
+    for (step = 0; step < steps; ++step) {
+        for (y = 0; y < room->height; ++y) {
+            for (x = 0; x < room->width; ++x) {
+                int dx;
+                int dy;
+                int neighbors;
+                double nx;
+                double ny;
+                double ellipse;
+                size_t index;
+
+                neighbors = 0;
+                for (dy = -1; dy <= 1; ++dy) {
+                    for (dx = -1; dx <= 1; ++dx) {
+                        int sx;
+                        int sy;
+
+                        if (dx == 0 && dy == 0) {
+                            continue;
+                        }
+
+                        sx = x + dx;
+                        sy = y + dy;
+                        if (sx < 0 || sy < 0 || sx >= room->width || sy >= room->height) {
+                            continue;
+                        }
+                        if (current[(size_t)sy * (size_t)room->width + (size_t)sx] != 0u) {
+                            neighbors += 1;
+                        }
+                    }
+                }
+
+                index = (size_t)y * (size_t)room->width + (size_t)x;
+                nx = ((double)x - cx) / rx;
+                ny = ((double)y - cy) / ry;
+                ellipse = nx * nx + ny * ny;
+                if (ellipse < 0.16) {
+                    next[index] = 1u;
+                } else if (current[index] != 0u) {
+                    next[index] = (neighbors >= 3) ? 1u : 0u;
+                } else {
+                    next[index] = (neighbors >= 5) ? 1u : 0u;
+                }
+            }
+        }
+
+        {
+            unsigned char *tmp = current;
+            current = next;
+            next = tmp;
+        }
+    }
+
+    if (current != keep_mask) {
+        for (y = 0; y < room->height; ++y) {
+            for (x = 0; x < room->width; ++x) {
+                keep_mask[(size_t)y * (size_t)room->width + (size_t)x] =
+                    current[(size_t)y * (size_t)room->width + (size_t)x];
+            }
+        }
+    }
+
+    free(scratch);
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_build_chamfer_room_keep_mask(
+    const dg_rect_t *room,
+    int organicity,
+    unsigned char *keep_mask
+)
+{
+    int radius_max;
+    int radius;
+    int x;
+    int y;
+
+    if (room == NULL || keep_mask == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    dg_fill_room_keep_mask(keep_mask, room->width, room->height, 1u);
+    if (room->width < 3 || room->height < 3) {
+        return DG_STATUS_OK;
+    }
+
+    radius_max = dg_min_int(room->width, room->height) / 3;
+    if (radius_max < 1) {
+        return DG_STATUS_OK;
+    }
+
+    radius = (dg_clamp_int(organicity, 0, 100) * radius_max) / 100;
+    if (radius == 0 && organicity > 0) {
+        radius = 1;
+    }
+    if (radius < 1) {
+        return DG_STATUS_OK;
+    }
+
+    for (y = 0; y < room->height; ++y) {
+        for (x = 0; x < room->width; ++x) {
+            int remove_tile;
+
+            remove_tile = 0;
+            if (x < radius && y < radius) {
+                int dx = radius - x;
+                int dy = radius - y;
+                if (dx * dx + dy * dy > radius * radius) {
+                    remove_tile = 1;
+                }
+            } else if (x >= room->width - radius && y < radius) {
+                int local_x = (room->width - 1) - x;
+                int dx = radius - local_x;
+                int dy = radius - y;
+                if (dx * dx + dy * dy > radius * radius) {
+                    remove_tile = 1;
+                }
+            } else if (x < radius && y >= room->height - radius) {
+                int local_y = (room->height - 1) - y;
+                int dx = radius - x;
+                int dy = radius - local_y;
+                if (dx * dx + dy * dy > radius * radius) {
+                    remove_tile = 1;
+                }
+            } else if (x >= room->width - radius && y >= room->height - radius) {
+                int local_x = (room->width - 1) - x;
+                int local_y = (room->height - 1) - y;
+                int dx = radius - local_x;
+                int dy = radius - local_y;
+                if (dx * dx + dy * dy > radius * radius) {
+                    remove_tile = 1;
+                }
+            }
+
+            if (remove_tile != 0) {
+                keep_mask[(size_t)y * (size_t)room->width + (size_t)x] = 0u;
+            }
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_build_room_keep_mask(
+    const dg_rect_t *room,
+    dg_room_shape_mode_t mode,
+    int organicity,
+    dg_rng_t *rng,
+    unsigned char *keep_mask
+)
+{
+    if (room == NULL || keep_mask == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    switch (mode) {
+    case DG_ROOM_SHAPE_RECTANGULAR:
+        dg_fill_room_keep_mask(keep_mask, room->width, room->height, 1u);
+        return DG_STATUS_OK;
+    case DG_ROOM_SHAPE_ORGANIC:
+        return dg_build_organic_room_keep_mask(room, organicity, rng, keep_mask);
+    case DG_ROOM_SHAPE_CELLULAR:
+        return dg_build_cellular_room_keep_mask(room, organicity, rng, keep_mask);
+    case DG_ROOM_SHAPE_CHAMFERED:
+        return dg_build_chamfer_room_keep_mask(room, organicity, keep_mask);
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+}
+
+static void dg_apply_room_keep_mask(
     dg_map_t *map,
     const dg_rect_t *room,
+    const unsigned char *keep_mask,
+    const dg_point_t *entrances,
+    size_t entrance_count
+)
+{
+    dg_point_t anchor;
+    int x;
+    int y;
+    size_t i;
+
+    if (map == NULL || room == NULL || keep_mask == NULL) {
+        return;
+    }
+
+    for (y = room->y; y < room->y + room->height; ++y) {
+        for (x = room->x; x < room->x + room->width; ++x) {
+            map->tiles[dg_tile_index(map, x, y)] = DG_TILE_WALL;
+        }
+    }
+
+    for (y = 0; y < room->height; ++y) {
+        for (x = 0; x < room->width; ++x) {
+            size_t index = (size_t)y * (size_t)room->width + (size_t)x;
+            if (keep_mask[index] != 0u) {
+                map->tiles[dg_tile_index(map, room->x + x, room->y + y)] = DG_TILE_FLOOR;
+            }
+        }
+    }
+
+    anchor.x = room->x + room->width / 2;
+    anchor.y = room->y + room->height / 2;
+    if (!dg_is_walkable_tile(dg_map_get_tile(map, anchor.x, anchor.y))) {
+        int best_dist;
+        bool found;
+
+        best_dist = INT_MAX;
+        found = false;
+        for (y = 0; y < room->height; ++y) {
+            for (x = 0; x < room->width; ++x) {
+                int tx;
+                int ty;
+                int dist;
+                size_t index;
+
+                index = (size_t)y * (size_t)room->width + (size_t)x;
+                if (keep_mask[index] == 0u) {
+                    continue;
+                }
+                tx = room->x + x;
+                ty = room->y + y;
+                dist = abs(anchor.x - tx) + abs(anchor.y - ty);
+                if (!found || dist < best_dist) {
+                    anchor.x = tx;
+                    anchor.y = ty;
+                    best_dist = dist;
+                    found = true;
+                }
+            }
+        }
+    }
+    map->tiles[dg_tile_index(map, anchor.x, anchor.y)] = DG_TILE_FLOOR;
+
+    for (i = 0; i < entrance_count; ++i) {
+        int sx;
+        int sy;
+
+        map->tiles[dg_tile_index(map, entrances[i].x, entrances[i].y)] = DG_TILE_FLOOR;
+        sx = entrances[i].x;
+        sy = entrances[i].y;
+        while (sx != anchor.x) {
+            sx += (anchor.x > sx) ? 1 : -1;
+            if (dg_point_in_rect(room, sx, sy)) {
+                map->tiles[dg_tile_index(map, sx, sy)] = DG_TILE_FLOOR;
+            }
+        }
+        while (sy != anchor.y) {
+            sy += (anchor.y > sy) ? 1 : -1;
+            if (dg_point_in_rect(room, sx, sy)) {
+                map->tiles[dg_tile_index(map, sx, sy)] = DG_TILE_FLOOR;
+            }
+        }
+    }
+}
+
+static dg_status_t dg_carve_room_with_shape_mode(
+    dg_map_t *map,
+    const dg_rect_t *room,
+    dg_room_shape_mode_t mode,
     int organicity,
     dg_rng_t *rng
 )
@@ -523,20 +1018,17 @@ static dg_status_t dg_carve_organic_room(
     unsigned char *keep_mask;
     dg_point_t *entrances;
     size_t entrance_count;
-    double cx;
-    double cy;
-    double rx;
-    double ry;
-    double roughness;
-    int x;
-    int y;
-    dg_point_t anchor;
+    dg_status_t status;
 
     if (map == NULL || room == NULL || rng == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
     if (room->width <= 0 || room->height <= 0) {
         return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (mode == DG_ROOM_SHAPE_RECTANGULAR) {
+        return DG_STATUS_OK;
     }
 
     if (!dg_mul_size_checked((size_t)room->width, (size_t)room->height, &room_area)) {
@@ -552,81 +1044,23 @@ static dg_status_t dg_carve_organic_room(
     }
 
     entrance_count = dg_collect_room_entrances(map, room, entrances, room_area);
-    cx = ((double)room->width - 1.0) * 0.5;
-    cy = ((double)room->height - 1.0) * 0.5;
-    rx = dg_max_int(room->width - 1, 1) * 0.5;
-    ry = dg_max_int(room->height - 1, 1) * 0.5;
-    roughness = ((double)dg_clamp_int(organicity, 0, 100) / 100.0) * 0.55;
-
-    for (y = 0; y < room->height; ++y) {
-        for (x = 0; x < room->width; ++x) {
-            size_t index = (size_t)y * (size_t)room->width + (size_t)x;
-            double nx = ((double)x - cx) / rx;
-            double ny = ((double)y - cy) / ry;
-            double score = nx * nx + ny * ny;
-            double noise = ((double)dg_rng_range(rng, -100, 100) / 100.0) * roughness;
-            double threshold = 1.0 + noise;
-
-            if (score <= threshold) {
-                keep_mask[index] = 1u;
-            }
-        }
+    status = dg_build_room_keep_mask(room, mode, organicity, rng, keep_mask);
+    if (status != DG_STATUS_OK) {
+        free(keep_mask);
+        free(entrances);
+        return status;
     }
 
-    for (y = room->y; y < room->y + room->height; ++y) {
-        for (x = room->x; x < room->x + room->width; ++x) {
-            map->tiles[dg_tile_index(map, x, y)] = DG_TILE_WALL;
-        }
-    }
-
-    for (y = 0; y < room->height; ++y) {
-        for (x = 0; x < room->width; ++x) {
-            size_t index = (size_t)y * (size_t)room->width + (size_t)x;
-            if (keep_mask[index] != 0u) {
-                int tx = room->x + x;
-                int ty = room->y + y;
-                map->tiles[dg_tile_index(map, tx, ty)] = DG_TILE_FLOOR;
-            }
-        }
-    }
-
-    anchor.x = room->x + room->width / 2;
-    anchor.y = room->y + room->height / 2;
-    if (!dg_point_in_rect(room, anchor.x, anchor.y)) {
-        anchor.x = room->x;
-        anchor.y = room->y;
-    }
-    map->tiles[dg_tile_index(map, anchor.x, anchor.y)] = DG_TILE_FLOOR;
-
-    for (x = 0; (size_t)x < entrance_count; ++x) {
-        int sx;
-        int sy;
-
-        map->tiles[dg_tile_index(map, entrances[x].x, entrances[x].y)] = DG_TILE_FLOOR;
-
-        sx = entrances[x].x;
-        sy = entrances[x].y;
-        while (sx != anchor.x) {
-            sx += (anchor.x > sx) ? 1 : -1;
-            if (dg_point_in_rect(room, sx, sy)) {
-                map->tiles[dg_tile_index(map, sx, sy)] = DG_TILE_FLOOR;
-            }
-        }
-        while (sy != anchor.y) {
-            sy += (anchor.y > sy) ? 1 : -1;
-            if (dg_point_in_rect(room, sx, sy)) {
-                map->tiles[dg_tile_index(map, sx, sy)] = DG_TILE_FLOOR;
-            }
-        }
-    }
+    dg_apply_room_keep_mask(map, room, keep_mask, entrances, entrance_count);
 
     free(keep_mask);
     free(entrances);
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_apply_organic_room_shapes(
+static dg_status_t dg_apply_room_shapes(
     dg_map_t *map,
+    dg_room_shape_mode_t mode,
     int organicity,
     dg_rng_t *rng
 )
@@ -635,6 +1069,10 @@ static dg_status_t dg_apply_organic_room_shapes(
 
     if (map == NULL || rng == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (mode == DG_ROOM_SHAPE_RECTANGULAR) {
+        return DG_STATUS_OK;
     }
 
     if (map->metadata.room_count == 0) {
@@ -646,9 +1084,12 @@ static dg_status_t dg_apply_organic_room_shapes(
     }
 
     for (i = 0; i < map->metadata.room_count; ++i) {
-        dg_status_t status = dg_carve_organic_room(
+        dg_status_t status;
+
+        status = dg_carve_room_with_shape_mode(
             map,
             &map->metadata.rooms[i].bounds,
+            mode,
             organicity,
             rng
         );
@@ -675,9 +1116,13 @@ static dg_status_t dg_apply_process_method(
     case DG_PROCESS_METHOD_SCALE:
         return dg_scale_map(map, method->params.scale.factor);
     case DG_PROCESS_METHOD_ROOM_SHAPE:
-        if (method->params.room_shape.mode == DG_ROOM_SHAPE_ORGANIC &&
-            generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
-            return dg_apply_organic_room_shapes(map, method->params.room_shape.organicity, rng);
+        if (generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+            return dg_apply_room_shapes(
+                map,
+                method->params.room_shape.mode,
+                method->params.room_shape.organicity,
+                rng
+            );
         }
         return DG_STATUS_OK;
     case DG_PROCESS_METHOD_PATH_SMOOTH:

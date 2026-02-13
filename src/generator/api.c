@@ -305,7 +305,9 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
             break;
         case DG_PROCESS_METHOD_ROOM_SHAPE:
             if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
-                method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC) {
+                method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC &&
+                method->params.room_shape.mode != DG_ROOM_SHAPE_CELLULAR &&
+                method->params.room_shape.mode != DG_ROOM_SHAPE_CHAMFERED) {
                 return DG_STATUS_INVALID_ARGUMENT;
             }
             if (method->params.room_shape.organicity < 0 ||

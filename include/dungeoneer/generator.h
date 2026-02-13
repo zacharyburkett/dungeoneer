@@ -93,7 +93,18 @@ typedef struct dg_rooms_and_mazes_config {
 
 typedef enum dg_room_shape_mode {
     DG_ROOM_SHAPE_RECTANGULAR = 0,
-    DG_ROOM_SHAPE_ORGANIC = 1
+    /*
+     * Irregular blob-like rooms generated from coherent noise.
+     */
+    DG_ROOM_SHAPE_ORGANIC = 1,
+    /*
+     * Cellular-automata carved rooms for cave-like interior variation.
+     */
+    DG_ROOM_SHAPE_CELLULAR = 2,
+    /*
+     * Rounded/chamfered room corners while preserving doorway connectivity.
+     */
+    DG_ROOM_SHAPE_CHAMFERED = 3
 } dg_room_shape_mode_t;
 
 typedef enum dg_corridor_roughen_mode {
@@ -121,12 +132,14 @@ typedef struct dg_process_room_shape_config {
     /*
      * Room shape post-process:
      *   RECTANGULAR = preserve layout room rectangles
-     *   ORGANIC     = carve noisier room interiors while preserving room connections
+     *   ORGANIC     = coherent noisy/blob-like room interiors
+     *   CELLULAR    = cave-like cellular room interiors
+     *   CHAMFERED   = rounded/chamfered room corners
      */
     dg_room_shape_mode_t mode;
     /*
-     * Organic room roughness (0..100).
-     * Higher values create more irregular room boundaries.
+     * Shape strength (0..100).
+     * Higher values increase mode-specific deformation intensity.
      */
     int organicity;
 } dg_process_room_shape_config_t;
