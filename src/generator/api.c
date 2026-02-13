@@ -234,34 +234,6 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
     return DG_STATUS_OK;
 }
 
-static dg_status_t dg_validate_perspective_and_traversal(
-    dg_generation_perspective_t perspective,
-    const dg_traversal_constraints_t *traversal
-)
-{
-    if (traversal == NULL) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (perspective != DG_GENERATION_PERSPECTIVE_TOP_DOWN &&
-        perspective != DG_GENERATION_PERSPECTIVE_SIDE_VIEW) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (traversal->max_jump_up < 0 ||
-        traversal->max_jump_across < 0 ||
-        traversal->max_drop_down < 0) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (traversal->require_grounded_connectivity != 0 &&
-        traversal->require_grounded_connectivity != 1) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
-    return DG_STATUS_OK;
-}
-
 static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
 {
     size_t i;
@@ -450,12 +422,6 @@ static dg_status_t dg_snapshot_generation_request(
     snapshot.height = request->height;
     snapshot.seed = request->seed;
     snapshot.algorithm_id = (int)request->algorithm;
-    snapshot.perspective = (int)request->perspective;
-    snapshot.traversal.max_jump_up = request->traversal.max_jump_up;
-    snapshot.traversal.max_jump_across = request->traversal.max_jump_across;
-    snapshot.traversal.max_drop_down = request->traversal.max_drop_down;
-    snapshot.traversal.require_grounded_connectivity =
-        request->traversal.require_grounded_connectivity;
     snapshot.room_types.policy.strict_mode = request->room_types.policy.strict_mode;
     snapshot.room_types.policy.allow_untyped_rooms = request->room_types.policy.allow_untyped_rooms;
     snapshot.room_types.policy.default_type_id = request->room_types.policy.default_type_id;
@@ -661,18 +627,6 @@ void dg_default_process_config(dg_process_config_t *config)
     config->method_count = 0;
 }
 
-void dg_default_traversal_constraints(dg_traversal_constraints_t *constraints)
-{
-    if (constraints == NULL) {
-        return;
-    }
-
-    constraints->max_jump_up = 4;
-    constraints->max_jump_across = 6;
-    constraints->max_drop_down = 8;
-    constraints->require_grounded_connectivity = 0;
-}
-
 void dg_default_generate_request(
     dg_generate_request_t *request,
     dg_algorithm_t algorithm,
@@ -690,8 +644,6 @@ void dg_default_generate_request(
     request->height = height;
     request->seed = seed;
     request->algorithm = algorithm;
-    request->perspective = DG_GENERATION_PERSPECTIVE_TOP_DOWN;
-    dg_default_traversal_constraints(&request->traversal);
     dg_default_process_config(&request->process);
     dg_default_room_type_assignment_config(&request->room_types);
 
@@ -761,11 +713,6 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return status;
     }
 
-    status = dg_validate_perspective_and_traversal(request->perspective, &request->traversal);
-    if (status != DG_STATUS_OK) {
-        return status;
-    }
-
     switch (request->algorithm) {
     case DG_ALGORITHM_BSP_TREE:
         status = dg_validate_bsp_config(&request->params.bsp);
@@ -823,15 +770,6 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return status;
     }
 
-    if (request->perspective == DG_GENERATION_PERSPECTIVE_SIDE_VIEW &&
-        request->traversal.require_grounded_connectivity != 0) {
-        status = dg_enforce_side_view_grounded_connectivity(&generated, &request->traversal);
-        if (status != DG_STATUS_OK) {
-            dg_map_destroy(&generated);
-            return status;
-        }
-    }
-
     dg_paint_outer_walls(&generated);
 
     if (dg_count_walkable_tiles(&generated) == 0) {
@@ -844,8 +782,6 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         request->seed,
         (int)request->algorithm,
         generation_class,
-        request->perspective,
-        &request->traversal,
         1u
     );
     if (status != DG_STATUS_OK) {

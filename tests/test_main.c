@@ -1,5 +1,4 @@
 #include "dungeoneer/dungeoneer.h"
-#include "../src/generator/internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,12 +150,6 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
         sa->height != sb->height ||
         sa->seed != sb->seed ||
         sa->algorithm_id != sb->algorithm_id ||
-        sa->perspective != sb->perspective ||
-        sa->traversal.max_jump_up != sb->traversal.max_jump_up ||
-        sa->traversal.max_jump_across != sb->traversal.max_jump_across ||
-        sa->traversal.max_drop_down != sb->traversal.max_drop_down ||
-        sa->traversal.require_grounded_connectivity !=
-            sb->traversal.require_grounded_connectivity ||
         sa->process.method_count != sb->process.method_count ||
         sa->room_types.definition_count != sb->room_types.definition_count ||
         sa->room_types.policy.strict_mode != sb->room_types.policy.strict_mode ||
@@ -821,107 +814,6 @@ static int test_map_basics(void)
     return 0;
 }
 
-static int test_side_view_grounded_connectivity(void)
-{
-    dg_map_t map = {0};
-    dg_map_t pruned = {0};
-    dg_connectivity_stats_t top_down_stats = {0};
-    dg_connectivity_stats_t grounded_low_jump_stats = {0};
-    dg_connectivity_stats_t grounded_high_jump_stats = {0};
-    dg_connectivity_stats_t grounded_pruned_stats = {0};
-    dg_traversal_constraints_t traversal = {0};
-    size_t i;
-    int x;
-    int y;
-
-    ASSERT_STATUS(dg_map_init(&map, 12, 8, DG_TILE_WALL), DG_STATUS_OK);
-
-    for (x = 1; x <= 6; ++x) {
-        ASSERT_STATUS(dg_map_set_tile(&map, x, 5, DG_TILE_FLOOR), DG_STATUS_OK);
-    }
-    for (y = 2; y <= 5; ++y) {
-        ASSERT_STATUS(dg_map_set_tile(&map, 6, y, DG_TILE_FLOOR), DG_STATUS_OK);
-    }
-    for (x = 7; x <= 10; ++x) {
-        ASSERT_STATUS(dg_map_set_tile(&map, x, 2, DG_TILE_FLOOR), DG_STATUS_OK);
-    }
-    ASSERT_STATUS(dg_map_set_tile(&map, 7, 4, DG_TILE_FLOOR), DG_STATUS_OK);
-    ASSERT_STATUS(dg_map_set_tile(&map, 7, 3, DG_TILE_FLOOR), DG_STATUS_OK);
-
-    dg_default_traversal_constraints(&traversal);
-    traversal.require_grounded_connectivity = 0;
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &map,
-            DG_GENERATION_PERSPECTIVE_SIDE_VIEW,
-            &traversal,
-            &top_down_stats
-        ),
-        DG_STATUS_OK
-    );
-    ASSERT_TRUE(top_down_stats.walkable_count > 0);
-    ASSERT_TRUE(top_down_stats.component_count == 1);
-    ASSERT_TRUE(top_down_stats.connected_floor);
-
-    traversal.max_jump_up = 1;
-    traversal.max_jump_across = 2;
-    traversal.max_drop_down = 1;
-    traversal.require_grounded_connectivity = 1;
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &map,
-            DG_GENERATION_PERSPECTIVE_SIDE_VIEW,
-            &traversal,
-            &grounded_low_jump_stats
-        ),
-        DG_STATUS_OK
-    );
-    ASSERT_TRUE(grounded_low_jump_stats.walkable_count < top_down_stats.walkable_count);
-    ASSERT_TRUE(grounded_low_jump_stats.component_count > 1);
-    ASSERT_TRUE(!grounded_low_jump_stats.connected_floor);
-
-    ASSERT_STATUS(dg_map_init(&pruned, map.width, map.height, DG_TILE_WALL), DG_STATUS_OK);
-    for (i = 0; i < (size_t)map.width * (size_t)map.height; ++i) {
-        pruned.tiles[i] = map.tiles[i];
-    }
-    ASSERT_STATUS(
-        dg_enforce_side_view_grounded_connectivity(&pruned, &traversal),
-        DG_STATUS_OK
-    );
-    ASSERT_TRUE(dg_map_get_tile(&pruned, 8, 2) == DG_TILE_WALL);
-    ASSERT_TRUE(dg_map_get_tile(&pruned, 3, 5) == DG_TILE_FLOOR);
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &pruned,
-            DG_GENERATION_PERSPECTIVE_SIDE_VIEW,
-            &traversal,
-            &grounded_pruned_stats
-        ),
-        DG_STATUS_OK
-    );
-    ASSERT_TRUE(grounded_pruned_stats.component_count == 1);
-    ASSERT_TRUE(grounded_pruned_stats.connected_floor);
-
-    traversal.max_jump_up = 3;
-    traversal.max_drop_down = 6;
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &map,
-            DG_GENERATION_PERSPECTIVE_SIDE_VIEW,
-            &traversal,
-            &grounded_high_jump_stats
-        ),
-        DG_STATUS_OK
-    );
-    ASSERT_TRUE(grounded_high_jump_stats.walkable_count == grounded_low_jump_stats.walkable_count);
-    ASSERT_TRUE(grounded_high_jump_stats.component_count == 1);
-    ASSERT_TRUE(grounded_high_jump_stats.connected_floor);
-
-    dg_map_destroy(&pruned);
-    dg_map_destroy(&map);
-    return 0;
-}
-
 static int test_rng_reproducibility(void)
 {
     int i;
@@ -977,64 +869,6 @@ static int test_bsp_generation(void)
     }
 
     dg_map_destroy(&map);
-    return 0;
-}
-
-static int test_side_view_generation_uses_grounded_connectivity(void)
-{
-    dg_generate_request_t request_low;
-    dg_generate_request_t request_high;
-    dg_map_t map_low = {0};
-    dg_map_t map_high = {0};
-    dg_connectivity_stats_t expected_low = {0};
-    dg_connectivity_stats_t expected_high = {0};
-
-    dg_default_generate_request(&request_low, DG_ALGORITHM_DRUNKARDS_WALK, 96, 64, 424242u);
-    request_low.params.drunkards_walk.wiggle_percent = 70;
-    request_low.perspective = DG_GENERATION_PERSPECTIVE_SIDE_VIEW;
-    request_low.traversal.max_jump_up = 0;
-    request_low.traversal.max_jump_across = 1;
-    request_low.traversal.max_drop_down = 2;
-    request_low.traversal.require_grounded_connectivity = 1;
-    request_high = request_low;
-    request_high.traversal.max_jump_up = 8;
-    request_high.traversal.max_jump_across = 12;
-    request_high.traversal.max_drop_down = 16;
-
-    ASSERT_STATUS(dg_generate(&request_low, &map_low), DG_STATUS_OK);
-    ASSERT_STATUS(dg_generate(&request_high, &map_high), DG_STATUS_OK);
-
-    ASSERT_TRUE(!maps_have_same_tiles(&map_low, &map_high));
-
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &map_low,
-            request_low.perspective,
-            &request_low.traversal,
-            &expected_low
-        ),
-        DG_STATUS_OK
-    );
-    ASSERT_STATUS(
-        dg_analyze_connectivity_for_request(
-            &map_high,
-            request_high.perspective,
-            &request_high.traversal,
-            &expected_high
-        ),
-        DG_STATUS_OK
-    );
-
-    ASSERT_TRUE(map_low.metadata.connected_component_count == expected_low.component_count);
-    ASSERT_TRUE(map_low.metadata.largest_component_size == expected_low.largest_component_size);
-    ASSERT_TRUE(map_low.metadata.connected_floor == expected_low.connected_floor);
-
-    ASSERT_TRUE(map_high.metadata.connected_component_count == expected_high.component_count);
-    ASSERT_TRUE(map_high.metadata.largest_component_size == expected_high.largest_component_size);
-    ASSERT_TRUE(map_high.metadata.connected_floor == expected_high.connected_floor);
-
-    dg_map_destroy(&map_low);
-    dg_map_destroy(&map_high);
     return 0;
 }
 
@@ -1891,11 +1725,6 @@ static int test_generation_request_snapshot_populated(void)
     request.params.rooms_and_mazes.max_room_connections = 2;
     request.params.rooms_and_mazes.ensure_full_connectivity = 0;
     request.params.rooms_and_mazes.dead_end_prune_steps = 8;
-    request.perspective = DG_GENERATION_PERSPECTIVE_SIDE_VIEW;
-    request.traversal.max_jump_up = 6;
-    request.traversal.max_jump_across = 7;
-    request.traversal.max_drop_down = 9;
-    request.traversal.require_grounded_connectivity = 1;
     dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
     process_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
     process_methods[0].params.room_shape.organicity = 60;
@@ -1929,14 +1758,6 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->height == request.height);
     ASSERT_TRUE(snapshot->seed == request.seed);
     ASSERT_TRUE(snapshot->algorithm_id == (int)request.algorithm);
-    ASSERT_TRUE(snapshot->perspective == (int)request.perspective);
-    ASSERT_TRUE(snapshot->traversal.max_jump_up == request.traversal.max_jump_up);
-    ASSERT_TRUE(snapshot->traversal.max_jump_across == request.traversal.max_jump_across);
-    ASSERT_TRUE(snapshot->traversal.max_drop_down == request.traversal.max_drop_down);
-    ASSERT_TRUE(
-        snapshot->traversal.require_grounded_connectivity ==
-        request.traversal.require_grounded_connectivity
-    );
     ASSERT_TRUE(snapshot->process.method_count == request.process.method_count);
     ASSERT_TRUE(snapshot->process.methods != NULL);
     ASSERT_TRUE(snapshot->process.methods[0].type == (int)DG_PROCESS_METHOD_ROOM_SHAPE);
@@ -1995,11 +1816,6 @@ static int test_map_serialization_roundtrip(void)
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6060u);
     request.params.bsp.min_rooms = 9;
     request.params.bsp.max_rooms = 12;
-    request.perspective = DG_GENERATION_PERSPECTIVE_SIDE_VIEW;
-    request.traversal.max_jump_up = 5;
-    request.traversal.max_jump_across = 8;
-    request.traversal.max_drop_down = 10;
-    request.traversal.require_grounded_connectivity = 1;
     dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
     process_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
     process_methods[0].params.room_shape.organicity = 55;
@@ -2288,26 +2104,6 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    request.perspective = (dg_generation_perspective_t)99;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    request.traversal.max_jump_up = -1;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    request.traversal.max_jump_across = -1;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    request.traversal.max_drop_down = -1;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    request.traversal.require_grounded_connectivity = 2;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_SCALE);
     process_methods[0].params.scale.factor = 0;
     request.process.methods = process_methods;
@@ -2434,11 +2230,8 @@ int main(void)
 
     const struct test_case tests[] = {
         {"map_basics", test_map_basics},
-        {"side_view_grounded_connectivity", test_side_view_grounded_connectivity},
         {"rng_reproducibility", test_rng_reproducibility},
         {"bsp_generation", test_bsp_generation},
-        {"side_view_generation_uses_grounded_connectivity",
-         test_side_view_generation_uses_grounded_connectivity},
         {"bsp_determinism", test_bsp_determinism},
         {"drunkards_walk_generation", test_drunkards_walk_generation},
         {"drunkards_walk_determinism", test_drunkards_walk_determinism},

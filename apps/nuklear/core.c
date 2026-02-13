@@ -80,25 +80,6 @@ static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
     }
 }
 
-static dg_generation_perspective_t dg_nuklear_perspective_from_index(int perspective_index)
-{
-    if (perspective_index == 1) {
-        return DG_GENERATION_PERSPECTIVE_SIDE_VIEW;
-    }
-    return DG_GENERATION_PERSPECTIVE_TOP_DOWN;
-}
-
-static int dg_nuklear_perspective_index_from_id(int perspective_id)
-{
-    switch ((dg_generation_perspective_t)perspective_id) {
-    case DG_GENERATION_PERSPECTIVE_SIDE_VIEW:
-        return 1;
-    case DG_GENERATION_PERSPECTIVE_TOP_DOWN:
-    default:
-        return 0;
-    }
-}
-
 static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
 {
     if (value < min_value) {
@@ -733,14 +714,8 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     }
 
     app->algorithm_index = dg_nuklear_algorithm_index_from_id(snapshot->algorithm_id);
-    app->perspective_index = dg_nuklear_perspective_index_from_id(snapshot->perspective);
     app->width = snapshot->width;
     app->height = snapshot->height;
-    app->traversal.max_jump_up = snapshot->traversal.max_jump_up;
-    app->traversal.max_jump_across = snapshot->traversal.max_jump_across;
-    app->traversal.max_drop_down = snapshot->traversal.max_drop_down;
-    app->traversal.require_grounded_connectivity =
-        snapshot->traversal.require_grounded_connectivity;
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)snapshot->seed);
     dg_nuklear_reset_process_defaults(app);
     copy_count = snapshot->process.method_count;
@@ -869,8 +844,6 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     } else {
         request.params.bsp = app->bsp_config;
     }
-    request.perspective = dg_nuklear_perspective_from_index(app->perspective_index);
-    request.traversal = app->traversal;
     request.process.methods = app->process_methods;
     request.process.method_count = (size_t)app->process_method_count;
 
@@ -1447,13 +1420,9 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     static const char *algorithms[] = {"BSP Tree", "Drunkard's Walk", "Rooms + Mazes"};
-    static const char *perspectives[] = {"Top-Down", "Side-View"};
     int previous_algorithm_index;
-    int previous_perspective_index;
-    int side_view_selected;
 
     previous_algorithm_index = app->algorithm_index;
-    previous_perspective_index = app->perspective_index;
 
     nk_layout_row_dynamic(ctx, 20.0f, 1);
     nk_label(ctx, "Algorithm", NK_TEXT_LEFT);
@@ -1481,79 +1450,6 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
 
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(ctx, "Height", 8, &app->height, 512, 1, 0.25f);
-
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Perspective", NK_TEXT_LEFT);
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    app->perspective_index = nk_combo(
-        ctx,
-        perspectives,
-        (int)(sizeof(perspectives) / sizeof(perspectives[0])),
-        app->perspective_index,
-        22,
-        nk_vec2(220, 80)
-    );
-    if (app->perspective_index < 0 || app->perspective_index > 1) {
-        app->perspective_index = 0;
-    }
-
-    if (app->perspective_index != previous_perspective_index) {
-        if (app->perspective_index == 1) {
-            app->traversal.require_grounded_connectivity = 1;
-        }
-        dg_nuklear_set_status(
-            app,
-            "Selected perspective: %s",
-            app->perspective_index == 1 ? "Side-View" : "Top-Down"
-        );
-    }
-
-    side_view_selected = app->perspective_index == 1;
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Traversal", NK_TEXT_LEFT);
-
-    if (side_view_selected) {
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Max Jump Up", 0, &app->traversal.max_jump_up, 64, 1, 0.25f);
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(
-            ctx,
-            "Max Jump Across",
-            0,
-            &app->traversal.max_jump_across,
-            128,
-            1,
-            0.25f
-        );
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        nk_property_int(ctx, "Max Drop Down", 0, &app->traversal.max_drop_down, 128, 1, 0.25f);
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        app->traversal.require_grounded_connectivity = nk_check_label(
-            ctx,
-            "Grounded Connectivity",
-            app->traversal.require_grounded_connectivity
-        );
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(
-            ctx,
-            "Side-view currently reuses layout generators; traversal affects connectivity analysis.",
-            NK_TEXT_LEFT
-        );
-    } else {
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(
-            ctx,
-            "Side-view controls (jump/drop/grounded) appear when Side-View is selected.",
-            NK_TEXT_LEFT
-        );
-    }
-
-    app->traversal.max_jump_up = dg_nuklear_clamp_int(app->traversal.max_jump_up, 0, 64);
-    app->traversal.max_jump_across = dg_nuklear_clamp_int(app->traversal.max_jump_across, 0, 128);
-    app->traversal.max_drop_down = dg_nuklear_clamp_int(app->traversal.max_drop_down, 0, 128);
-    app->traversal.require_grounded_connectivity =
-        app->traversal.require_grounded_connectivity ? 1 : 0;
 
     nk_layout_row_dynamic(ctx, 20.0f, 1);
     nk_label(ctx, "Seed", NK_TEXT_LEFT);
@@ -2287,7 +2183,6 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
 
     *app = (dg_nuklear_app_t){0};
     app->algorithm_index = 0;
-    app->perspective_index = 0;
     app->width = 80;
     app->height = 40;
 
@@ -2297,7 +2192,6 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);
     dg_nuklear_reset_preview_camera(app);
-    dg_default_traversal_constraints(&app->traversal);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");

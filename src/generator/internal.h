@@ -28,16 +28,6 @@ void dg_carve_brush(dg_map_t *map, int cx, int cy, int radius, dg_tile_t tile);
 size_t dg_count_walkable_tiles(const dg_map_t *map);
 dg_status_t dg_enforce_single_connected_region(dg_map_t *map);
 dg_status_t dg_analyze_connectivity(const dg_map_t *map, dg_connectivity_stats_t *out_stats);
-dg_status_t dg_analyze_connectivity_for_request(
-    const dg_map_t *map,
-    dg_generation_perspective_t perspective,
-    const dg_traversal_constraints_t *traversal,
-    dg_connectivity_stats_t *out_stats
-);
-dg_status_t dg_enforce_side_view_grounded_connectivity(
-    dg_map_t *map,
-    const dg_traversal_constraints_t *traversal
-);
 dg_status_t dg_smooth_walkable_regions(
     dg_map_t *map,
     int smoothing_passes,
@@ -50,8 +40,6 @@ dg_status_t dg_populate_runtime_metadata(
     uint64_t seed,
     int algorithm_id,
     dg_map_generation_class_t generation_class,
-    dg_generation_perspective_t perspective,
-    const dg_traversal_constraints_t *traversal,
     size_t generation_attempts
 );
 

@@ -186,8 +186,6 @@ dg_status_t dg_populate_runtime_metadata(
     uint64_t seed,
     int algorithm_id,
     dg_map_generation_class_t generation_class,
-    dg_generation_perspective_t perspective,
-    const dg_traversal_constraints_t *traversal,
     size_t generation_attempts
 )
 {
@@ -237,7 +235,7 @@ dg_status_t dg_populate_runtime_metadata(
         dg_clear_room_graph_metadata(map);
     }
 
-    status = dg_analyze_connectivity_for_request(map, perspective, traversal, &connectivity);
+    status = dg_analyze_connectivity(map, &connectivity);
     if (status != DG_STATUS_OK) {
         return status;
     }

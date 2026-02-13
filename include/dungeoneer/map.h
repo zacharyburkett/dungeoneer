@@ -145,26 +145,17 @@ typedef struct dg_snapshot_process_config {
     size_t method_count;
 } dg_snapshot_process_config_t;
 
-typedef struct dg_snapshot_traversal_constraints {
-    int max_jump_up;
-    int max_jump_across;
-    int max_drop_down;
-    int require_grounded_connectivity;
-} dg_snapshot_traversal_constraints_t;
-
 typedef struct dg_generation_request_snapshot {
     int present;
     int width;
     int height;
     uint64_t seed;
     int algorithm_id;
-    int perspective;
     union {
         dg_snapshot_bsp_config_t bsp;
         dg_snapshot_drunkards_walk_config_t drunkards_walk;
         dg_snapshot_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
-    dg_snapshot_traversal_constraints_t traversal;
     dg_snapshot_process_config_t process;
     dg_snapshot_room_type_assignment_config_t room_types;
 } dg_generation_request_snapshot_t;
