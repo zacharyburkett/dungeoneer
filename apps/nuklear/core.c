@@ -1959,6 +1959,75 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
     }
 }
 
+static bool dg_nuklear_draw_preview_overlay_button(
+    struct nk_context *ctx,
+    struct nk_command_buffer *canvas,
+    struct nk_rect rect,
+    const char *label
+)
+{
+    int hovered;
+    int pressed;
+    struct nk_color bg;
+    struct nk_color border;
+    struct nk_color fg;
+    int label_len;
+
+    if (ctx == NULL || canvas == NULL || label == NULL) {
+        return false;
+    }
+
+    hovered = nk_input_is_mouse_hovering_rect(&ctx->input, rect);
+    pressed = hovered && nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT);
+
+    if (pressed) {
+        bg = nk_rgba(79, 95, 121, 230);
+    } else if (hovered) {
+        bg = nk_rgba(66, 80, 103, 216);
+    } else {
+        bg = nk_rgba(47, 57, 73, 208);
+    }
+    border = nk_rgba(101, 118, 143, 235);
+    fg = nk_rgba(240, 244, 250, 255);
+
+    nk_fill_rect(canvas, rect, 4.0f, bg);
+    nk_stroke_rect(canvas, rect, 4.0f, 1.0f, border);
+
+    label_len = (int)strlen(label);
+    if (label_len > 0 && ctx->style.font != NULL && ctx->style.font->width != NULL) {
+        float text_width;
+        float text_x;
+        float text_y;
+        struct nk_rect text_bounds;
+
+        text_width = ctx->style.font->width(
+            ctx->style.font->userdata,
+            ctx->style.font->height,
+            label,
+            label_len
+        );
+        text_x = rect.x + (rect.w - text_width) * 0.5f;
+        text_y = rect.y + (rect.h - ctx->style.font->height) * 0.5f;
+
+        if (text_x < rect.x + 2.0f) {
+            text_x = rect.x + 2.0f;
+        }
+        if (text_y < rect.y + 1.0f) {
+            text_y = rect.y + 1.0f;
+        }
+
+        text_bounds = nk_rect(
+            text_x,
+            text_y,
+            dg_nuklear_max_float(text_width + 2.0f, 1.0f),
+            dg_nuklear_max_float(ctx->style.font->height + 2.0f, 1.0f)
+        );
+        nk_draw_text(canvas, text_bounds, label, label_len, ctx->style.font, bg, fg);
+    }
+
+    return hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+}
+
 static void dg_nuklear_draw_map(
     struct nk_context *ctx,
     dg_nuklear_app_t *app,
@@ -1966,30 +2035,37 @@ static void dg_nuklear_draw_map(
     const dg_nuklear_preview_renderer_t *preview_renderer
 )
 {
+    struct nk_rect content_region;
     struct nk_rect preview_bounds;
     struct nk_rect preview_content_bounds;
+    struct nk_rect overlay_panel;
+    struct nk_rect overlay_zoom_in;
+    struct nk_rect overlay_zoom_out;
+    struct nk_rect overlay_fit;
+    struct nk_rect overlay_grid;
     enum nk_widget_layout_states widget_state;
     struct nk_command_buffer *canvas;
     struct nk_rect old_clip;
     struct nk_rect draw_clip;
+    bool overlay_visible;
+    bool overlay_hovered;
 
     if (ctx == NULL || app == NULL) {
         return;
     }
 
-    if (suggested_height < 120.0f) {
-        suggested_height = 120.0f;
+    content_region = nk_window_get_content_region(ctx);
+    if (suggested_height <= 0.0f) {
+        suggested_height = content_region.h;
+    }
+    if (content_region.h > 0.0f) {
+        float max_layout_h = dg_nuklear_max_float(content_region.h - 1.0f, 1.0f);
+        suggested_height = dg_nuklear_clamp_float(suggested_height, 1.0f, max_layout_h);
+    } else if (suggested_height < 1.0f) {
+        suggested_height = 1.0f;
     }
 
-    if (app->has_map) {
-        nk_layout_row_dynamic(ctx, 28.0f, 4);
-        nk_label(ctx, "Zoom", NK_TEXT_LEFT);
-        nk_property_float(ctx, "x", 0.10f, &app->preview_zoom, 24.0f, 0.10f, 0.01f);
-        if (nk_button_label(ctx, "Fit")) {
-            dg_nuklear_reset_preview_camera(app);
-        }
-        app->preview_show_grid = nk_check_label(ctx, "Grid", app->preview_show_grid);
-    } else {
+    if (!app->has_map) {
         nk_layout_row_dynamic(ctx, 20.0f, 1);
         nk_label(ctx, "No map loaded. Adjust settings, or load a file.", NK_TEXT_LEFT);
     }
@@ -2013,6 +2089,74 @@ static void dg_nuklear_draw_map(
     nk_fill_rect(canvas, preview_bounds, 0.0f, nk_rgb(20, 24, 31));
     draw_clip = dg_nuklear_rect_intersection(old_clip, preview_content_bounds);
     nk_push_scissor(canvas, draw_clip);
+
+    overlay_panel = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_zoom_in = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_zoom_out = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_fit = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_grid = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_visible = false;
+    overlay_hovered = false;
+
+    if (app->has_map) {
+        const float panel_pad = 6.0f;
+        const float button_h = 26.0f;
+        const float zoom_w = 28.0f;
+        const float fit_w = 42.0f;
+        const float grid_w = 92.0f;
+        const float gap = 4.0f;
+        const float edge_margin = 8.0f;
+        float panel_w;
+        float panel_h;
+        float panel_x;
+        float panel_y;
+        float cursor_x;
+        float cursor_y;
+
+        panel_w = panel_pad * 2.0f + zoom_w * 2.0f + fit_w + grid_w + gap * 3.0f;
+        panel_h = panel_pad * 2.0f + button_h;
+        panel_x = preview_content_bounds.x + preview_content_bounds.w - panel_w - edge_margin;
+        panel_y = preview_content_bounds.y + preview_content_bounds.h - panel_h - edge_margin;
+
+        if (panel_x < preview_content_bounds.x + 2.0f) {
+            panel_x = preview_content_bounds.x + 2.0f;
+        }
+        if (panel_y < preview_content_bounds.y + 2.0f) {
+            panel_y = preview_content_bounds.y + 2.0f;
+        }
+
+        overlay_panel = nk_rect(panel_x, panel_y, panel_w, panel_h);
+        overlay_zoom_in = nk_rect(panel_x + panel_pad, panel_y + panel_pad, zoom_w, button_h);
+        overlay_zoom_out = nk_rect(
+            overlay_zoom_in.x + zoom_w + gap,
+            panel_y + panel_pad,
+            zoom_w,
+            button_h
+        );
+        overlay_fit = nk_rect(
+            overlay_zoom_out.x + zoom_w + gap,
+            panel_y + panel_pad,
+            fit_w,
+            button_h
+        );
+        overlay_grid = nk_rect(
+            overlay_fit.x + fit_w + gap,
+            panel_y + panel_pad,
+            grid_w,
+            button_h
+        );
+
+        cursor_x = ctx->input.mouse.pos.x;
+        cursor_y = ctx->input.mouse.pos.y;
+        overlay_visible =
+            nk_input_is_mouse_hovering_rect(&ctx->input, preview_content_bounds) ||
+            (cursor_x >= overlay_panel.x &&
+             cursor_y >= overlay_panel.y &&
+             cursor_x <= overlay_panel.x + overlay_panel.w &&
+             cursor_y <= overlay_panel.y + overlay_panel.h);
+        overlay_hovered = overlay_visible &&
+            nk_input_is_mouse_hovering_rect(&ctx->input, overlay_panel);
+    }
 
     if (app->has_map && app->map.tiles != NULL && app->map.width > 0 && app->map.height > 0) {
         int x_start;
@@ -2058,7 +2202,7 @@ static void dg_nuklear_draw_map(
 
             hovered = nk_input_is_mouse_hovering_rect(&ctx->input, preview_content_bounds);
             scroll_delta = ctx->input.mouse.scroll_delta.y;
-            if (hovered && scroll_delta != 0.0f) {
+            if (hovered && !overlay_hovered && scroll_delta != 0.0f) {
                 float mouse_x = ctx->input.mouse.pos.x;
                 float mouse_y = ctx->input.mouse.pos.y;
                 float old_scale = scale;
@@ -2095,7 +2239,8 @@ static void dg_nuklear_draw_map(
                 view_h_tiles = new_view_h;
             }
 
-            if (hovered && nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            if (hovered && !overlay_hovered &&
+                nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
                 center_x -= ctx->input.mouse.delta.x / scale;
                 center_y -= ctx->input.mouse.delta.y / scale;
             }
@@ -2226,6 +2371,32 @@ static void dg_nuklear_draw_map(
                     app->map.width,
                     app->map.height
                 );
+            }
+
+            if (overlay_visible) {
+                const char *grid_label;
+                struct nk_color panel_color;
+                struct nk_color panel_border;
+
+                panel_color = nk_rgba(14, 18, 24, 208);
+                panel_border = nk_rgba(90, 104, 125, 235);
+                nk_fill_rect(canvas, overlay_panel, 6.0f, panel_color);
+                nk_stroke_rect(canvas, overlay_panel, 6.0f, 1.0f, panel_border);
+
+                if (dg_nuklear_draw_preview_overlay_button(ctx, canvas, overlay_zoom_in, "+")) {
+                    app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom * 1.15f, 0.10f, 24.0f);
+                }
+                if (dg_nuklear_draw_preview_overlay_button(ctx, canvas, overlay_zoom_out, "-")) {
+                    app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom / 1.15f, 0.10f, 24.0f);
+                }
+                if (dg_nuklear_draw_preview_overlay_button(ctx, canvas, overlay_fit, "Fit")) {
+                    dg_nuklear_reset_preview_camera(app);
+                }
+
+                grid_label = app->preview_show_grid ? "Hide Grid" : "Show Grid";
+                if (dg_nuklear_draw_preview_overlay_button(ctx, canvas, overlay_grid, grid_label)) {
+                    app->preview_show_grid = app->preview_show_grid ? 0 : 1;
+                }
             }
         }
     }
@@ -3878,7 +4049,7 @@ void dg_nuklear_app_draw(
             map_rect,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR
         )) {
-        dg_nuklear_draw_map(ctx, app, map_rect.h - 50.0f, preview_renderer);
+        dg_nuklear_draw_map(ctx, app, map_rect.h - 20.0f, preview_renderer);
     }
     nk_end(ctx);
 
