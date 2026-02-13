@@ -239,6 +239,104 @@ static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static void dg_nuklear_apply_theme(struct nk_context *ctx)
+{
+    struct nk_color table[NK_COLOR_COUNT];
+
+    if (ctx == NULL) {
+        return;
+    }
+
+    table[NK_COLOR_TEXT] = nk_rgb(223, 228, 236);
+    table[NK_COLOR_WINDOW] = nk_rgb(18, 23, 30);
+    table[NK_COLOR_HEADER] = nk_rgb(33, 41, 52);
+    table[NK_COLOR_BORDER] = nk_rgb(67, 81, 100);
+    table[NK_COLOR_BUTTON] = nk_rgb(48, 59, 73);
+    table[NK_COLOR_BUTTON_HOVER] = nk_rgb(62, 77, 95);
+    table[NK_COLOR_BUTTON_ACTIVE] = nk_rgb(77, 94, 116);
+    table[NK_COLOR_TOGGLE] = nk_rgb(51, 63, 79);
+    table[NK_COLOR_TOGGLE_HOVER] = nk_rgb(63, 78, 96);
+    table[NK_COLOR_TOGGLE_CURSOR] = nk_rgb(162, 208, 189);
+    table[NK_COLOR_SELECT] = nk_rgb(67, 90, 116);
+    table[NK_COLOR_SELECT_ACTIVE] = nk_rgb(87, 120, 152);
+    table[NK_COLOR_SLIDER] = nk_rgb(47, 58, 72);
+    table[NK_COLOR_SLIDER_CURSOR] = nk_rgb(159, 205, 187);
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = nk_rgb(184, 224, 209);
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = nk_rgb(204, 236, 224);
+    table[NK_COLOR_PROPERTY] = nk_rgb(40, 50, 64);
+    table[NK_COLOR_EDIT] = nk_rgb(32, 40, 51);
+    table[NK_COLOR_EDIT_CURSOR] = nk_rgb(229, 236, 245);
+    table[NK_COLOR_COMBO] = nk_rgb(33, 41, 53);
+    table[NK_COLOR_CHART] = nk_rgb(40, 50, 64);
+    table[NK_COLOR_CHART_COLOR] = nk_rgb(159, 205, 187);
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = nk_rgb(222, 170, 97);
+    table[NK_COLOR_SCROLLBAR] = nk_rgb(30, 37, 47);
+    table[NK_COLOR_SCROLLBAR_CURSOR] = nk_rgb(71, 88, 108);
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = nk_rgb(86, 106, 129);
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = nk_rgb(104, 127, 155);
+    table[NK_COLOR_TAB_HEADER] = nk_rgb(30, 37, 47);
+
+    nk_style_from_table(ctx, table);
+
+    ctx->style.window.border = 1.0f;
+    ctx->style.window.rounding = 6.0f;
+    ctx->style.window.spacing = nk_vec2(8.0f, 7.0f);
+    ctx->style.window.padding = nk_vec2(10.0f, 10.0f);
+    ctx->style.window.group_padding = nk_vec2(8.0f, 8.0f);
+    ctx->style.window.min_row_height_padding = 2.0f;
+    ctx->style.window.scrollbar_size = nk_vec2(13.0f, 13.0f);
+
+    ctx->style.button.border = 1.0f;
+    ctx->style.button.rounding = 5.0f;
+    ctx->style.button.padding = nk_vec2(8.0f, 6.0f);
+    ctx->style.button.text_alignment = NK_TEXT_CENTERED;
+
+    ctx->style.combo.border = 1.0f;
+    ctx->style.combo.rounding = 5.0f;
+    ctx->style.combo.content_padding = nk_vec2(8.0f, 5.0f);
+    ctx->style.combo.button_padding = nk_vec2(6.0f, 4.0f);
+    ctx->style.combo.spacing = nk_vec2(5.0f, 5.0f);
+
+    ctx->style.property.border = 1.0f;
+    ctx->style.property.rounding = 5.0f;
+    ctx->style.property.padding = nk_vec2(6.0f, 5.0f);
+
+    ctx->style.edit.border = 1.0f;
+    ctx->style.edit.rounding = 4.0f;
+    ctx->style.edit.padding = nk_vec2(8.0f, 6.0f);
+    ctx->style.edit.row_padding = 4.0f;
+    ctx->style.edit.scrollbar_size = nk_vec2(10.0f, 10.0f);
+
+    ctx->style.selectable.rounding = 4.0f;
+    ctx->style.selectable.padding = nk_vec2(8.0f, 5.0f);
+    ctx->style.selectable.text_alignment = NK_TEXT_LEFT;
+
+    ctx->style.checkbox.spacing = 6.0f;
+    ctx->style.option.spacing = 6.0f;
+
+    ctx->style.scrollv.rounding = 6.0f;
+    ctx->style.scrollv.rounding_cursor = 6.0f;
+}
+
+static void dg_nuklear_draw_subsection_heading(
+    struct nk_context *ctx,
+    const char *title,
+    const char *hint
+)
+{
+    if (ctx == NULL || title == NULL) {
+        return;
+    }
+
+    nk_layout_row_dynamic(ctx, 19.0f, 1);
+    nk_label(ctx, title, NK_TEXT_LEFT);
+
+    if (hint != NULL && hint[0] != '\0') {
+        nk_layout_row_dynamic(ctx, 32.0f, 1);
+        nk_label_wrap(ctx, hint);
+    }
+}
+
 static const char *dg_nuklear_process_method_label(dg_process_method_type_t type)
 {
     switch (type) {
@@ -2192,6 +2290,7 @@ static void dg_nuklear_draw_map(
     struct nk_rect preview_bounds;
     struct nk_rect preview_content_bounds;
     struct nk_rect overlay_panel;
+    struct nk_rect overlay_zoom_text;
     struct nk_rect overlay_zoom_in;
     struct nk_rect overlay_zoom_out;
     struct nk_rect overlay_fit;
@@ -2244,6 +2343,7 @@ static void dg_nuklear_draw_map(
     nk_push_scissor(canvas, draw_clip);
 
     overlay_panel = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    overlay_zoom_text = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
     overlay_zoom_in = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
     overlay_zoom_out = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
     overlay_fit = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
@@ -2254,6 +2354,7 @@ static void dg_nuklear_draw_map(
     if (app->has_map) {
         const float panel_pad = 6.0f;
         const float button_h = 26.0f;
+        const float zoom_text_w = 56.0f;
         const float zoom_w = 28.0f;
         const float fit_w = 42.0f;
         const float grid_w = 92.0f;
@@ -2266,7 +2367,8 @@ static void dg_nuklear_draw_map(
         float cursor_x;
         float cursor_y;
 
-        panel_w = panel_pad * 2.0f + zoom_w * 2.0f + fit_w + grid_w + gap * 3.0f;
+        panel_w =
+            panel_pad * 2.0f + zoom_text_w + zoom_w * 2.0f + fit_w + grid_w + gap * 4.0f;
         panel_h = panel_pad * 2.0f + button_h;
         panel_x = preview_content_bounds.x + preview_content_bounds.w - panel_w - edge_margin;
         panel_y = preview_content_bounds.y + preview_content_bounds.h - panel_h - edge_margin;
@@ -2279,7 +2381,13 @@ static void dg_nuklear_draw_map(
         }
 
         overlay_panel = nk_rect(panel_x, panel_y, panel_w, panel_h);
-        overlay_zoom_in = nk_rect(panel_x + panel_pad, panel_y + panel_pad, zoom_w, button_h);
+        overlay_zoom_text = nk_rect(panel_x + panel_pad, panel_y + panel_pad, zoom_text_w, button_h);
+        overlay_zoom_in = nk_rect(
+            overlay_zoom_text.x + zoom_text_w + gap,
+            panel_y + panel_pad,
+            zoom_w,
+            button_h
+        );
         overlay_zoom_out = nk_rect(
             overlay_zoom_in.x + zoom_w + gap,
             panel_y + panel_pad,
@@ -2530,11 +2638,61 @@ static void dg_nuklear_draw_map(
                 const char *grid_label;
                 struct nk_color panel_color;
                 struct nk_color panel_border;
+                char zoom_label[24];
+                struct nk_color zoom_bg;
+                struct nk_color zoom_border;
+                struct nk_color zoom_fg;
 
                 panel_color = nk_rgba(14, 18, 24, 208);
                 panel_border = nk_rgba(90, 104, 125, 235);
                 nk_fill_rect(canvas, overlay_panel, 6.0f, panel_color);
                 nk_stroke_rect(canvas, overlay_panel, 6.0f, 1.0f, panel_border);
+
+                zoom_bg = nk_rgba(30, 40, 53, 225);
+                zoom_border = nk_rgba(97, 118, 142, 235);
+                zoom_fg = nk_rgba(236, 242, 250, 255);
+                nk_fill_rect(canvas, overlay_zoom_text, 4.0f, zoom_bg);
+                nk_stroke_rect(canvas, overlay_zoom_text, 4.0f, 1.0f, zoom_border);
+                (void)snprintf(
+                    zoom_label,
+                    sizeof(zoom_label),
+                    "%.0f%%",
+                    (double)(app->preview_zoom * 100.0f)
+                );
+                if (ctx->style.font != NULL && ctx->style.font->width != NULL) {
+                    int zoom_len;
+                    float text_w;
+                    float text_x;
+                    float text_y;
+                    struct nk_rect text_bounds;
+
+                    zoom_len = (int)strlen(zoom_label);
+                    text_w = ctx->style.font->width(
+                        ctx->style.font->userdata,
+                        ctx->style.font->height,
+                        zoom_label,
+                        zoom_len
+                    );
+                    text_x = overlay_zoom_text.x + (overlay_zoom_text.w - text_w) * 0.5f;
+                    text_y =
+                        overlay_zoom_text.y +
+                        (overlay_zoom_text.h - ctx->style.font->height) * 0.5f;
+                    text_bounds = nk_rect(
+                        text_x,
+                        text_y,
+                        dg_nuklear_max_float(text_w + 2.0f, 1.0f),
+                        dg_nuklear_max_float(ctx->style.font->height + 2.0f, 1.0f)
+                    );
+                    nk_draw_text(
+                        canvas,
+                        text_bounds,
+                        zoom_label,
+                        zoom_len,
+                        ctx->style.font,
+                        zoom_bg,
+                        zoom_fg
+                    );
+                }
 
                 if (dg_nuklear_draw_preview_overlay_button(ctx, canvas, overlay_zoom_in, "+")) {
                     app->preview_zoom = dg_nuklear_clamp_float(app->preview_zoom * 1.15f, 0.10f, 24.0f);
@@ -2573,8 +2731,11 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
         return;
     }
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Metadata", NK_TEXT_LEFT);
+    dg_nuklear_draw_subsection_heading(
+        ctx,
+        "Overview",
+        ""
+    );
 
     if (!app->has_map) {
         nk_layout_row_dynamic(ctx, 18.0f, 1);
@@ -2774,17 +2935,23 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         DG_NUKLEAR_ALGORITHM_COUNT - 1
     );
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    dg_nuklear_draw_subsection_heading(
+        ctx,
+        "Layout Setup",
+        "Pick generation family, choose an algorithm, and iterate with size and seed."
+    );
+
+    nk_layout_row_dynamic(ctx, 19.0f, 1);
     nk_label(ctx, "Generation Type", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_layout_row_dynamic(ctx, 32.0f, 1);
     app->generation_class_index = nk_combo(
         ctx,
         generation_classes,
         (int)(sizeof(generation_classes) / sizeof(generation_classes[0])),
         app->generation_class_index,
-        24,
-        nk_vec2(220.0f, 96.0f)
+        28,
+        nk_vec2(240.0f, 116.0f)
     );
     app->generation_class_index = dg_nuklear_clamp_int(app->generation_class_index, 0, 1);
     dg_nuklear_ensure_algorithm_matches_class(app);
@@ -2815,17 +2982,17 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         selected_filtered_index = 0;
     }
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_layout_row_dynamic(ctx, 19.0f, 1);
     nk_label(ctx, "Algorithm", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_layout_row_dynamic(ctx, 32.0f, 1);
     selected_filtered_index = nk_combo(
         ctx,
         algorithm_labels,
         filtered_count,
         selected_filtered_index,
-        24,
-        nk_vec2(280.0f, 160.0f)
+        28,
+        nk_vec2(300.0f, 200.0f)
     );
     if (selected_filtered_index < 0 || selected_filtered_index >= filtered_count) {
         selected_filtered_index = 0;
@@ -2848,16 +3015,20 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         );
     }
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Width", 8, &app->width, 512, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 8.0f, 1);
+    nk_label(ctx, "", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Height", 8, &app->height, 512, 1, 0.25f);
+    nk_layout_row_dynamic(ctx, 30.0f, 2);
+    nk_property_int(ctx, "Map Width", 8, &app->width, 512, 1, 0.25f);
+    nk_property_int(ctx, "Map Height", 8, &app->height, 512, 1, 0.25f);
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_layout_row_dynamic(ctx, 19.0f, 1);
     nk_label(ctx, "Seed", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    {
+        const float seed_cols[] = {0.70f, 0.30f};
+        nk_layout_row(ctx, NK_DYNAMIC, 30.0f, 2, seed_cols);
+    }
     (void)nk_edit_string_zero_terminated(
         ctx,
         NK_EDIT_FIELD,
@@ -2865,9 +3036,7 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         (int)sizeof(app->seed_text),
         nk_filter_decimal
     );
-
-    nk_layout_row_dynamic(ctx, 30.0f, 1);
-    if (nk_button_label(ctx, "Randomize Seed")) {
+    if (nk_button_label(ctx, "Randomize")) {
         dg_nuklear_randomize_seed(app);
     }
 }
@@ -3670,6 +3839,12 @@ static void dg_nuklear_draw_process_settings(
         return;
     }
 
+    dg_nuklear_draw_subsection_heading(
+        ctx,
+        "Post-Process Pipeline",
+        "Build your processing stack in order. Later steps operate on results of earlier ones."
+    );
+
     dg_nuklear_sanitize_process_settings(app);
     pending_remove_index = -1;
     pending_duplicate_index = -1;
@@ -3957,6 +4132,12 @@ static void dg_nuklear_draw_room_type_settings(
         return;
     }
 
+    dg_nuklear_draw_subsection_heading(
+        ctx,
+        "Room Type Assignment",
+        "Define reusable room categories with counts, constraints, and weighted preferences."
+    );
+
     nk_layout_row_dynamic(ctx, 24.0f, 1);
     app->room_types_enabled = nk_check_label(
         ctx,
@@ -4080,10 +4261,13 @@ static void dg_nuklear_draw_room_type_settings(
 
 static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "File Path", NK_TEXT_LEFT);
+    dg_nuklear_draw_subsection_heading(
+        ctx,
+        "File Path",
+        "Save and load generation configs (.dgmap), or export a standalone PNG + JSON."
+    );
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
     (void)nk_edit_string_zero_terminated(
         ctx,
         NK_EDIT_FIELD,
@@ -4092,13 +4276,15 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
         nk_filter_default
     );
 
-    nk_layout_row_dynamic(ctx, 32.0f, 3);
-    if (nk_button_label(ctx, "Save")) {
+    nk_layout_row_dynamic(ctx, 32.0f, 2);
+    if (nk_button_label(ctx, "Save Config")) {
         dg_nuklear_save_map(app);
     }
-    if (nk_button_label(ctx, "Load")) {
+    if (nk_button_label(ctx, "Load Config")) {
         dg_nuklear_load_map(app);
     }
+
+    nk_layout_row_dynamic(ctx, 34.0f, 1);
     if (nk_button_label(ctx, "Export PNG + JSON")) {
         dg_nuklear_export_map_png_json(app);
     }
@@ -4110,24 +4296,71 @@ static bool dg_nuklear_workflow_tab_button(
     int selected
 )
 {
-    char button_label[48];
-
     if (ctx == NULL || label == NULL) {
         return false;
     }
 
     if (selected) {
-        (void)snprintf(button_label, sizeof(button_label), "[%s]", label);
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.normal,
+            nk_style_item_color(nk_rgb(72, 110, 146))
+        );
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.hover,
+            nk_style_item_color(nk_rgb(83, 124, 164))
+        );
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.active,
+            nk_style_item_color(nk_rgb(94, 138, 182))
+        );
+        (void)nk_style_push_color(ctx, &ctx->style.button.border_color, nk_rgb(125, 162, 196));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_normal, nk_rgb(242, 247, 255));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_hover, nk_rgb(250, 252, 255));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_active, nk_rgb(255, 255, 255));
     } else {
-        (void)snprintf(button_label, sizeof(button_label), "%s", label);
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.normal,
+            nk_style_item_color(nk_rgb(39, 49, 62))
+        );
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.hover,
+            nk_style_item_color(nk_rgb(52, 65, 81))
+        );
+        (void)nk_style_push_style_item(
+            ctx,
+            &ctx->style.button.active,
+            nk_style_item_color(nk_rgb(63, 79, 98))
+        );
+        (void)nk_style_push_color(ctx, &ctx->style.button.border_color, nk_rgb(72, 89, 111));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_normal, nk_rgb(203, 213, 227));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_hover, nk_rgb(220, 229, 239));
+        (void)nk_style_push_color(ctx, &ctx->style.button.text_active, nk_rgb(234, 241, 248));
     }
+    (void)nk_style_push_float(ctx, &ctx->style.button.rounding, 8.0f);
 
-    return nk_button_label(ctx, button_label) != 0;
+    {
+        int clicked = nk_button_label(ctx, label);
+        (void)nk_style_pop_float(ctx);
+        (void)nk_style_pop_color(ctx);
+        (void)nk_style_pop_color(ctx);
+        (void)nk_style_pop_color(ctx);
+        (void)nk_style_pop_color(ctx);
+        (void)nk_style_pop_style_item(ctx);
+        (void)nk_style_pop_style_item(ctx);
+        (void)nk_style_pop_style_item(ctx);
+        return clicked != 0;
+    }
 }
 
 static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     dg_algorithm_t algorithm;
+    char context_line[192];
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -4140,7 +4373,18 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
     );
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
 
-    nk_layout_row_dynamic(ctx, 30.0f, 3);
+    (void)snprintf(
+        context_line,
+        sizeof(context_line),
+        "Current: %s (%s)",
+        dg_nuklear_algorithm_display_name(algorithm),
+        app->generation_class_index == 0 ? "Room-like" : "Cave-like"
+    );
+
+    nk_layout_row_dynamic(ctx, 18.0f, 1);
+    nk_label(ctx, context_line, NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 34.0f, 3);
     if (dg_nuklear_workflow_tab_button(
             ctx,
             "Layout",
@@ -4169,8 +4413,11 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
     if (app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_LAYOUT) {
         dg_nuklear_draw_generation_settings(ctx, app);
         algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
-        nk_layout_row_dynamic(ctx, 18.0f, 1);
-        nk_label(ctx, "Layout Parameters", NK_TEXT_LEFT);
+        dg_nuklear_draw_subsection_heading(
+            ctx,
+            "Layout Parameters",
+            "Tune algorithm-specific controls below."
+        );
 
         if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
             dg_nuklear_draw_drunkards_settings(ctx, app);
@@ -4210,7 +4457,9 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         nk_tree_pop(ctx);
     }
 
-    nk_layout_row_dynamic(ctx, 60.0f, 1);
+    nk_layout_row_dynamic(ctx, 18.0f, 1);
+    nk_label(ctx, "Status", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 56.0f, 1);
     nk_label_wrap(ctx, app->status_text);
 }
 
@@ -4293,6 +4542,8 @@ void dg_nuklear_app_draw(
     if (ctx == NULL || app == NULL || screen_width <= 0 || screen_height <= 0) {
         return;
     }
+
+    dg_nuklear_apply_theme(ctx);
 
     total_width = (float)screen_width - (margin * 2.0f);
     total_height = (float)screen_height - (margin * 2.0f);
