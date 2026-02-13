@@ -52,6 +52,8 @@ typedef struct dg_nuklear_app {
     float preview_zoom;
     float preview_center_x;
     float preview_center_y;
+    uint64_t last_live_config_hash;
+    int last_live_config_hash_valid;
     int room_types_enabled;
     int room_type_count;
     int room_type_strict_mode;

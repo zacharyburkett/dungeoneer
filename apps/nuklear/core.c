@@ -2,10 +2,12 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "nuklear_features.h"
 #include "nuklear.h"
@@ -41,6 +43,79 @@ static bool dg_nuklear_parse_u64(const char *text, uint64_t *out_value)
 
     *out_value = (uint64_t)parsed;
     return true;
+}
+
+static uint64_t dg_nuklear_hash_bytes(uint64_t hash, const void *data, size_t byte_count)
+{
+    const unsigned char *bytes;
+    size_t i;
+
+    if (data == NULL || byte_count == 0u) {
+        return hash;
+    }
+
+    bytes = (const unsigned char *)data;
+    for (i = 0; i < byte_count; ++i) {
+        hash ^= (uint64_t)bytes[i];
+        hash *= UINT64_C(1099511628211);
+    }
+
+    return hash;
+}
+
+static uint64_t dg_nuklear_hash_i32(uint64_t hash, int value)
+{
+    return dg_nuklear_hash_bytes(hash, &value, sizeof(value));
+}
+
+static uint64_t dg_nuklear_hash_u64(uint64_t hash, uint64_t value)
+{
+    return dg_nuklear_hash_bytes(hash, &value, sizeof(value));
+}
+
+static uint64_t dg_nuklear_hash_cstr(uint64_t hash, const char *value)
+{
+    if (value == NULL) {
+        return dg_nuklear_hash_i32(hash, 0);
+    }
+
+    return dg_nuklear_hash_bytes(hash, value, strlen(value));
+}
+
+static uint64_t dg_nuklear_mix_u64(uint64_t value)
+{
+    value ^= value >> 30;
+    value *= UINT64_C(0xbf58476d1ce4e5b9);
+    value ^= value >> 27;
+    value *= UINT64_C(0x94d049bb133111eb);
+    value ^= value >> 31;
+    if (value == 0u) {
+        value = 1u;
+    }
+    return value;
+}
+
+static uint64_t dg_nuklear_make_random_seed(const dg_nuklear_app_t *app)
+{
+    static uint64_t nonce = UINT64_C(0x1234a5b6c7d8e9f0);
+    uint64_t prior_seed;
+    uint64_t entropy;
+
+    prior_seed = 0u;
+    if (app != NULL) {
+        (void)dg_nuklear_parse_u64(app->seed_text, &prior_seed);
+    }
+
+    entropy = (uint64_t)(unsigned long long)time(NULL);
+    entropy ^= ((uint64_t)(unsigned long long)clock()) << 32;
+    entropy ^= prior_seed;
+    entropy ^= nonce;
+    if (app != NULL) {
+        entropy ^= (uint64_t)(uintptr_t)app;
+    }
+    nonce += UINT64_C(0x9e3779b97f4a7c15);
+
+    return dg_nuklear_mix_u64(entropy);
 }
 
 static const dg_algorithm_t DG_NUKLEAR_ALGORITHMS[] = {
@@ -920,6 +995,135 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     return true;
 }
 
+static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
+{
+    uint64_t hash;
+    uint64_t seed;
+    int seed_valid;
+    int room_types_active;
+    int i;
+
+    if (app == NULL) {
+        return UINT64_C(1469598103934665603);
+    }
+
+    hash = UINT64_C(1469598103934665603);
+    hash = dg_nuklear_hash_i32(hash, app->algorithm_index);
+    hash = dg_nuklear_hash_i32(hash, app->generation_class_index);
+    hash = dg_nuklear_hash_i32(hash, app->width);
+    hash = dg_nuklear_hash_i32(hash, app->height);
+
+    seed = 0u;
+    seed_valid = dg_nuklear_parse_u64(app->seed_text, &seed) ? 1 : 0;
+    hash = dg_nuklear_hash_i32(hash, seed_valid);
+    if (seed_valid != 0) {
+        hash = dg_nuklear_hash_u64(hash, seed);
+    } else {
+        hash = dg_nuklear_hash_cstr(hash, app->seed_text);
+    }
+
+    hash = dg_nuklear_hash_i32(hash, app->bsp_config.min_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->bsp_config.max_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->bsp_config.room_min_size);
+    hash = dg_nuklear_hash_i32(hash, app->bsp_config.room_max_size);
+
+    hash = dg_nuklear_hash_i32(hash, app->drunkards_walk_config.wiggle_percent);
+
+    hash = dg_nuklear_hash_i32(hash, app->cellular_automata_config.initial_wall_percent);
+    hash = dg_nuklear_hash_i32(hash, app->cellular_automata_config.simulation_steps);
+    hash = dg_nuklear_hash_i32(hash, app->cellular_automata_config.wall_threshold);
+
+    hash = dg_nuklear_hash_i32(hash, app->value_noise_config.feature_size);
+    hash = dg_nuklear_hash_i32(hash, app->value_noise_config.octaves);
+    hash = dg_nuklear_hash_i32(hash, app->value_noise_config.persistence_percent);
+    hash = dg_nuklear_hash_i32(hash, app->value_noise_config.floor_threshold_percent);
+
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.min_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.max_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.room_min_size);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.room_max_size);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.maze_wiggle_percent);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.min_room_connections);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.max_room_connections);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.ensure_full_connectivity);
+    hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.dead_end_prune_steps);
+
+    hash = dg_nuklear_hash_i32(hash, app->process_method_count);
+    for (i = 0; i < app->process_method_count; ++i) {
+        const dg_process_method_t *method = &app->process_methods[i];
+
+        hash = dg_nuklear_hash_i32(hash, (int)method->type);
+        switch (method->type) {
+        case DG_PROCESS_METHOD_SCALE:
+            hash = dg_nuklear_hash_i32(hash, method->params.scale.factor);
+            break;
+        case DG_PROCESS_METHOD_ROOM_SHAPE:
+            hash = dg_nuklear_hash_i32(hash, (int)method->params.room_shape.mode);
+            hash = dg_nuklear_hash_i32(hash, method->params.room_shape.organicity);
+            break;
+        case DG_PROCESS_METHOD_PATH_SMOOTH:
+            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.strength);
+            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.inner_enabled);
+            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.outer_enabled);
+            break;
+        default:
+            break;
+        }
+    }
+
+    room_types_active = app->room_types_enabled &&
+                        dg_nuklear_algorithm_supports_room_types(
+                            dg_nuklear_algorithm_from_index(app->algorithm_index)
+                        );
+    hash = dg_nuklear_hash_i32(hash, room_types_active);
+    if (room_types_active != 0) {
+        hash = dg_nuklear_hash_i32(hash, app->room_type_count);
+        hash = dg_nuklear_hash_i32(hash, app->room_type_strict_mode);
+        hash = dg_nuklear_hash_i32(hash, app->room_type_allow_untyped);
+        hash = dg_nuklear_hash_i32(hash, app->room_type_default_type_id);
+        for (i = 0; i < app->room_type_count; ++i) {
+            const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
+
+            hash = dg_nuklear_hash_i32(hash, slot->type_id);
+            hash = dg_nuklear_hash_i32(hash, slot->enabled);
+            hash = dg_nuklear_hash_i32(hash, slot->min_count);
+            hash = dg_nuklear_hash_i32(hash, slot->max_count);
+            hash = dg_nuklear_hash_i32(hash, slot->target_count);
+            hash = dg_nuklear_hash_i32(hash, slot->area_min);
+            hash = dg_nuklear_hash_i32(hash, slot->area_max);
+            hash = dg_nuklear_hash_i32(hash, slot->degree_min);
+            hash = dg_nuklear_hash_i32(hash, slot->degree_max);
+            hash = dg_nuklear_hash_i32(hash, slot->border_distance_min);
+            hash = dg_nuklear_hash_i32(hash, slot->border_distance_max);
+            hash = dg_nuklear_hash_i32(hash, slot->graph_depth_min);
+            hash = dg_nuklear_hash_i32(hash, slot->graph_depth_max);
+            hash = dg_nuklear_hash_i32(hash, slot->weight);
+            hash = dg_nuklear_hash_i32(hash, slot->larger_room_bias);
+            hash = dg_nuklear_hash_i32(hash, slot->higher_degree_bias);
+            hash = dg_nuklear_hash_i32(hash, slot->border_distance_bias);
+        }
+    }
+
+    return hash;
+}
+
+static void dg_nuklear_mark_live_config_clean(dg_nuklear_app_t *app)
+{
+    uint64_t seed;
+
+    if (app == NULL) {
+        return;
+    }
+
+    if (app->width < 8 || app->height < 8 || !dg_nuklear_parse_u64(app->seed_text, &seed)) {
+        app->last_live_config_hash_valid = 0;
+        return;
+    }
+
+    app->last_live_config_hash = dg_nuklear_compute_live_config_hash(app);
+    app->last_live_config_hash_valid = 1;
+}
+
 static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
@@ -1036,6 +1240,52 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
             dg_nuklear_algorithm_name(algorithm)
         );
     }
+
+    dg_nuklear_mark_live_config_clean(app);
+}
+
+static void dg_nuklear_randomize_seed(dg_nuklear_app_t *app)
+{
+    uint64_t seed;
+
+    if (app == NULL) {
+        return;
+    }
+
+    seed = dg_nuklear_make_random_seed(app);
+    (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)seed);
+    dg_nuklear_set_status(app, "Randomized seed: %llu", (unsigned long long)seed);
+}
+
+static void dg_nuklear_maybe_auto_generate(dg_nuklear_app_t *app)
+{
+    uint64_t seed;
+    uint64_t hash;
+
+    if (app == NULL) {
+        return;
+    }
+
+    dg_nuklear_sanitize_process_settings(app);
+    dg_nuklear_sanitize_room_type_settings(app);
+
+    if (app->width < 8 || app->height < 8 || !dg_nuklear_parse_u64(app->seed_text, &seed)) {
+        app->last_live_config_hash_valid = 0;
+        return;
+    }
+
+    hash = dg_nuklear_compute_live_config_hash(app);
+    if (app->last_live_config_hash_valid != 0 && hash == app->last_live_config_hash) {
+        return;
+    }
+
+    /*
+     * Mark this config as attempted before generation so invalid configs
+     * don't spam generate failures every frame.
+     */
+    app->last_live_config_hash = hash;
+    app->last_live_config_hash_valid = 1;
+    dg_nuklear_generate_map(app);
 }
 
 static void dg_nuklear_save_map(dg_nuklear_app_t *app)
@@ -1105,6 +1355,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
         } else {
             dg_nuklear_set_status(app, "Loaded map from %s (restored generation settings).", app->file_path);
         }
+        dg_nuklear_mark_live_config_clean(app);
     } else {
         dg_nuklear_reset_algorithm_defaults(
             app,
@@ -1114,6 +1365,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
         dg_nuklear_reset_process_defaults(app);
         dg_nuklear_reset_room_type_defaults(app);
         dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
+        dg_nuklear_mark_live_config_clean(app);
     }
 }
 
@@ -1147,7 +1399,7 @@ static void dg_nuklear_draw_map(
         }
     } else {
         nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, "No map loaded. Click Generate or Load.", NK_TEXT_LEFT);
+        nk_label(ctx, "No map loaded. Adjust settings, or load a file.", NK_TEXT_LEFT);
     }
 
     nk_layout_row_dynamic(ctx, suggested_height, 1);
@@ -1647,6 +1899,11 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
         (int)sizeof(app->seed_text),
         nk_filter_decimal
     );
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Randomize Seed")) {
+        dg_nuklear_randomize_seed(app);
+    }
 }
 
 static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
@@ -2434,15 +2691,6 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
 
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
 
-    nk_layout_row_dynamic(ctx, 34.0f, 2);
-    if (nk_button_label(ctx, "Generate")) {
-        dg_nuklear_generate_map(app);
-    }
-    if (nk_button_label(ctx, "Clear Map")) {
-        dg_nuklear_destroy_map(app);
-        dg_nuklear_set_status(app, "Cleared map.");
-    }
-
     if (nk_tree_push(ctx, NK_TREE_TAB, "Layout", NK_MAXIMIZED)) {
         dg_nuklear_draw_generation_settings(ctx, app);
         algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
@@ -2475,6 +2723,8 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         }
     }
 
+    dg_nuklear_maybe_auto_generate(app);
+
     if (nk_tree_push(ctx, NK_TREE_TAB, "Save / Load", NK_MINIMIZED)) {
         dg_nuklear_draw_save_load(ctx, app);
         nk_tree_pop(ctx);
@@ -2493,7 +2743,7 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     *app = (dg_nuklear_app_t){0};
     app->generation_class_index = 0;
     app->algorithm_index = 0;
-    app->width = 80;
+    app->width = 40;
     app->height = 40;
 
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);

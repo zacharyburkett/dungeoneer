@@ -695,7 +695,7 @@ void dg_default_process_method(dg_process_method_t *method, dg_process_method_ty
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         method->params.path_smooth.strength = 2;
         method->params.path_smooth.inner_enabled = 1;
-        method->params.path_smooth.outer_enabled = 0;
+        method->params.path_smooth.outer_enabled = 1;
         break;
     default:
         method->type = DG_PROCESS_METHOD_SCALE;
