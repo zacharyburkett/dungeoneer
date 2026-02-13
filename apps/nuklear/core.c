@@ -3049,11 +3049,14 @@ static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(ctx, "Max Rooms", 1, &app->bsp_config.max_rooms, 256, 1, 0.25f);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Room Min Size", 3, &app->bsp_config.room_min_size, 64, 1, 0.25f);
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(ctx, "Room Min Size", 3, &app->bsp_config.room_min_size, 64, 1, 0.25f);
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(ctx, "Room Max Size", 3, &app->bsp_config.room_max_size, 64, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(ctx, "Room Max Size", 3, &app->bsp_config.room_max_size, 64, 1, 0.25f);
+        nk_tree_pop(ctx);
+    }
 
     if (app->bsp_config.max_rooms < app->bsp_config.min_rooms) {
         app->bsp_config.max_rooms = app->bsp_config.min_rooms;
@@ -3081,39 +3084,6 @@ static void dg_nuklear_draw_room_graph_settings(struct nk_context *ctx, dg_nukle
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
-        "Room Min Size",
-        3,
-        &app->room_graph_config.room_min_size,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Room Max Size",
-        3,
-        &app->room_graph_config.room_max_size,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Neighbor Candidates",
-        1,
-        &app->room_graph_config.neighbor_candidates,
-        8,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
         "Extra Loops (%)",
         0,
         &app->room_graph_config.extra_connection_chance_percent,
@@ -3121,6 +3091,42 @@ static void dg_nuklear_draw_room_graph_settings(struct nk_context *ctx, dg_nukle
         1,
         0.25f
     );
+
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Room Min Size",
+            3,
+            &app->room_graph_config.room_min_size,
+            64,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Room Max Size",
+            3,
+            &app->room_graph_config.room_max_size,
+            64,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Neighbor Candidates",
+            1,
+            &app->room_graph_config.neighbor_candidates,
+            8,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
 
     if (app->room_graph_config.max_rooms < app->room_graph_config.min_rooms) {
         app->room_graph_config.max_rooms = app->room_graph_config.min_rooms;
@@ -3187,17 +3193,6 @@ static void dg_nuklear_draw_worm_caves_settings(struct nk_context *ctx, dg_nukle
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
-        "Branch Chance (%)",
-        0,
-        &app->worm_caves_config.branch_chance_percent,
-        100,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
         "Target Floor (%)",
         5,
         &app->worm_caves_config.target_floor_percent,
@@ -3206,34 +3201,48 @@ static void dg_nuklear_draw_worm_caves_settings(struct nk_context *ctx, dg_nukle
         0.25f
     );
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Brush Radius",
-        0,
-        &app->worm_caves_config.brush_radius,
-        3,
-        1,
-        0.25f
-    );
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Branch Chance (%)",
+            0,
+            &app->worm_caves_config.branch_chance_percent,
+            100,
+            1,
+            0.25f
+        );
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Max Steps/Worm",
-        8,
-        &app->worm_caves_config.max_steps_per_worm,
-        20000,
-        1,
-        0.25f
-    );
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Brush Radius",
+            0,
+            &app->worm_caves_config.brush_radius,
+            3,
+            1,
+            0.25f
+        );
 
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    app->worm_caves_config.ensure_connected = nk_check_label(
-        ctx,
-        "Ensure Connected Floor",
-        app->worm_caves_config.ensure_connected
-    );
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Max Steps/Worm",
+            8,
+            &app->worm_caves_config.max_steps_per_worm,
+            20000,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        app->worm_caves_config.ensure_connected = nk_check_label(
+            ctx,
+            "Ensure Connected Floor",
+            app->worm_caves_config.ensure_connected
+        );
+        nk_tree_pop(ctx);
+    }
     app->worm_caves_config.worm_count =
         dg_nuklear_clamp_int(app->worm_caves_config.worm_count, 1, 128);
     app->worm_caves_config.wiggle_percent =
@@ -3282,16 +3291,19 @@ static void dg_nuklear_draw_cellular_automata_settings(
         0.25f
     );
 
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Wall Threshold",
-        0,
-        &app->cellular_automata_config.wall_threshold,
-        8,
-        1,
-        0.25f
-    );
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Wall Threshold",
+            0,
+            &app->cellular_automata_config.wall_threshold,
+            8,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
 
     app->cellular_automata_config.initial_wall_percent =
         dg_nuklear_clamp_int(app->cellular_automata_config.initial_wall_percent, 0, 100);
@@ -3326,28 +3338,6 @@ static void dg_nuklear_draw_value_noise_settings(
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
-        "Octaves",
-        1,
-        &app->value_noise_config.octaves,
-        6,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Persistence (%)",
-        10,
-        &app->value_noise_config.persistence_percent,
-        90,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
         "Floor Threshold (%)",
         0,
         &app->value_noise_config.floor_threshold_percent,
@@ -3355,6 +3345,31 @@ static void dg_nuklear_draw_value_noise_settings(
         1,
         0.25f
     );
+
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Octaves",
+            1,
+            &app->value_noise_config.octaves,
+            6,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Persistence (%)",
+            10,
+            &app->value_noise_config.persistence_percent,
+            90,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
 
     app->value_noise_config.feature_size =
         dg_nuklear_clamp_int(app->value_noise_config.feature_size, 2, 64);
@@ -3391,28 +3406,6 @@ static void dg_nuklear_draw_simplex_noise_settings(
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
-        "Octaves",
-        1,
-        &app->simplex_noise_config.octaves,
-        8,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Persistence (%)",
-        10,
-        &app->simplex_noise_config.persistence_percent,
-        90,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
         "Floor Threshold (%)",
         0,
         &app->simplex_noise_config.floor_threshold_percent,
@@ -3421,12 +3414,37 @@ static void dg_nuklear_draw_simplex_noise_settings(
         0.25f
     );
 
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    app->simplex_noise_config.ensure_connected = nk_check_label(
-        ctx,
-        "Ensure Connected Floor",
-        app->simplex_noise_config.ensure_connected
-    );
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Octaves",
+            1,
+            &app->simplex_noise_config.octaves,
+            8,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Persistence (%)",
+            10,
+            &app->simplex_noise_config.persistence_percent,
+            90,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        app->simplex_noise_config.ensure_connected = nk_check_label(
+            ctx,
+            "Ensure Connected Floor",
+            app->simplex_noise_config.ensure_connected
+        );
+        nk_tree_pop(ctx);
+    }
     app->simplex_noise_config.feature_size =
         dg_nuklear_clamp_int(app->simplex_noise_config.feature_size, 2, 128);
     app->simplex_noise_config.octaves =
@@ -3475,63 +3493,12 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     nk_layout_row_dynamic(ctx, 28.0f, 1);
     nk_property_int(
         ctx,
-        "Room Min Size",
-        3,
-        &app->rooms_and_mazes_config.room_min_size,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Room Max Size",
-        3,
-        &app->rooms_and_mazes_config.room_max_size,
-        64,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
         "Maze Wiggle (%)",
         0,
         &app->rooms_and_mazes_config.maze_wiggle_percent,
         100,
         1,
         0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Min Connections",
-        1,
-        &app->rooms_and_mazes_config.min_room_connections,
-        16,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 28.0f, 1);
-    nk_property_int(
-        ctx,
-        "Max Connections",
-        1,
-        &app->rooms_and_mazes_config.max_room_connections,
-        16,
-        1,
-        0.25f
-    );
-
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    app->rooms_and_mazes_config.ensure_full_connectivity = nk_check_label(
-        ctx,
-        "Ensure Full Connectivity",
-        app->rooms_and_mazes_config.ensure_full_connectivity
     );
 
     nk_layout_row_dynamic(ctx, 28.0f, 1);
@@ -3544,6 +3511,60 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
         1,
         0.25f
     );
+
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Advanced", NK_MINIMIZED)) {
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Room Min Size",
+            3,
+            &app->rooms_and_mazes_config.room_min_size,
+            64,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Room Max Size",
+            3,
+            &app->rooms_and_mazes_config.room_max_size,
+            64,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Min Connections",
+            1,
+            &app->rooms_and_mazes_config.min_room_connections,
+            16,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
+        nk_property_int(
+            ctx,
+            "Max Connections",
+            1,
+            &app->rooms_and_mazes_config.max_room_connections,
+            16,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        app->rooms_and_mazes_config.ensure_full_connectivity = nk_check_label(
+            ctx,
+            "Ensure Full Connectivity",
+            app->rooms_and_mazes_config.ensure_full_connectivity
+        );
+        nk_tree_pop(ctx);
+    }
 
     if (app->rooms_and_mazes_config.max_rooms < app->rooms_and_mazes_config.min_rooms) {
         app->rooms_and_mazes_config.max_rooms = app->rooms_and_mazes_config.min_rooms;
@@ -3830,10 +3851,6 @@ static void dg_nuklear_draw_process_settings(
 )
 {
     int i;
-    int pending_remove_index;
-    int pending_duplicate_index;
-    int pending_move_index;
-    int pending_move_direction;
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -3846,10 +3863,6 @@ static void dg_nuklear_draw_process_settings(
     );
 
     dg_nuklear_sanitize_process_settings(app);
-    pending_remove_index = -1;
-    pending_duplicate_index = -1;
-    pending_move_index = -1;
-    pending_move_direction = 0;
 
     nk_layout_row_dynamic(ctx, 24.0f, 1);
     {
@@ -3919,12 +3932,15 @@ static void dg_nuklear_draw_process_settings(
         return;
     }
 
+    if (app->process_selected_index < 0 || app->process_selected_index >= app->process_method_count) {
+        app->process_selected_index = 0;
+    }
+
     nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Pipeline", NK_TEXT_LEFT);
+    nk_label(ctx, "Pipeline Steps", NK_TEXT_LEFT);
 
     for (i = 0; i < app->process_method_count; ++i) {
         dg_process_method_t *method = &app->process_methods[i];
-        const float row_cols[] = {0.54f, 0.11f, 0.11f, 0.12f, 0.12f};
         int is_selected = (i == app->process_selected_index);
         char row_label[220];
         char summary[128];
@@ -3940,68 +3956,61 @@ static void dg_nuklear_draw_process_settings(
             summary
         );
 
-        nk_layout_row(ctx, NK_DYNAMIC, 28.0f, 5, row_cols);
+        nk_layout_row_dynamic(ctx, 28.0f, 1);
         if (nk_button_label(ctx, row_label)) {
             app->process_selected_index = i;
         }
-        if (nk_button_label(ctx, "Up")) {
-            pending_move_index = i;
-            pending_move_direction = -1;
-        }
-        if (nk_button_label(ctx, "Dn")) {
-            pending_move_index = i;
-            pending_move_direction = 1;
-        }
-        if (nk_button_label(ctx, "Dup")) {
-            pending_duplicate_index = i;
-        }
-        if (nk_button_label(ctx, "X")) {
-            pending_remove_index = i;
-        }
     }
 
-    if (pending_remove_index >= 0) {
-        if (dg_nuklear_remove_process_method(app, pending_remove_index)) {
-            dg_nuklear_set_status(app, "Removed step %d.", pending_remove_index + 1);
+    nk_layout_row_dynamic(ctx, 8.0f, 1);
+    nk_label(ctx, "", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Selected Step Actions", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 30.0f, 4);
+    if (nk_button_label(ctx, "Move Up")) {
+        if (dg_nuklear_move_process_method(app, app->process_selected_index, -1)) {
+            dg_nuklear_set_status(
+                app,
+                "Moved step %d up.",
+                app->process_selected_index + 2
+            );
         }
         return;
     }
-    if (pending_duplicate_index >= 0) {
-        if (dg_nuklear_duplicate_process_method(app, pending_duplicate_index)) {
+    if (nk_button_label(ctx, "Move Down")) {
+        if (dg_nuklear_move_process_method(app, app->process_selected_index, 1)) {
+            dg_nuklear_set_status(
+                app,
+                "Moved step %d down.",
+                app->process_selected_index
+            );
+        }
+        return;
+    }
+    if (nk_button_label(ctx, "Duplicate")) {
+        if (dg_nuklear_duplicate_process_method(app, app->process_selected_index)) {
             dg_nuklear_set_status(
                 app,
                 "Duplicated step %d to step %d.",
-                pending_duplicate_index + 1,
-                pending_duplicate_index + 2
+                app->process_selected_index + 1,
+                app->process_selected_index + 2
             );
         } else {
             dg_nuklear_set_status(app, "Cannot duplicate step. Maximum reached.");
         }
         return;
     }
-    if (pending_move_index >= 0 && pending_move_direction != 0) {
-        if (dg_nuklear_move_process_method(app, pending_move_index, pending_move_direction)) {
-            dg_nuklear_set_status(
-                app,
-                "Moved step %d %s.",
-                pending_move_index + 1,
-                (pending_move_direction < 0) ? "up" : "down"
-            );
+    if (nk_button_label(ctx, "Remove")) {
+        if (dg_nuklear_remove_process_method(app, app->process_selected_index)) {
+            dg_nuklear_set_status(app, "Removed selected step.");
         }
         return;
     }
 
-    if (app->process_selected_index < 0 || app->process_selected_index >= app->process_method_count) {
-        app->process_selected_index = 0;
-    }
-
-    nk_layout_row_dynamic(ctx, 6.0f, 1);
-    nk_label(ctx, "", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Selected Step", NK_TEXT_LEFT);
-    {
+    if (nk_tree_push(ctx, NK_TREE_TAB, "Step Editor", NK_MAXIMIZED)) {
         dg_process_method_t *selected = &app->process_methods[app->process_selected_index];
         char step_title[120];
+
         (void)snprintf(
             step_title,
             sizeof(step_title),
@@ -4009,20 +4018,28 @@ static void dg_nuklear_draw_process_settings(
             app->process_selected_index + 1,
             dg_nuklear_process_method_label(selected->type)
         );
+
         nk_layout_row_dynamic(ctx, 22.0f, 1);
         nk_label(ctx, step_title, NK_TEXT_LEFT);
         dg_nuklear_draw_process_method_editor(ctx, app, algorithm, selected);
+        nk_tree_pop(ctx);
     }
 }
 
-static void dg_nuklear_draw_room_type_slot(struct nk_context *ctx, dg_nuklear_room_type_ui_t *slot)
+static void dg_nuklear_draw_room_type_slot(
+    struct nk_context *ctx,
+    dg_nuklear_room_type_ui_t *slot,
+    int slot_index
+)
 {
     struct nk_color preview_color;
 
-    if (ctx == NULL || slot == NULL) {
+    if (ctx == NULL || slot == NULL || slot_index < 0) {
         return;
     }
 
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Basics", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 24.0f, 1);
     slot->enabled = nk_check_label(ctx, "Enabled", slot->enabled);
 
@@ -4045,68 +4062,83 @@ static void dg_nuklear_draw_room_type_slot(struct nk_context *ctx, dg_nuklear_ro
     nk_label(ctx, "Color", NK_TEXT_LEFT);
     (void)nk_button_color(ctx, preview_color);
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Quotas", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Min Count", 0, &slot->min_count, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Max Count (-1=Any)", -1, &slot->max_count, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Target Count (-1=None)", -1, &slot->target_count, INT_MAX, 1, 0.25f);
+    if (nk_tree_push_id(ctx, NK_TREE_TAB, "Quotas", NK_MINIMIZED, 1000 + slot_index * 10 + 1)) {
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Min Count", 0, &slot->min_count, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Max Count (-1=Any)", -1, &slot->max_count, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Target Count (-1=None)", -1, &slot->target_count, INT_MAX, 1, 0.25f);
+        nk_tree_pop(ctx);
+    }
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Constraints", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Area Min", 0, &slot->area_min, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Area Max (-1=Any)", -1, &slot->area_max, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Degree Min", 0, &slot->degree_min, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Degree Max (-1=Any)", -1, &slot->degree_max, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Border Dist Min", 0, &slot->border_distance_min, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(
-        ctx,
-        "Border Dist Max (-1=Any)",
-        -1,
-        &slot->border_distance_max,
-        INT_MAX,
-        1,
-        0.25f
-    );
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Graph Depth Min", 0, &slot->graph_depth_min, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(
-        ctx,
-        "Graph Depth Max (-1=Any)",
-        -1,
-        &slot->graph_depth_max,
-        INT_MAX,
-        1,
-        0.25f
-    );
+    if (nk_tree_push_id(
+            ctx,
+            NK_TREE_TAB,
+            "Constraints",
+            NK_MINIMIZED,
+            1000 + slot_index * 10 + 2
+        )) {
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Area Min", 0, &slot->area_min, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Area Max (-1=Any)", -1, &slot->area_max, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Degree Min", 0, &slot->degree_min, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Degree Max (-1=Any)", -1, &slot->degree_max, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Border Dist Min", 0, &slot->border_distance_min, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(
+            ctx,
+            "Border Dist Max (-1=Any)",
+            -1,
+            &slot->border_distance_max,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Graph Depth Min", 0, &slot->graph_depth_min, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(
+            ctx,
+            "Graph Depth Max (-1=Any)",
+            -1,
+            &slot->graph_depth_max,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
 
-    nk_layout_row_dynamic(ctx, 20.0f, 1);
-    nk_label(ctx, "Preferences", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Weight", 0, &slot->weight, INT_MAX, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Larger Room Bias", -100, &slot->larger_room_bias, 100, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(ctx, "Higher Degree Bias", -100, &slot->higher_degree_bias, 100, 1, 0.25f);
-    nk_layout_row_dynamic(ctx, 24.0f, 1);
-    nk_property_int(
-        ctx,
-        "Border Distance Bias",
-        -100,
-        &slot->border_distance_bias,
-        100,
-        1,
-        0.25f
-    );
+    if (nk_tree_push_id(
+            ctx,
+            NK_TREE_TAB,
+            "Preferences",
+            NK_MINIMIZED,
+            1000 + slot_index * 10 + 3
+        )) {
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Weight", 0, &slot->weight, INT_MAX, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Larger Room Bias", -100, &slot->larger_room_bias, 100, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(ctx, "Higher Degree Bias", -100, &slot->higher_degree_bias, 100, 1, 0.25f);
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(
+            ctx,
+            "Border Distance Bias",
+            -100,
+            &slot->border_distance_bias,
+            100,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
 
     dg_nuklear_sanitize_room_type_slot(slot);
 }
@@ -4245,7 +4277,7 @@ static void dg_nuklear_draw_room_type_settings(
             }
             nk_label(ctx, " ", NK_TEXT_LEFT);
 
-            dg_nuklear_draw_room_type_slot(ctx, &app->room_type_slots[i]);
+            dg_nuklear_draw_room_type_slot(ctx, &app->room_type_slots[i], i);
             nk_tree_pop(ctx);
         }
     }
