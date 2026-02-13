@@ -1055,34 +1055,48 @@ static void dg_nuklear_draw_preview_grid_overlay(
     float origin_x_tiles,
     float origin_y_tiles,
     float scale,
-    float view_w_tiles,
-    float view_h_tiles,
     int map_width,
     int map_height
 )
 {
-    int grid_step;
     int x_first;
     int x_last;
     int y_first;
     int y_last;
     int x;
     int y;
+    float map_left;
+    float map_top;
+    float map_right;
+    float map_bottom;
+    float draw_left;
+    float draw_top;
+    float draw_right;
+    float draw_bottom;
     struct nk_color grid_color;
 
     if (canvas == NULL || scale <= 0.0f || map_width <= 0 || map_height <= 0) {
         return;
     }
 
-    grid_step = 1;
-    while (scale * (float)grid_step < 8.0f && grid_step < 1024) {
-        grid_step *= 2;
+    map_left = preview_content_bounds.x + (0.0f - origin_x_tiles) * scale;
+    map_top = preview_content_bounds.y + (0.0f - origin_y_tiles) * scale;
+    map_right = preview_content_bounds.x + ((float)map_width - origin_x_tiles) * scale;
+    map_bottom = preview_content_bounds.y + ((float)map_height - origin_y_tiles) * scale;
+
+    draw_left = dg_nuklear_max_float(preview_content_bounds.x, map_left);
+    draw_top = dg_nuklear_max_float(preview_content_bounds.y, map_top);
+    draw_right = dg_nuklear_min_float(preview_content_bounds.x + preview_content_bounds.w, map_right);
+    draw_bottom = dg_nuklear_min_float(preview_content_bounds.y + preview_content_bounds.h, map_bottom);
+
+    if (draw_right <= draw_left || draw_bottom <= draw_top) {
+        return;
     }
 
-    x_first = dg_nuklear_floor_to_int(origin_x_tiles / (float)grid_step) * grid_step;
-    x_last = dg_nuklear_ceil_to_int((origin_x_tiles + view_w_tiles) / (float)grid_step) * grid_step;
-    y_first = dg_nuklear_floor_to_int(origin_y_tiles / (float)grid_step) * grid_step;
-    y_last = dg_nuklear_ceil_to_int((origin_y_tiles + view_h_tiles) / (float)grid_step) * grid_step;
+    x_first = dg_nuklear_floor_to_int(origin_x_tiles);
+    x_last = dg_nuklear_ceil_to_int(origin_x_tiles + (preview_content_bounds.w / scale));
+    y_first = dg_nuklear_floor_to_int(origin_y_tiles);
+    y_last = dg_nuklear_ceil_to_int(origin_y_tiles + (preview_content_bounds.h / scale));
 
     if (x_first < 0) {
         x_first = 0;
@@ -1097,26 +1111,26 @@ static void dg_nuklear_draw_preview_grid_overlay(
         y_last = map_height;
     }
 
-    grid_color = (grid_step == 1) ? nk_rgba(255, 255, 255, 52) : nk_rgba(255, 255, 255, 38);
-    for (x = x_first; x <= x_last; x += grid_step) {
+    grid_color = nk_rgba(255, 255, 255, 52);
+    for (x = x_first; x <= x_last; ++x) {
         float screen_x = preview_content_bounds.x + ((float)x - origin_x_tiles) * scale;
         nk_stroke_line(
             canvas,
             screen_x,
-            preview_content_bounds.y,
+            draw_top,
             screen_x,
-            preview_content_bounds.y + preview_content_bounds.h,
+            draw_bottom,
             1.0f,
             grid_color
         );
     }
-    for (y = y_first; y <= y_last; y += grid_step) {
+    for (y = y_first; y <= y_last; ++y) {
         float screen_y = preview_content_bounds.y + ((float)y - origin_y_tiles) * scale;
         nk_stroke_line(
             canvas,
-            preview_content_bounds.x,
+            draw_left,
             screen_y,
-            preview_content_bounds.x + preview_content_bounds.w,
+            draw_right,
             screen_y,
             1.0f,
             grid_color
@@ -2061,8 +2075,6 @@ static void dg_nuklear_draw_map(
                     origin_x_tiles,
                     origin_y_tiles,
                     scale,
-                    view_w_tiles,
-                    view_h_tiles,
                     app->map.width,
                     app->map.height
                 );
