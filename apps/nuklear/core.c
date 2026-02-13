@@ -380,6 +380,7 @@ static void dg_nuklear_sanitize_process_settings(dg_nuklear_app_t *app)
     );
     app->process_add_method_type_index =
         dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 3);
+    app->process_enabled = app->process_enabled ? 1 : 0;
 
     for (i = 0; i < app->process_method_count; ++i) {
         dg_nuklear_sanitize_process_method(&app->process_methods[i]);
@@ -405,6 +406,7 @@ static void dg_nuklear_reset_process_defaults(dg_nuklear_app_t *app)
     app->process_method_count = 0;
     app->process_add_method_type_index = 0;
     app->process_selected_index = -1;
+    app->process_enabled = 1;
 }
 
 static bool dg_nuklear_append_process_method(
@@ -1442,6 +1444,7 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     app->height = snapshot->height;
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)snapshot->seed);
     dg_nuklear_reset_process_defaults(app);
+    app->process_enabled = snapshot->process.enabled ? 1 : 0;
     copy_count = snapshot->process.method_count;
     if (copy_count > (size_t)DG_NUKLEAR_MAX_PROCESS_METHODS) {
         copy_count = (size_t)DG_NUKLEAR_MAX_PROCESS_METHODS;
@@ -1612,31 +1615,34 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.ensure_full_connectivity);
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.dead_end_prune_steps);
 
-    hash = dg_nuklear_hash_i32(hash, app->process_method_count);
-    for (i = 0; i < app->process_method_count; ++i) {
-        const dg_process_method_t *method = &app->process_methods[i];
+    hash = dg_nuklear_hash_i32(hash, app->process_enabled);
+    if (app->process_enabled != 0) {
+        hash = dg_nuklear_hash_i32(hash, app->process_method_count);
+        for (i = 0; i < app->process_method_count; ++i) {
+            const dg_process_method_t *method = &app->process_methods[i];
 
-        hash = dg_nuklear_hash_i32(hash, (int)method->type);
-        switch (method->type) {
-        case DG_PROCESS_METHOD_SCALE:
-            hash = dg_nuklear_hash_i32(hash, method->params.scale.factor);
-            break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            hash = dg_nuklear_hash_i32(hash, (int)method->params.room_shape.mode);
-            hash = dg_nuklear_hash_i32(hash, method->params.room_shape.organicity);
-            break;
-        case DG_PROCESS_METHOD_PATH_SMOOTH:
-            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.strength);
-            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.inner_enabled);
-            hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.outer_enabled);
-            break;
-        case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
-            hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.strength);
-            hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.max_depth);
-            hash = dg_nuklear_hash_i32(hash, (int)method->params.corridor_roughen.mode);
-            break;
-        default:
-            break;
+            hash = dg_nuklear_hash_i32(hash, (int)method->type);
+            switch (method->type) {
+            case DG_PROCESS_METHOD_SCALE:
+                hash = dg_nuklear_hash_i32(hash, method->params.scale.factor);
+                break;
+            case DG_PROCESS_METHOD_ROOM_SHAPE:
+                hash = dg_nuklear_hash_i32(hash, (int)method->params.room_shape.mode);
+                hash = dg_nuklear_hash_i32(hash, method->params.room_shape.organicity);
+                break;
+            case DG_PROCESS_METHOD_PATH_SMOOTH:
+                hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.strength);
+                hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.inner_enabled);
+                hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.outer_enabled);
+                break;
+            case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+                hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.strength);
+                hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.max_depth);
+                hash = dg_nuklear_hash_i32(hash, (int)method->params.corridor_roughen.mode);
+                break;
+            default:
+                break;
+            }
         }
     }
 
@@ -1732,6 +1738,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     } else {
         request.params.bsp = app->bsp_config;
     }
+    request.process.enabled = app->process_enabled ? 1 : 0;
     request.process.methods = app->process_methods;
     request.process.method_count = (size_t)app->process_method_count;
 
@@ -3356,11 +3363,27 @@ static void dg_nuklear_draw_process_settings(
         (void)snprintf(
             line,
             sizeof(line),
-            "Pipeline Steps: %d / %d",
+            "Pipeline Steps: %d / %d (%s)",
             app->process_method_count,
-            DG_NUKLEAR_MAX_PROCESS_METHODS
+            DG_NUKLEAR_MAX_PROCESS_METHODS,
+            app->process_enabled ? "Enabled" : "Disabled"
         );
         nk_label(ctx, line, NK_TEXT_LEFT);
+    }
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->process_enabled = nk_check_label(
+        ctx,
+        "Enable Post-Processing",
+        app->process_enabled
+    );
+
+    if (!app->process_enabled) {
+        nk_layout_row_dynamic(ctx, 34.0f, 1);
+        nk_label_wrap(
+            ctx,
+            "Post-processing is currently bypassed. Layout and room changes preview without process steps."
+        );
     }
 
     nk_layout_row_dynamic(ctx, 28.0f, 3);
@@ -3387,7 +3410,9 @@ static void dg_nuklear_draw_process_settings(
         }
     }
     if (nk_button_label(ctx, "Clear All")) {
+        int keep_enabled = app->process_enabled ? 1 : 0;
         dg_nuklear_reset_process_defaults(app);
+        app->process_enabled = keep_enabled;
         dg_nuklear_set_status(app, "Cleared post-process pipeline.");
     }
 

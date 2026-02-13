@@ -161,6 +161,7 @@ typedef struct dg_snapshot_process_method {
 } dg_snapshot_process_method_t;
 
 typedef struct dg_snapshot_process_config {
+    int enabled;
     dg_snapshot_process_method_t *methods;
     size_t method_count;
 } dg_snapshot_process_config_t;

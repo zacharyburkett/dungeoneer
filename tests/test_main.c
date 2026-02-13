@@ -150,6 +150,7 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
         sa->height != sb->height ||
         sa->seed != sb->seed ||
         sa->algorithm_id != sb->algorithm_id ||
+        sa->process.enabled != sb->process.enabled ||
         sa->process.method_count != sb->process.method_count ||
         sa->room_types.definition_count != sb->room_types.definition_count ||
         sa->room_types.policy.strict_mode != sb->room_types.policy.strict_mode ||
@@ -1528,6 +1529,44 @@ static int test_post_process_scaling(void)
     return 0;
 }
 
+static int test_post_process_disabled_bypasses_pipeline(void)
+{
+    dg_generate_request_t base_request;
+    dg_generate_request_t disabled_request;
+    dg_map_t base_map = {0};
+    dg_map_t disabled_map = {0};
+    dg_process_method_t scaled_methods[1];
+
+    dg_default_generate_request(&base_request, DG_ALGORITHM_BSP_TREE, 72, 42, 123456u);
+    base_request.params.bsp.min_rooms = 8;
+    base_request.params.bsp.max_rooms = 10;
+    base_request.params.bsp.room_min_size = 4;
+    base_request.params.bsp.room_max_size = 9;
+
+    disabled_request = base_request;
+    dg_default_process_method(&scaled_methods[0], DG_PROCESS_METHOD_SCALE);
+    scaled_methods[0].params.scale.factor = 3;
+    disabled_request.process.enabled = 0;
+    disabled_request.process.methods = scaled_methods;
+    disabled_request.process.method_count = 1;
+
+    ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&disabled_request, &disabled_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&base_map, &disabled_map));
+    ASSERT_TRUE(disabled_map.metadata.diagnostics.process_step_count == 0);
+    ASSERT_TRUE(disabled_map.metadata.generation_request.process.enabled == 0);
+    ASSERT_TRUE(disabled_map.metadata.generation_request.process.method_count == 1);
+    ASSERT_TRUE(
+        disabled_map.metadata.generation_request.process.methods[0].type ==
+        (int)DG_PROCESS_METHOD_SCALE
+    );
+
+    dg_map_destroy(&base_map);
+    dg_map_destroy(&disabled_map);
+    return 0;
+}
+
 static int test_post_process_room_shape_changes_layout(void)
 {
     dg_generate_request_t rectangular_request;
@@ -2282,6 +2321,7 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->height == request.height);
     ASSERT_TRUE(snapshot->seed == request.seed);
     ASSERT_TRUE(snapshot->algorithm_id == (int)request.algorithm);
+    ASSERT_TRUE(snapshot->process.enabled == request.process.enabled);
     ASSERT_TRUE(snapshot->process.method_count == request.process.method_count);
     ASSERT_TRUE(snapshot->process.methods != NULL);
     ASSERT_TRUE(snapshot->process.methods[0].type == (int)DG_PROCESS_METHOD_ROOM_SHAPE);
@@ -2348,6 +2388,7 @@ static int test_generation_request_snapshot_populated_value_noise(void)
     snapshot = &map.metadata.generation_request;
     ASSERT_TRUE(snapshot->present == 1);
     ASSERT_TRUE(snapshot->algorithm_id == (int)DG_ALGORITHM_VALUE_NOISE);
+    ASSERT_TRUE(snapshot->process.enabled == request.process.enabled);
     ASSERT_TRUE(snapshot->params.value_noise.feature_size == request.params.value_noise.feature_size);
     ASSERT_TRUE(snapshot->params.value_noise.octaves == request.params.value_noise.octaves);
     ASSERT_TRUE(snapshot->params.value_noise.persistence_percent ==
@@ -2402,6 +2443,49 @@ static int test_map_serialization_roundtrip(void)
 
     ASSERT_TRUE(maps_have_same_tiles(&original, &loaded));
     ASSERT_TRUE(maps_have_same_metadata(&original, &loaded));
+
+    dg_map_destroy(&original);
+    dg_map_destroy(&loaded);
+    (void)remove(path);
+    return 0;
+}
+
+static int test_map_serialization_roundtrip_post_process_disabled(void)
+{
+    const char *path;
+    dg_generate_request_t request;
+    dg_map_t original = {0};
+    dg_map_t loaded = {0};
+    dg_process_method_t process_methods[2];
+
+    path = "dungeoneer_test_roundtrip_post_disabled.dgmap";
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6262u);
+    request.params.bsp.min_rooms = 9;
+    request.params.bsp.max_rooms = 12;
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_SCALE);
+    process_methods[0].params.scale.factor = 3;
+    dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_PATH_SMOOTH);
+    process_methods[1].params.path_smooth.strength = 2;
+    process_methods[1].params.path_smooth.inner_enabled = 1;
+    process_methods[1].params.path_smooth.outer_enabled = 1;
+    request.process.enabled = 0;
+    request.process.methods = process_methods;
+    request.process.method_count = 2;
+
+    ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
+    ASSERT_TRUE(original.metadata.generation_request.process.enabled == 0);
+    ASSERT_TRUE(original.metadata.generation_request.process.method_count == 2);
+    ASSERT_TRUE(original.metadata.diagnostics.process_step_count == 0);
+
+    ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_load_file(path, &loaded), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&original, &loaded));
+    ASSERT_TRUE(maps_have_same_metadata(&original, &loaded));
+    ASSERT_TRUE(loaded.metadata.generation_request.process.enabled == 0);
+    ASSERT_TRUE(loaded.metadata.generation_request.process.method_count == 2);
+    ASSERT_TRUE(loaded.metadata.diagnostics.process_step_count == 0);
 
     dg_map_destroy(&original);
     dg_map_destroy(&loaded);
@@ -2901,6 +2985,10 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.process.enabled = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     request.process.method_count = 1;
     request.process.methods = NULL;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
@@ -3089,6 +3177,7 @@ int main(void)
         {"rooms_and_mazes_pruned_has_no_room_nub_dead_ends",
          test_rooms_and_mazes_pruned_has_no_room_nub_dead_ends},
         {"post_process_scaling", test_post_process_scaling},
+        {"post_process_disabled_bypasses_pipeline", test_post_process_disabled_bypasses_pipeline},
         {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
         {"post_process_room_shape_no_effect_on_cave_layout",
          test_post_process_room_shape_no_effect_on_cave_layout},
@@ -3112,6 +3201,8 @@ int main(void)
         {"generation_request_snapshot_populated_value_noise",
          test_generation_request_snapshot_populated_value_noise},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
+        {"map_serialization_roundtrip_post_process_disabled",
+         test_map_serialization_roundtrip_post_process_disabled},
         {"map_serialization_roundtrip_value_noise",
          test_map_serialization_roundtrip_value_noise},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},

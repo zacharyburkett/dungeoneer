@@ -190,6 +190,11 @@ typedef struct dg_process_method {
 } dg_process_method_t;
 
 typedef struct dg_process_config {
+    /*
+     * 1 = apply configured process methods.
+     * 0 = skip post-processing while preserving method config.
+     */
+    int enabled;
     const dg_process_method_t *methods;
     size_t method_count;
 } dg_process_config_t;

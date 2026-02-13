@@ -302,6 +302,10 @@ static bool dg_snapshot_process_config_is_valid(const dg_snapshot_process_config
         return false;
     }
 
+    if (process->enabled != 0 && process->enabled != 1) {
+        return false;
+    }
+
     for (i = 0; i < process->method_count; ++i) {
         if (!dg_snapshot_process_method_is_valid(&process->methods[i])) {
             return false;
@@ -647,6 +651,11 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
     }
 
     status = dg_write_snapshot_algorithm_params(file, snapshot);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_write_i32(file, (int32_t)snapshot->process.enabled);
     if (status != DG_STATUS_OK) {
         return status;
     }
@@ -1007,6 +1016,12 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
     status = dg_read_snapshot_algorithm_params(file, snapshot);
     if (status != DG_STATUS_OK) {
         return status;
+    }
+
+    status = dg_read_i32(file, &value_i32);
+    if (status != DG_STATUS_OK ||
+        !dg_i32_to_int_checked(value_i32, &snapshot->process.enabled)) {
+        return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
     }
 
     status = dg_read_size(file, &snapshot->process.method_count);
@@ -1388,6 +1403,7 @@ static dg_status_t dg_build_request_from_snapshot(
     }
 
     request.process.methods = process_methods;
+    request.process.enabled = snapshot->process.enabled;
     request.process.method_count = snapshot->process.method_count;
 
     room_type_definitions = NULL;
@@ -2198,6 +2214,7 @@ static dg_status_t dg_export_write_json_generation_request(
     }
 
     if (fprintf(file, "    },\n") < 0 ||
+        fprintf(file, "    \"post_process_enabled\": %d,\n", snapshot->process.enabled) < 0 ||
         fprintf(file, "    \"process\": [\n") < 0) {
         return DG_STATUS_IO_ERROR;
     }

@@ -56,6 +56,7 @@ typedef struct dg_nuklear_app {
     dg_value_noise_config_t value_noise_config;
     dg_rooms_and_mazes_config_t rooms_and_mazes_config;
     dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
+    int process_enabled;
     int process_method_count;
     int process_add_method_type_index;
     int process_selected_index;

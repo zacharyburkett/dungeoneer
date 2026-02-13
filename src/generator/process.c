@@ -1160,7 +1160,7 @@ dg_status_t dg_apply_post_processes(
     }
 
     dg_clear_process_step_diagnostics(map);
-    if (request->process.method_count == 0) {
+    if (request->process.enabled == 0 || request->process.method_count == 0) {
         return DG_STATUS_OK;
     }
 

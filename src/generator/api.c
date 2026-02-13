@@ -294,6 +294,10 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (config->enabled != 0 && config->enabled != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     for (i = 0; i < config->method_count; ++i) {
         const dg_process_method_t *method = &config->methods[i];
 
@@ -494,6 +498,7 @@ static dg_status_t dg_snapshot_generation_request(
     snapshot.height = request->height;
     snapshot.seed = request->seed;
     snapshot.algorithm_id = (int)request->algorithm;
+    snapshot.process.enabled = request->process.enabled;
     snapshot.room_types.policy.strict_mode = request->room_types.policy.strict_mode;
     snapshot.room_types.policy.allow_untyped_rooms = request->room_types.policy.allow_untyped_rooms;
     snapshot.room_types.policy.default_type_id = request->room_types.policy.default_type_id;
@@ -739,6 +744,7 @@ void dg_default_process_config(dg_process_config_t *config)
         return;
     }
 
+    config->enabled = 1;
     config->methods = NULL;
     config->method_count = 0;
 }
