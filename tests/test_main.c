@@ -173,6 +173,26 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
             return false;
         }
         break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        if (sa->params.cellular_automata.initial_wall_percent !=
+                sb->params.cellular_automata.initial_wall_percent ||
+            sa->params.cellular_automata.simulation_steps !=
+                sb->params.cellular_automata.simulation_steps ||
+            sa->params.cellular_automata.wall_threshold !=
+                sb->params.cellular_automata.wall_threshold) {
+            return false;
+        }
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        if (sa->params.value_noise.feature_size != sb->params.value_noise.feature_size ||
+            sa->params.value_noise.octaves != sb->params.value_noise.octaves ||
+            sa->params.value_noise.persistence_percent !=
+                sb->params.value_noise.persistence_percent ||
+            sa->params.value_noise.floor_threshold_percent !=
+                sb->params.value_noise.floor_threshold_percent) {
+            return false;
+        }
+        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         if (sa->params.rooms_and_mazes.min_rooms != sb->params.rooms_and_mazes.min_rooms ||
             sa->params.rooms_and_mazes.max_rooms != sb->params.rooms_and_mazes.max_rooms ||
@@ -969,6 +989,189 @@ static int test_drunkards_wiggle_affects_layout(void)
 
         dg_map_destroy(&low);
         dg_map_destroy(&high);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_cellular_automata_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 96, 54, 9876u);
+    request.params.cellular_automata.initial_wall_percent = 45;
+    request.params.cellular_automata.simulation_steps = 5;
+    request.params.cellular_automata.wall_threshold = 5;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_CELLULAR_AUTOMATA);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE);
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_cellular_automata_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 88, 48, 3333u);
+    request.params.cellular_automata.initial_wall_percent = 49;
+    request.params.cellular_automata.simulation_steps = 4;
+    request.params.cellular_automata.wall_threshold = 5;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_cellular_automata_threshold_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 6100u; seed < 6180u; ++seed) {
+        dg_generate_request_t low_threshold;
+        dg_generate_request_t high_threshold;
+        dg_map_t low = {0};
+        dg_map_t high = {0};
+
+        dg_default_generate_request(&low_threshold, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 44, seed);
+        low_threshold.params.cellular_automata.initial_wall_percent = 45;
+        low_threshold.params.cellular_automata.simulation_steps = 5;
+        low_threshold.params.cellular_automata.wall_threshold = 4;
+
+        high_threshold = low_threshold;
+        high_threshold.params.cellular_automata.wall_threshold = 6;
+
+        ASSERT_STATUS(dg_generate(&low_threshold, &low), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&high_threshold, &high), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&low, &high)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&low);
+        dg_map_destroy(&high);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_value_noise_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 96, 54, 2468u);
+    request.params.value_noise.feature_size = 11;
+    request.params.value_noise.octaves = 3;
+    request.params.value_noise.persistence_percent = 55;
+    request.params.value_noise.floor_threshold_percent = 47;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_VALUE_NOISE);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE);
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_value_noise_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 88, 48, 13579u);
+    request.params.value_noise.feature_size = 10;
+    request.params.value_noise.octaves = 4;
+    request.params.value_noise.persistence_percent = 60;
+    request.params.value_noise.floor_threshold_percent = 50;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_value_noise_threshold_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 7200u; seed < 7280u; ++seed) {
+        dg_generate_request_t open_request;
+        dg_generate_request_t tight_request;
+        dg_map_t open_map = {0};
+        dg_map_t tight_map = {0};
+
+        dg_default_generate_request(&open_request, DG_ALGORITHM_VALUE_NOISE, 88, 48, seed);
+        open_request.params.value_noise.feature_size = 12;
+        open_request.params.value_noise.octaves = 3;
+        open_request.params.value_noise.persistence_percent = 55;
+        open_request.params.value_noise.floor_threshold_percent = 40;
+
+        tight_request = open_request;
+        tight_request.params.value_noise.floor_threshold_percent = 58;
+
+        ASSERT_STATUS(dg_generate(&open_request, &open_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&tight_request, &tight_map), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&open_map, &tight_map)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&open_map);
+        dg_map_destroy(&tight_map);
 
         if (found_difference) {
             break;
@@ -1802,6 +2005,34 @@ static int test_generation_request_snapshot_populated(void)
     return 0;
 }
 
+static int test_generation_request_snapshot_populated_value_noise(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    const dg_generation_request_snapshot_t *snapshot;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 84, 52, 454545u);
+    request.params.value_noise.feature_size = 9;
+    request.params.value_noise.octaves = 4;
+    request.params.value_noise.persistence_percent = 58;
+    request.params.value_noise.floor_threshold_percent = 44;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    snapshot = &map.metadata.generation_request;
+    ASSERT_TRUE(snapshot->present == 1);
+    ASSERT_TRUE(snapshot->algorithm_id == (int)DG_ALGORITHM_VALUE_NOISE);
+    ASSERT_TRUE(snapshot->params.value_noise.feature_size == request.params.value_noise.feature_size);
+    ASSERT_TRUE(snapshot->params.value_noise.octaves == request.params.value_noise.octaves);
+    ASSERT_TRUE(snapshot->params.value_noise.persistence_percent ==
+                request.params.value_noise.persistence_percent);
+    ASSERT_TRUE(snapshot->params.value_noise.floor_threshold_percent ==
+                request.params.value_noise.floor_threshold_percent);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
 static int test_map_serialization_roundtrip(void)
 {
     const char *path;
@@ -1834,6 +2065,39 @@ static int test_map_serialization_roundtrip(void)
     request.room_types.definitions = definitions;
     request.room_types.definition_count = 2;
     request.room_types.policy.strict_mode = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_load_file(path, &loaded), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&original, &loaded));
+    ASSERT_TRUE(maps_have_same_metadata(&original, &loaded));
+
+    dg_map_destroy(&original);
+    dg_map_destroy(&loaded);
+    (void)remove(path);
+    return 0;
+}
+
+static int test_map_serialization_roundtrip_value_noise(void)
+{
+    const char *path;
+    dg_generate_request_t request;
+    dg_map_t original = {0};
+    dg_map_t loaded = {0};
+    dg_process_method_t process_methods[1];
+
+    path = "dungeoneer_test_roundtrip_value_noise.dgmap";
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 88, 48, 6161u);
+    request.params.value_noise.feature_size = 11;
+    request.params.value_noise.octaves = 4;
+    request.params.value_noise.persistence_percent = 60;
+    request.params.value_noise.floor_threshold_percent = 46;
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_SCALE);
+    process_methods[0].params.scale.factor = 2;
+    request.process.methods = process_methods;
+    request.process.method_count = 1;
 
     ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
     ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
@@ -2050,6 +2314,62 @@ static int test_invalid_generate_request(void)
     request.params.drunkards_walk.wiggle_percent = 101;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.initial_wall_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.initial_wall_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.simulation_steps = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.simulation_steps = 13;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.wall_threshold = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_CELLULAR_AUTOMATA, 80, 48, 1u);
+    request.params.cellular_automata.wall_threshold = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.feature_size = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.feature_size = 65;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.octaves = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.octaves = 7;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.persistence_percent = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.persistence_percent = 91;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.floor_threshold_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_VALUE_NOISE, 80, 48, 1u);
+    request.params.value_noise.floor_threshold_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 80, 48, 1u);
     request.params.rooms_and_mazes.min_rooms = 0;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
@@ -2236,6 +2556,13 @@ int main(void)
         {"drunkards_walk_generation", test_drunkards_walk_generation},
         {"drunkards_walk_determinism", test_drunkards_walk_determinism},
         {"drunkards_wiggle_affects_layout", test_drunkards_wiggle_affects_layout},
+        {"cellular_automata_generation", test_cellular_automata_generation},
+        {"cellular_automata_determinism", test_cellular_automata_determinism},
+        {"cellular_automata_threshold_affects_layout",
+         test_cellular_automata_threshold_affects_layout},
+        {"value_noise_generation", test_value_noise_generation},
+        {"value_noise_determinism", test_value_noise_determinism},
+        {"value_noise_threshold_affects_layout", test_value_noise_threshold_affects_layout},
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},
@@ -2255,7 +2582,11 @@ int main(void)
          test_post_process_path_smoothing_skips_room_connected_ends},
         {"generation_diagnostics_populated", test_generation_diagnostics_populated},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
+        {"generation_request_snapshot_populated_value_noise",
+         test_generation_request_snapshot_populated_value_noise},
         {"map_serialization_roundtrip", test_map_serialization_roundtrip},
+        {"map_serialization_roundtrip_value_noise",
+         test_map_serialization_roundtrip_value_noise},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
         {"room_type_config_scaffold", test_room_type_config_scaffold},
         {"room_type_assignment_determinism", test_room_type_assignment_determinism},

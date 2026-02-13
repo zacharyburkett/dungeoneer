@@ -11,7 +11,9 @@ extern "C" {
 typedef enum dg_algorithm {
     DG_ALGORITHM_BSP_TREE = 0,
     DG_ALGORITHM_DRUNKARDS_WALK = 1,
-    DG_ALGORITHM_ROOMS_AND_MAZES = 2
+    DG_ALGORITHM_ROOMS_AND_MAZES = 2,
+    DG_ALGORITHM_CELLULAR_AUTOMATA = 3,
+    DG_ALGORITHM_VALUE_NOISE = 4
 } dg_algorithm_t;
 
 typedef struct dg_bsp_config {
@@ -28,6 +30,44 @@ typedef struct dg_drunkards_walk_config {
      */
     int wiggle_percent;
 } dg_drunkards_walk_config_t;
+
+typedef struct dg_cellular_automata_config {
+    /*
+     * Initial random fill density for walls (0..100).
+     * Higher values create tighter, denser caves.
+     */
+    int initial_wall_percent;
+    /*
+     * Number of smoothing iterations (1..12).
+     */
+    int simulation_steps;
+    /*
+     * For each cell, if neighboring wall count (8-neighborhood) is >= threshold
+     * the cell becomes/stays wall; otherwise floor. Range: 0..8.
+     */
+    int wall_threshold;
+} dg_cellular_automata_config_t;
+
+typedef struct dg_value_noise_config {
+    /*
+     * Base lattice spacing in tiles (2..64).
+     * Higher values create larger cave features.
+     */
+    int feature_size;
+    /*
+     * Number of fractal octaves (1..6).
+     */
+    int octaves;
+    /*
+     * Amplitude decay between octaves (10..90).
+     */
+    int persistence_percent;
+    /*
+     * Threshold (0..100) to classify floor from normalized noise.
+     * Lower values produce more open caves.
+     */
+    int floor_threshold_percent;
+} dg_value_noise_config_t;
 
 typedef struct dg_rooms_and_mazes_config {
     int min_rooms;
@@ -192,6 +232,8 @@ typedef struct dg_generate_request {
     union {
         dg_bsp_config_t bsp;
         dg_drunkards_walk_config_t drunkards_walk;
+        dg_cellular_automata_config_t cellular_automata;
+        dg_value_noise_config_t value_noise;
         dg_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
     dg_process_config_t process;
@@ -200,6 +242,8 @@ typedef struct dg_generate_request {
 
 void dg_default_bsp_config(dg_bsp_config_t *config);
 void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
+void dg_default_cellular_automata_config(dg_cellular_automata_config_t *config);
+void dg_default_value_noise_config(dg_value_noise_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
 void dg_default_process_method(dg_process_method_t *method, dg_process_method_type_t type);
 void dg_default_process_config(dg_process_config_t *config);

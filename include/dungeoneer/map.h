@@ -64,6 +64,19 @@ typedef struct dg_snapshot_drunkards_walk_config {
     int wiggle_percent;
 } dg_snapshot_drunkards_walk_config_t;
 
+typedef struct dg_snapshot_cellular_automata_config {
+    int initial_wall_percent;
+    int simulation_steps;
+    int wall_threshold;
+} dg_snapshot_cellular_automata_config_t;
+
+typedef struct dg_snapshot_value_noise_config {
+    int feature_size;
+    int octaves;
+    int persistence_percent;
+    int floor_threshold_percent;
+} dg_snapshot_value_noise_config_t;
+
 typedef struct dg_snapshot_rooms_and_mazes_config {
     int min_rooms;
     int max_rooms;
@@ -154,6 +167,8 @@ typedef struct dg_generation_request_snapshot {
     union {
         dg_snapshot_bsp_config_t bsp;
         dg_snapshot_drunkards_walk_config_t drunkards_walk;
+        dg_snapshot_cellular_automata_config_t cellular_automata;
+        dg_snapshot_value_noise_config_t value_noise;
         dg_snapshot_rooms_and_mazes_config_t rooms_and_mazes;
     } params;
     dg_snapshot_process_config_t process;

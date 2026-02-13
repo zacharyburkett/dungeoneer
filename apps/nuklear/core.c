@@ -43,33 +43,61 @@ static bool dg_nuklear_parse_u64(const char *text, uint64_t *out_value)
     return true;
 }
 
+static const dg_algorithm_t DG_NUKLEAR_ALGORITHMS[] = {
+    DG_ALGORITHM_BSP_TREE,
+    DG_ALGORITHM_ROOMS_AND_MAZES,
+    DG_ALGORITHM_DRUNKARDS_WALK,
+    DG_ALGORITHM_CELLULAR_AUTOMATA,
+    DG_ALGORITHM_VALUE_NOISE
+};
+
+#define DG_NUKLEAR_ALGORITHM_COUNT \
+    ((int)(sizeof(DG_NUKLEAR_ALGORITHMS) / sizeof(DG_NUKLEAR_ALGORITHMS[0])))
+
+static dg_map_generation_class_t dg_nuklear_generation_class_from_index(int class_index)
+{
+    if (class_index == 1) {
+        return DG_MAP_GENERATION_CLASS_CAVE_LIKE;
+    }
+    return DG_MAP_GENERATION_CLASS_ROOM_LIKE;
+}
+
+static int dg_nuklear_generation_class_index_from_class(dg_map_generation_class_t generation_class)
+{
+    if (generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE) {
+        return 1;
+    }
+    return 0;
+}
+
 static dg_algorithm_t dg_nuklear_algorithm_from_index(int algorithm_index)
 {
-    if (algorithm_index == 2) {
-        return DG_ALGORITHM_ROOMS_AND_MAZES;
+    if (algorithm_index < 0 || algorithm_index >= DG_NUKLEAR_ALGORITHM_COUNT) {
+        return DG_NUKLEAR_ALGORITHMS[0];
     }
-    if (algorithm_index == 1) {
-        return DG_ALGORITHM_DRUNKARDS_WALK;
-    }
-    return DG_ALGORITHM_BSP_TREE;
+    return DG_NUKLEAR_ALGORITHMS[algorithm_index];
 }
 
 static int dg_nuklear_algorithm_index_from_id(int algorithm_id)
 {
-    switch ((dg_algorithm_t)algorithm_id) {
-    case DG_ALGORITHM_ROOMS_AND_MAZES:
-        return 2;
-    case DG_ALGORITHM_DRUNKARDS_WALK:
-        return 1;
-    case DG_ALGORITHM_BSP_TREE:
-    default:
-        return 0;
+    int i;
+
+    for (i = 0; i < DG_NUKLEAR_ALGORITHM_COUNT; ++i) {
+        if ((int)DG_NUKLEAR_ALGORITHMS[i] == algorithm_id) {
+            return i;
+        }
     }
+
+    return 0;
 }
 
 static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
 {
     switch (algorithm) {
+    case DG_ALGORITHM_VALUE_NOISE:
+        return "value_noise";
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        return "cellular_automata";
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         return "rooms_and_mazes";
     case DG_ALGORITHM_DRUNKARDS_WALK:
@@ -78,6 +106,36 @@ static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
     default:
         return "bsp_tree";
     }
+}
+
+static const char *dg_nuklear_algorithm_display_name(dg_algorithm_t algorithm)
+{
+    switch (algorithm) {
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        return "Rooms + Mazes";
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        return "Drunkard's Walk";
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        return "Cellular Automata";
+    case DG_ALGORITHM_VALUE_NOISE:
+        return "Value Noise";
+    case DG_ALGORITHM_BSP_TREE:
+    default:
+        return "BSP Tree";
+    }
+}
+
+static int dg_nuklear_first_algorithm_index_for_class(dg_map_generation_class_t generation_class)
+{
+    int i;
+
+    for (i = 0; i < DG_NUKLEAR_ALGORITHM_COUNT; ++i) {
+        if (dg_algorithm_generation_class(DG_NUKLEAR_ALGORITHMS[i]) == generation_class) {
+            return i;
+        }
+    }
+
+    return 0;
 }
 
 static int dg_nuklear_clamp_int(int value, int min_value, int max_value)
@@ -248,6 +306,37 @@ static bool dg_nuklear_move_process_method(dg_nuklear_app_t *app, int index, int
 static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
 {
     return algorithm == DG_ALGORITHM_BSP_TREE || algorithm == DG_ALGORITHM_ROOMS_AND_MAZES;
+}
+
+static void dg_nuklear_sync_generation_class_with_algorithm(dg_nuklear_app_t *app)
+{
+    dg_algorithm_t algorithm;
+    dg_map_generation_class_t generation_class;
+
+    if (app == NULL) {
+        return;
+    }
+
+    algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
+    generation_class = dg_algorithm_generation_class(algorithm);
+    app->generation_class_index =
+        dg_nuklear_generation_class_index_from_class(generation_class);
+}
+
+static void dg_nuklear_ensure_algorithm_matches_class(dg_nuklear_app_t *app)
+{
+    dg_algorithm_t algorithm;
+    dg_map_generation_class_t selected_class;
+
+    if (app == NULL) {
+        return;
+    }
+
+    algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
+    selected_class = dg_nuklear_generation_class_from_index(app->generation_class_index);
+    if (dg_algorithm_generation_class(algorithm) != selected_class) {
+        app->algorithm_index = dg_nuklear_first_algorithm_index_for_class(selected_class);
+    }
 }
 
 static float dg_nuklear_min_float(float a, float b)
@@ -662,6 +751,10 @@ static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algori
     dg_default_generate_request(&defaults, algorithm, app->width, app->height, 1u);
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         app->drunkards_walk_config = defaults.params.drunkards_walk;
+    } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
+        app->cellular_automata_config = defaults.params.cellular_automata;
+    } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
+        app->value_noise_config = defaults.params.value_noise;
     } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
         app->rooms_and_mazes_config = defaults.params.rooms_and_mazes;
     } else {
@@ -755,6 +848,22 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     case DG_ALGORITHM_DRUNKARDS_WALK:
         app->drunkards_walk_config.wiggle_percent = snapshot->params.drunkards_walk.wiggle_percent;
         break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        app->cellular_automata_config.initial_wall_percent =
+            snapshot->params.cellular_automata.initial_wall_percent;
+        app->cellular_automata_config.simulation_steps =
+            snapshot->params.cellular_automata.simulation_steps;
+        app->cellular_automata_config.wall_threshold =
+            snapshot->params.cellular_automata.wall_threshold;
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        app->value_noise_config.feature_size = snapshot->params.value_noise.feature_size;
+        app->value_noise_config.octaves = snapshot->params.value_noise.octaves;
+        app->value_noise_config.persistence_percent =
+            snapshot->params.value_noise.persistence_percent;
+        app->value_noise_config.floor_threshold_percent =
+            snapshot->params.value_noise.floor_threshold_percent;
+        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         app->rooms_and_mazes_config.min_rooms = snapshot->params.rooms_and_mazes.min_rooms;
         app->rooms_and_mazes_config.max_rooms = snapshot->params.rooms_and_mazes.max_rooms;
@@ -779,6 +888,8 @@ static bool dg_nuklear_apply_generation_request_snapshot(
         app->bsp_config.room_max_size = snapshot->params.bsp.room_max_size;
         break;
     }
+
+    dg_nuklear_sync_generation_class_with_algorithm(app);
 
     dg_nuklear_reset_room_type_defaults(app);
     app->room_types_enabled = snapshot->room_types.definition_count > 0 ? 1 : 0;
@@ -839,6 +950,10 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
+    } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
+        request.params.cellular_automata = app->cellular_automata_config;
+    } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
+        request.params.value_noise = app->value_noise_config;
     } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
         request.params.rooms_and_mazes = app->rooms_and_mazes_config;
     } else {
@@ -968,6 +1083,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
     dg_nuklear_reset_preview_camera(app);
 
     app->algorithm_index = dg_nuklear_algorithm_index_from_id(app->map.metadata.algorithm_id);
+    dg_nuklear_sync_generation_class_with_algorithm(app);
     app->width = app->map.width;
     app->height = app->map.height;
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "%llu", (unsigned long long)app->map.metadata.seed);
@@ -994,6 +1110,7 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
             app,
             dg_nuklear_algorithm_from_index(app->algorithm_index)
         );
+        dg_nuklear_sync_generation_class_with_algorithm(app);
         dg_nuklear_reset_process_defaults(app);
         dg_nuklear_reset_room_type_defaults(app);
         dg_nuklear_set_status(app, "Loaded map from %s", app->file_path);
@@ -1419,23 +1536,91 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    static const char *algorithms[] = {"BSP Tree", "Drunkard's Walk", "Rooms + Mazes"};
+    static const char *generation_classes[] = {"Room-like", "Cave-like"};
+    const char *algorithm_labels[DG_NUKLEAR_ALGORITHM_COUNT];
+    int algorithm_indices[DG_NUKLEAR_ALGORITHM_COUNT];
+    dg_map_generation_class_t selected_class;
     int previous_algorithm_index;
+    int previous_class_index;
+    int selected_filtered_index;
+    int filtered_count;
+    int i;
 
     previous_algorithm_index = app->algorithm_index;
+    previous_class_index = app->generation_class_index;
+
+    app->generation_class_index = dg_nuklear_clamp_int(app->generation_class_index, 0, 1);
+    app->algorithm_index = dg_nuklear_clamp_int(
+        app->algorithm_index,
+        0,
+        DG_NUKLEAR_ALGORITHM_COUNT - 1
+    );
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Generation Type", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    app->generation_class_index = nk_combo(
+        ctx,
+        generation_classes,
+        (int)(sizeof(generation_classes) / sizeof(generation_classes[0])),
+        app->generation_class_index,
+        8,
+        nk_vec2(220.0f, 80.0f)
+    );
+    app->generation_class_index = dg_nuklear_clamp_int(app->generation_class_index, 0, 1);
+    dg_nuklear_ensure_algorithm_matches_class(app);
+
+    selected_class = dg_nuklear_generation_class_from_index(app->generation_class_index);
+    filtered_count = 0;
+    selected_filtered_index = 0;
+    for (i = 0; i < DG_NUKLEAR_ALGORITHM_COUNT; ++i) {
+        dg_algorithm_t candidate = DG_NUKLEAR_ALGORITHMS[i];
+        if (dg_algorithm_generation_class(candidate) != selected_class) {
+            continue;
+        }
+
+        algorithm_labels[filtered_count] = dg_nuklear_algorithm_display_name(candidate);
+        algorithm_indices[filtered_count] = i;
+        if (i == app->algorithm_index) {
+            selected_filtered_index = filtered_count;
+        }
+        filtered_count += 1;
+    }
+
+    if (filtered_count == 0) {
+        app->algorithm_index = 0;
+        algorithm_labels[0] =
+            dg_nuklear_algorithm_display_name(dg_nuklear_algorithm_from_index(app->algorithm_index));
+        algorithm_indices[0] = app->algorithm_index;
+        filtered_count = 1;
+        selected_filtered_index = 0;
+    }
 
     nk_layout_row_dynamic(ctx, 20.0f, 1);
     nk_label(ctx, "Algorithm", NK_TEXT_LEFT);
 
     nk_layout_row_dynamic(ctx, 28.0f, 1);
-    app->algorithm_index = nk_combo(
+    selected_filtered_index = nk_combo(
         ctx,
-        algorithms,
-        (int)(sizeof(algorithms) / sizeof(algorithms[0])),
-        app->algorithm_index,
-        25,
+        algorithm_labels,
+        filtered_count,
+        selected_filtered_index,
+        10,
         nk_vec2(280, 120)
     );
+    if (selected_filtered_index < 0 || selected_filtered_index >= filtered_count) {
+        selected_filtered_index = 0;
+    }
+    app->algorithm_index = algorithm_indices[selected_filtered_index];
+
+    if (app->generation_class_index != previous_class_index) {
+        dg_nuklear_set_status(
+            app,
+            "Selected generation type: %s",
+            generation_classes[app->generation_class_index]
+        );
+    }
 
     if (app->algorithm_index != previous_algorithm_index) {
         dg_nuklear_set_status(
@@ -1510,6 +1695,123 @@ static void dg_nuklear_draw_drunkards_settings(struct nk_context *ctx, dg_nuklea
     if (nk_button_label(ctx, "Reset Drunkard Defaults")) {
         dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
         dg_nuklear_set_status(app, "Drunkard's Walk defaults restored.");
+    }
+}
+
+static void dg_nuklear_draw_cellular_automata_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app
+)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Initial Walls (%)",
+        0,
+        &app->cellular_automata_config.initial_wall_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Simulation Steps",
+        1,
+        &app->cellular_automata_config.simulation_steps,
+        12,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Wall Threshold",
+        0,
+        &app->cellular_automata_config.wall_threshold,
+        8,
+        1,
+        0.25f
+    );
+
+    app->cellular_automata_config.initial_wall_percent =
+        dg_nuklear_clamp_int(app->cellular_automata_config.initial_wall_percent, 0, 100);
+    app->cellular_automata_config.simulation_steps =
+        dg_nuklear_clamp_int(app->cellular_automata_config.simulation_steps, 1, 12);
+    app->cellular_automata_config.wall_threshold =
+        dg_nuklear_clamp_int(app->cellular_automata_config.wall_threshold, 0, 8);
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Cellular Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_CELLULAR_AUTOMATA);
+        dg_nuklear_set_status(app, "Cellular Automata defaults restored.");
+    }
+}
+
+static void dg_nuklear_draw_value_noise_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app
+)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Feature Size",
+        2,
+        &app->value_noise_config.feature_size,
+        64,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Octaves",
+        1,
+        &app->value_noise_config.octaves,
+        6,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Persistence (%)",
+        10,
+        &app->value_noise_config.persistence_percent,
+        90,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Floor Threshold (%)",
+        0,
+        &app->value_noise_config.floor_threshold_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    app->value_noise_config.feature_size =
+        dg_nuklear_clamp_int(app->value_noise_config.feature_size, 2, 64);
+    app->value_noise_config.octaves =
+        dg_nuklear_clamp_int(app->value_noise_config.octaves, 1, 6);
+    app->value_noise_config.persistence_percent =
+        dg_nuklear_clamp_int(app->value_noise_config.persistence_percent, 10, 90);
+    app->value_noise_config.floor_threshold_percent =
+        dg_nuklear_clamp_int(app->value_noise_config.floor_threshold_percent, 0, 100);
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Value Noise Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_VALUE_NOISE);
+        dg_nuklear_set_status(app, "Value Noise defaults restored.");
     }
 }
 
@@ -2143,11 +2445,16 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
 
     if (nk_tree_push(ctx, NK_TREE_TAB, "Layout", NK_MAXIMIZED)) {
         dg_nuklear_draw_generation_settings(ctx, app);
+        algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
         nk_layout_row_dynamic(ctx, 18.0f, 1);
         nk_label(ctx, "Layout Parameters", NK_TEXT_LEFT);
 
         if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
             dg_nuklear_draw_drunkards_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
+            dg_nuklear_draw_cellular_automata_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
+            dg_nuklear_draw_value_noise_settings(ctx, app);
         } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
             dg_nuklear_draw_rooms_and_mazes_settings(ctx, app);
         } else {
@@ -2182,16 +2489,20 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     }
 
     *app = (dg_nuklear_app_t){0};
+    app->generation_class_index = 0;
     app->algorithm_index = 0;
     app->width = 80;
     app->height = 40;
 
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_CELLULAR_AUTOMATA);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_VALUE_NOISE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
     dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);
     dg_nuklear_reset_preview_camera(app);
+    dg_nuklear_sync_generation_class_with_algorithm(app);
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");

@@ -189,6 +189,54 @@ static dg_status_t dg_validate_drunkards_walk_config(const dg_drunkards_walk_con
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_validate_cellular_automata_config(
+    const dg_cellular_automata_config_t *config
+)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->initial_wall_percent < 0 || config->initial_wall_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->simulation_steps < 1 || config->simulation_steps > 12) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->wall_threshold < 0 || config->wall_threshold > 8) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_validate_value_noise_config(const dg_value_noise_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->feature_size < 2 || config->feature_size > 64) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->octaves < 1 || config->octaves > 6) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->persistence_percent < 10 || config->persistence_percent > 90) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->floor_threshold_percent < 0 || config->floor_threshold_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
 static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_config_t *config)
 {
     if (config == NULL) {
@@ -436,6 +484,22 @@ static dg_status_t dg_snapshot_generation_request(
     case DG_ALGORITHM_DRUNKARDS_WALK:
         snapshot.params.drunkards_walk.wiggle_percent = request->params.drunkards_walk.wiggle_percent;
         break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        snapshot.params.cellular_automata.initial_wall_percent =
+            request->params.cellular_automata.initial_wall_percent;
+        snapshot.params.cellular_automata.simulation_steps =
+            request->params.cellular_automata.simulation_steps;
+        snapshot.params.cellular_automata.wall_threshold =
+            request->params.cellular_automata.wall_threshold;
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        snapshot.params.value_noise.feature_size = request->params.value_noise.feature_size;
+        snapshot.params.value_noise.octaves = request->params.value_noise.octaves;
+        snapshot.params.value_noise.persistence_percent =
+            request->params.value_noise.persistence_percent;
+        snapshot.params.value_noise.floor_threshold_percent =
+            request->params.value_noise.floor_threshold_percent;
+        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         snapshot.params.rooms_and_mazes.min_rooms = request->params.rooms_and_mazes.min_rooms;
         snapshot.params.rooms_and_mazes.max_rooms = request->params.rooms_and_mazes.max_rooms;
@@ -521,6 +585,29 @@ void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config)
     config->max_room_connections = 1;
     config->ensure_full_connectivity = 1;
     config->dead_end_prune_steps = -1;
+}
+
+void dg_default_cellular_automata_config(dg_cellular_automata_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->initial_wall_percent = 47;
+    config->simulation_steps = 5;
+    config->wall_threshold = 5;
+}
+
+void dg_default_value_noise_config(dg_value_noise_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->feature_size = 12;
+    config->octaves = 3;
+    config->persistence_percent = 55;
+    config->floor_threshold_percent = 48;
 }
 
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints)
@@ -648,6 +735,12 @@ void dg_default_generate_request(
     dg_default_room_type_assignment_config(&request->room_types);
 
     switch (algorithm) {
+    case DG_ALGORITHM_VALUE_NOISE:
+        dg_default_value_noise_config(&request->params.value_noise);
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        dg_default_cellular_automata_config(&request->params.cellular_automata);
+        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         dg_default_rooms_and_mazes_config(&request->params.rooms_and_mazes);
         break;
@@ -668,6 +761,8 @@ dg_map_generation_class_t dg_algorithm_generation_class(dg_algorithm_t algorithm
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         return DG_MAP_GENERATION_CLASS_ROOM_LIKE;
     case DG_ALGORITHM_DRUNKARDS_WALK:
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+    case DG_ALGORITHM_VALUE_NOISE:
         return DG_MAP_GENERATION_CLASS_CAVE_LIKE;
     default:
         return DG_MAP_GENERATION_CLASS_UNKNOWN;
@@ -723,6 +818,12 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     case DG_ALGORITHM_DRUNKARDS_WALK:
         status = dg_validate_drunkards_walk_config(&request->params.drunkards_walk);
         break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        status = dg_validate_cellular_automata_config(&request->params.cellular_automata);
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        status = dg_validate_value_noise_config(&request->params.value_noise);
+        break;
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -753,6 +854,12 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         status = dg_generate_drunkards_walk_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        status = dg_generate_cellular_automata_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        status = dg_generate_value_noise_impl(request, &generated, &rng);
         break;
     default:
         status = DG_STATUS_INVALID_ARGUMENT;

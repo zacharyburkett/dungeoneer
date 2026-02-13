@@ -229,7 +229,9 @@ static bool dg_algorithm_id_value_is_valid(int32_t value)
 {
     return value == (int32_t)DG_ALGORITHM_BSP_TREE ||
            value == (int32_t)DG_ALGORITHM_DRUNKARDS_WALK ||
-           value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES;
+           value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES ||
+           value == (int32_t)DG_ALGORITHM_CELLULAR_AUTOMATA ||
+           value == (int32_t)DG_ALGORITHM_VALUE_NOISE;
 }
 
 static void dg_snapshot_process_config_set_defaults(dg_snapshot_process_config_t *process)
@@ -808,6 +810,32 @@ static void dg_write_generation_request_params(
         break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         dg_io_writer_write_i32(writer, (int32_t)snapshot->params.drunkards_walk.wiggle_percent);
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.cellular_automata.initial_wall_percent
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.cellular_automata.simulation_steps
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.cellular_automata.wall_threshold
+        );
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.value_noise.feature_size);
+        dg_io_writer_write_i32(writer, (int32_t)snapshot->params.value_noise.octaves);
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.value_noise.persistence_percent
+        );
+        dg_io_writer_write_i32(
+            writer,
+            (int32_t)snapshot->params.value_noise.floor_threshold_percent
+        );
         break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         dg_io_writer_write_i32(writer, (int32_t)snapshot->params.rooms_and_mazes.min_rooms);
@@ -1414,6 +1442,17 @@ static dg_status_t dg_load_generation_request_params(
         break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         dg_io_reader_read_int(reader, &snapshot->params.drunkards_walk.wiggle_percent);
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.initial_wall_percent);
+        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.simulation_steps);
+        dg_io_reader_read_int(reader, &snapshot->params.cellular_automata.wall_threshold);
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        dg_io_reader_read_int(reader, &snapshot->params.value_noise.feature_size);
+        dg_io_reader_read_int(reader, &snapshot->params.value_noise.octaves);
+        dg_io_reader_read_int(reader, &snapshot->params.value_noise.persistence_percent);
+        dg_io_reader_read_int(reader, &snapshot->params.value_noise.floor_threshold_percent);
         break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         dg_io_reader_read_int(reader, &snapshot->params.rooms_and_mazes.min_rooms);
