@@ -299,6 +299,8 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
     case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
         method->params.corridor_roughen.strength =
             dg_nuklear_clamp_int(method->params.corridor_roughen.strength, 0, 100);
+        method->params.corridor_roughen.max_depth =
+            dg_nuklear_clamp_int(method->params.corridor_roughen.max_depth, 1, 32);
         if (method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_UNIFORM &&
             method->params.corridor_roughen.mode != DG_CORRIDOR_ROUGHEN_ORGANIC) {
             method->params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
@@ -1369,6 +1371,8 @@ static bool dg_nuklear_apply_generation_request_snapshot(
         case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
             app->process_methods[i].params.corridor_roughen.strength =
                 snapshot->process.methods[i].params.corridor_roughen.strength;
+            app->process_methods[i].params.corridor_roughen.max_depth =
+                snapshot->process.methods[i].params.corridor_roughen.max_depth;
             app->process_methods[i].params.corridor_roughen.mode =
                 (dg_corridor_roughen_mode_t)snapshot->process.methods[i].params.corridor_roughen.mode;
             break;
@@ -1529,6 +1533,7 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
             break;
         case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
             hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.strength);
+            hash = dg_nuklear_hash_i32(hash, method->params.corridor_roughen.max_depth);
             hash = dg_nuklear_hash_i32(hash, (int)method->params.corridor_roughen.mode);
             break;
         default:
@@ -3030,6 +3035,17 @@ static void dg_nuklear_draw_process_settings(
                     0.25f
                 );
 
+                nk_layout_row_dynamic(ctx, 28.0f, 1);
+                nk_property_int(
+                    ctx,
+                    "Max Depth",
+                    1,
+                    &method->params.corridor_roughen.max_depth,
+                    32,
+                    1,
+                    0.25f
+                );
+
                 nk_layout_row_dynamic(ctx, 24.0f, 1);
                 nk_label(ctx, "Mode", NK_TEXT_LEFT);
                 nk_layout_row_dynamic(ctx, 28.0f, 1);
@@ -3047,7 +3063,7 @@ static void dg_nuklear_draw_process_settings(
                 nk_layout_row_dynamic(ctx, 36.0f, 1);
                 nk_label_wrap(
                     ctx,
-                    "Randomly digs wall tiles bordering corridors. Uniform mode uses independent random digs; Organic mode produces smoother, clumped edge variation."
+                    "Randomly digs wall tiles bordering corridors. Max Depth controls how far the roughening can expand from original corridor edges. Uniform mode uses independent random digs; Organic mode produces smoother, clumped edge variation."
                 );
             }
 

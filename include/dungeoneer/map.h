@@ -146,6 +146,7 @@ typedef struct dg_snapshot_process_path_smooth_config {
 
 typedef struct dg_snapshot_process_corridor_roughen_config {
     int strength;
+    int max_depth;
     int mode;
 } dg_snapshot_process_corridor_roughen_config_t;
 

@@ -154,6 +154,11 @@ typedef struct dg_process_corridor_roughen_config {
      */
     int strength;
     /*
+     * Maximum expansion depth from existing corridor edges (1..32).
+     * 1 keeps digging to a single ring of wall tiles.
+     */
+    int max_depth;
+    /*
      * Dig distribution mode:
      *   UNIFORM = independent random digs.
      *   ORGANIC = correlated/clumped digs for smoother, cave-like edges.

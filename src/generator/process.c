@@ -130,24 +130,27 @@ static bool dg_is_corridor_border_wall_candidate(const dg_map_t *map, int x, int
     return false;
 }
 
-static dg_status_t dg_apply_corridor_roughen(
+static dg_status_t dg_apply_corridor_roughen_pass(
     dg_map_t *map,
     int strength,
     dg_corridor_roughen_mode_t mode,
-    dg_rng_t *rng
+    dg_rng_t *rng,
+    size_t *out_carved_count
 )
 {
     unsigned char *candidate_mask;
     unsigned char *random_field;
+    size_t carved_count;
     size_t candidate_count;
     size_t cell_count;
     int x;
     int y;
 
-    if (map == NULL || map->tiles == NULL || rng == NULL) {
+    if (map == NULL || map->tiles == NULL || rng == NULL || out_carved_count == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    *out_carved_count = 0;
     if (strength < 0 || strength > 100) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -160,6 +163,7 @@ static dg_status_t dg_apply_corridor_roughen(
         return DG_STATUS_OK;
     }
 
+    carved_count = 0;
     cell_count = (size_t)map->width * (size_t)map->height;
     candidate_mask = (unsigned char *)calloc(cell_count, sizeof(unsigned char));
     if (candidate_mask == NULL) {
@@ -197,11 +201,13 @@ static dg_status_t dg_apply_corridor_roughen(
 
                 if (dg_rng_range(rng, 0, 99) < strength) {
                     map->tiles[index] = DG_TILE_FLOOR;
+                    carved_count += 1;
                 }
             }
         }
 
         free(candidate_mask);
+        *out_carved_count = carved_count;
         return DG_STATUS_OK;
     }
 
@@ -280,12 +286,54 @@ static dg_status_t dg_apply_corridor_roughen(
 
             if (averaged <= threshold) {
                 map->tiles[index] = DG_TILE_FLOOR;
+                carved_count += 1;
             }
         }
     }
 
     free(random_field);
     free(candidate_mask);
+    *out_carved_count = carved_count;
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_apply_corridor_roughen(
+    dg_map_t *map,
+    int strength,
+    int max_depth,
+    dg_corridor_roughen_mode_t mode,
+    dg_rng_t *rng
+)
+{
+    int depth;
+
+    if (map == NULL || map->tiles == NULL || rng == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (max_depth < 1 || max_depth > 32) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (depth = 0; depth < max_depth; ++depth) {
+        size_t carved_count;
+        dg_status_t status;
+
+        status = dg_apply_corridor_roughen_pass(
+            map,
+            strength,
+            mode,
+            rng,
+            &carved_count
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        if (carved_count == 0) {
+            break;
+        }
+    }
+
     return DG_STATUS_OK;
 }
 
@@ -643,6 +691,7 @@ static dg_status_t dg_apply_process_method(
         return dg_apply_corridor_roughen(
             map,
             method->params.corridor_roughen.strength,
+            method->params.corridor_roughen.max_depth,
             method->params.corridor_roughen.mode,
             rng
         );

@@ -249,6 +249,7 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
             break;
         case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
             if (ma->params.corridor_roughen.strength != mb->params.corridor_roughen.strength ||
+                ma->params.corridor_roughen.max_depth != mb->params.corridor_roughen.max_depth ||
                 ma->params.corridor_roughen.mode != mb->params.corridor_roughen.mode) {
                 return false;
             }
@@ -2025,6 +2026,62 @@ static int test_post_process_corridor_roughen_mode_affects_layout(void)
     return 0;
 }
 
+static int test_post_process_corridor_roughen_depth_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_depth_difference;
+
+    found_depth_difference = false;
+    for (seed = 7500u; seed < 7600u; ++seed) {
+        dg_generate_request_t shallow_request;
+        dg_generate_request_t deep_request;
+        dg_map_t shallow_map = {0};
+        dg_map_t deep_map = {0};
+        dg_process_method_t shallow_methods[1];
+        dg_process_method_t deep_methods[1];
+
+        dg_default_generate_request(&shallow_request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, seed);
+        shallow_request.params.rooms_and_mazes.min_rooms = 10;
+        shallow_request.params.rooms_and_mazes.max_rooms = 16;
+        shallow_request.params.rooms_and_mazes.room_min_size = 4;
+        shallow_request.params.rooms_and_mazes.room_max_size = 10;
+        shallow_request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+        deep_request = shallow_request;
+
+        dg_default_process_method(&shallow_methods[0], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+        shallow_methods[0].params.corridor_roughen.strength = 35;
+        shallow_methods[0].params.corridor_roughen.max_depth = 1;
+        shallow_methods[0].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
+        shallow_request.process.methods = shallow_methods;
+        shallow_request.process.method_count = 1;
+
+        dg_default_process_method(&deep_methods[0], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+        deep_methods[0].params.corridor_roughen.strength = 35;
+        deep_methods[0].params.corridor_roughen.max_depth = 4;
+        deep_methods[0].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
+        deep_request.process.methods = deep_methods;
+        deep_request.process.method_count = 1;
+
+        ASSERT_STATUS(dg_generate(&shallow_request, &shallow_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&deep_request, &deep_map), DG_STATUS_OK);
+
+        ASSERT_TRUE(deep_map.metadata.walkable_tile_count >= shallow_map.metadata.walkable_tile_count);
+        if (!maps_have_same_tiles(&shallow_map, &deep_map)) {
+            found_depth_difference = true;
+        }
+
+        dg_map_destroy(&shallow_map);
+        dg_map_destroy(&deep_map);
+
+        if (found_depth_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_depth_difference);
+    return 0;
+}
+
 static int test_generation_diagnostics_populated(void)
 {
     dg_generate_request_t request;
@@ -2122,6 +2179,7 @@ static int test_generation_request_snapshot_populated(void)
     process_methods[2].params.path_smooth.outer_enabled = 1;
     dg_default_process_method(&process_methods[3], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
     process_methods[3].params.corridor_roughen.strength = 42;
+    process_methods[3].params.corridor_roughen.max_depth = 3;
     process_methods[3].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
     request.process.methods = process_methods;
     request.process.method_count = 4;
@@ -2160,6 +2218,7 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.outer_enabled == 1);
     ASSERT_TRUE(snapshot->process.methods[3].type == (int)DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
     ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.strength == 42);
+    ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.max_depth == 3);
     ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.mode ==
                 (int)DG_CORRIDOR_ROUGHEN_ORGANIC);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
@@ -2248,6 +2307,7 @@ static int test_map_serialization_roundtrip(void)
     process_methods[2].params.path_smooth.outer_enabled = 1;
     dg_default_process_method(&process_methods[3], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
     process_methods[3].params.corridor_roughen.strength = 38;
+    process_methods[3].params.corridor_roughen.max_depth = 3;
     process_methods[3].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
     request.process.methods = process_methods;
     request.process.method_count = 4;
@@ -2291,6 +2351,7 @@ static int test_map_serialization_roundtrip_value_noise(void)
     process_methods[0].params.scale.factor = 2;
     dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
     process_methods[1].params.corridor_roughen.strength = 35;
+    process_methods[1].params.corridor_roughen.max_depth = 2;
     process_methods[1].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_UNIFORM;
     request.process.methods = process_methods;
     request.process.method_count = 2;
@@ -2774,6 +2835,20 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    process_methods[0].params.corridor_roughen.max_depth = 0;
+    request.process.methods = process_methods;
+    request.process.method_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    process_methods[0].params.corridor_roughen.max_depth = 33;
+    request.process.methods = process_methods;
+    request.process.method_count = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     process_methods[0].type = (dg_process_method_type_t)99;
     request.process.methods = process_methods;
     request.process.method_count = 1;
@@ -2887,6 +2962,8 @@ int main(void)
          test_post_process_corridor_roughen_changes_layout},
         {"post_process_corridor_roughen_mode_affects_layout",
          test_post_process_corridor_roughen_mode_affects_layout},
+        {"post_process_corridor_roughen_depth_affects_layout",
+         test_post_process_corridor_roughen_depth_affects_layout},
         {"generation_diagnostics_populated", test_generation_diagnostics_populated},
         {"generation_request_snapshot_populated", test_generation_request_snapshot_populated},
         {"generation_request_snapshot_populated_value_noise",

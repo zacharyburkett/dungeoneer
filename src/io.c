@@ -279,6 +279,8 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
     case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
         return method->params.corridor_roughen.strength >= 0 &&
                method->params.corridor_roughen.strength <= 100 &&
+               method->params.corridor_roughen.max_depth >= 1 &&
+               method->params.corridor_roughen.max_depth <= 32 &&
                (method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_UNIFORM ||
                 method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_ORGANIC);
     default:
@@ -687,6 +689,10 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
             if (status != DG_STATUS_OK) {
                 return status;
             }
+            status = dg_write_i32(file, (int32_t)method->params.corridor_roughen.max_depth);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
             status = dg_write_i32(file, (int32_t)method->params.corridor_roughen.mode);
             break;
         default:
@@ -1075,6 +1081,13 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
             status = dg_read_i32(file, &value_i32);
             if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
                     value_i32,
+                    &method->params.corridor_roughen.max_depth
+                )) {
+                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+            }
+            status = dg_read_i32(file, &value_i32);
+            if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                    value_i32,
                     &method->params.corridor_roughen.mode
                 )) {
                 return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
@@ -1361,6 +1374,8 @@ static dg_status_t dg_build_request_from_snapshot(
         case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
             process_methods[i].params.corridor_roughen.strength =
                 snapshot->process.methods[i].params.corridor_roughen.strength;
+            process_methods[i].params.corridor_roughen.max_depth =
+                snapshot->process.methods[i].params.corridor_roughen.max_depth;
             process_methods[i].params.corridor_roughen.mode =
                 (dg_corridor_roughen_mode_t)snapshot->process.methods[i].params.corridor_roughen.mode;
             break;
@@ -2236,9 +2251,11 @@ static dg_status_t dg_export_write_json_generation_request(
                     file,
                     "        \"type_name\": \"corridor_roughen\",\n"
                     "        \"strength\": %d,\n"
+                    "        \"max_depth\": %d,\n"
                     "        \"mode\": %d,\n"
                     "        \"mode_name\": \"%s\"\n",
                     method->params.corridor_roughen.strength,
+                    method->params.corridor_roughen.max_depth,
                     method->params.corridor_roughen.mode,
                     method->params.corridor_roughen.mode == (int)DG_CORRIDOR_ROUGHEN_ORGANIC ?
                         "organic" :
