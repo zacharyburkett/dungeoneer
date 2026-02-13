@@ -13,7 +13,10 @@ typedef enum dg_algorithm {
     DG_ALGORITHM_DRUNKARDS_WALK = 1,
     DG_ALGORITHM_ROOMS_AND_MAZES = 2,
     DG_ALGORITHM_CELLULAR_AUTOMATA = 3,
-    DG_ALGORITHM_VALUE_NOISE = 4
+    DG_ALGORITHM_VALUE_NOISE = 4,
+    DG_ALGORITHM_ROOM_GRAPH = 5,
+    DG_ALGORITHM_WORM_CAVES = 6,
+    DG_ALGORITHM_SIMPLEX_NOISE = 7
 } dg_algorithm_t;
 
 typedef struct dg_bsp_config {
@@ -90,6 +93,77 @@ typedef struct dg_rooms_and_mazes_config {
      */
     int dead_end_prune_steps;
 } dg_rooms_and_mazes_config_t;
+
+typedef struct dg_room_graph_config {
+    int min_rooms;
+    int max_rooms;
+    int room_min_size;
+    int room_max_size;
+    /*
+     * Number of nearest-neighbor candidates considered per room while
+     * constructing the room graph before MST extraction (1..8).
+     */
+    int neighbor_candidates;
+    /*
+     * Additional edge retention chance after MST (0..100).
+     * Higher values create more loops and alternate routes.
+     */
+    int extra_connection_chance_percent;
+} dg_room_graph_config_t;
+
+typedef struct dg_worm_caves_config {
+    /*
+     * Number of concurrent worm diggers (1..128).
+     */
+    int worm_count;
+    /*
+     * Probability (0..100) a worm changes direction each step.
+     */
+    int wiggle_percent;
+    /*
+     * Probability (0..100) a worm spawns a branch worm.
+     */
+    int branch_chance_percent;
+    /*
+     * Target interior floor coverage (5..90).
+     */
+    int target_floor_percent;
+    /*
+     * Brush radius for carving (0..3).
+     */
+    int brush_radius;
+    /*
+     * Maximum steps a worm lives before respawn/deactivation (8..20000).
+     */
+    int max_steps_per_worm;
+    /*
+     * 1 = enforce single connected floor region; 0 = keep fragmented caves.
+     */
+    int ensure_connected;
+} dg_worm_caves_config_t;
+
+typedef struct dg_simplex_noise_config {
+    /*
+     * Base sampling feature size in tiles (2..128).
+     */
+    int feature_size;
+    /*
+     * Number of fBm octaves (1..8).
+     */
+    int octaves;
+    /*
+     * Amplitude decay between octaves (10..90).
+     */
+    int persistence_percent;
+    /*
+     * Threshold (0..100) for floor classification.
+     */
+    int floor_threshold_percent;
+    /*
+     * 1 = enforce single connected floor region; 0 = keep fragmented caves.
+     */
+    int ensure_connected;
+} dg_simplex_noise_config_t;
 
 typedef enum dg_room_shape_mode {
     DG_ROOM_SHAPE_RECTANGULAR = 0,
@@ -279,6 +353,9 @@ typedef struct dg_generate_request {
         dg_cellular_automata_config_t cellular_automata;
         dg_value_noise_config_t value_noise;
         dg_rooms_and_mazes_config_t rooms_and_mazes;
+        dg_room_graph_config_t room_graph;
+        dg_worm_caves_config_t worm_caves;
+        dg_simplex_noise_config_t simplex_noise;
     } params;
     dg_process_config_t process;
     dg_room_type_assignment_config_t room_types;
@@ -289,6 +366,9 @@ void dg_default_drunkards_walk_config(dg_drunkards_walk_config_t *config);
 void dg_default_cellular_automata_config(dg_cellular_automata_config_t *config);
 void dg_default_value_noise_config(dg_value_noise_config_t *config);
 void dg_default_rooms_and_mazes_config(dg_rooms_and_mazes_config_t *config);
+void dg_default_room_graph_config(dg_room_graph_config_t *config);
+void dg_default_worm_caves_config(dg_worm_caves_config_t *config);
+void dg_default_simplex_noise_config(dg_simplex_noise_config_t *config);
 void dg_default_process_method(dg_process_method_t *method, dg_process_method_type_t type);
 void dg_default_process_config(dg_process_config_t *config);
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints);

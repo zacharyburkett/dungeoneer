@@ -234,7 +234,10 @@ static bool dg_algorithm_id_value_is_valid(int32_t value)
            value == (int32_t)DG_ALGORITHM_DRUNKARDS_WALK ||
            value == (int32_t)DG_ALGORITHM_ROOMS_AND_MAZES ||
            value == (int32_t)DG_ALGORITHM_CELLULAR_AUTOMATA ||
-           value == (int32_t)DG_ALGORITHM_VALUE_NOISE;
+           value == (int32_t)DG_ALGORITHM_VALUE_NOISE ||
+           value == (int32_t)DG_ALGORITHM_ROOM_GRAPH ||
+           value == (int32_t)DG_ALGORITHM_WORM_CAVES ||
+           value == (int32_t)DG_ALGORITHM_SIMPLEX_NOISE;
 }
 
 static bool dg_nonnegative_range_is_valid(int min_value, int max_value)
@@ -435,6 +438,42 @@ static bool dg_snapshot_algorithm_params_are_valid(const dg_generation_request_s
                (snapshot->params.rooms_and_mazes.ensure_full_connectivity == 0 ||
                 snapshot->params.rooms_and_mazes.ensure_full_connectivity == 1) &&
                snapshot->params.rooms_and_mazes.dead_end_prune_steps >= -1;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        return snapshot->params.room_graph.min_rooms >= 1 &&
+               snapshot->params.room_graph.max_rooms >= snapshot->params.room_graph.min_rooms &&
+               snapshot->params.room_graph.room_min_size >= 3 &&
+               snapshot->params.room_graph.room_max_size >=
+                   snapshot->params.room_graph.room_min_size &&
+               snapshot->params.room_graph.neighbor_candidates >= 1 &&
+               snapshot->params.room_graph.neighbor_candidates <= 8 &&
+               snapshot->params.room_graph.extra_connection_chance_percent >= 0 &&
+               snapshot->params.room_graph.extra_connection_chance_percent <= 100;
+    case DG_ALGORITHM_WORM_CAVES:
+        return snapshot->params.worm_caves.worm_count >= 1 &&
+               snapshot->params.worm_caves.worm_count <= 128 &&
+               snapshot->params.worm_caves.wiggle_percent >= 0 &&
+               snapshot->params.worm_caves.wiggle_percent <= 100 &&
+               snapshot->params.worm_caves.branch_chance_percent >= 0 &&
+               snapshot->params.worm_caves.branch_chance_percent <= 100 &&
+               snapshot->params.worm_caves.target_floor_percent >= 5 &&
+               snapshot->params.worm_caves.target_floor_percent <= 90 &&
+               snapshot->params.worm_caves.brush_radius >= 0 &&
+               snapshot->params.worm_caves.brush_radius <= 3 &&
+               snapshot->params.worm_caves.max_steps_per_worm >= 8 &&
+               snapshot->params.worm_caves.max_steps_per_worm <= 20000 &&
+               (snapshot->params.worm_caves.ensure_connected == 0 ||
+                snapshot->params.worm_caves.ensure_connected == 1);
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        return snapshot->params.simplex_noise.feature_size >= 2 &&
+               snapshot->params.simplex_noise.feature_size <= 128 &&
+               snapshot->params.simplex_noise.octaves >= 1 &&
+               snapshot->params.simplex_noise.octaves <= 8 &&
+               snapshot->params.simplex_noise.persistence_percent >= 10 &&
+               snapshot->params.simplex_noise.persistence_percent <= 90 &&
+               snapshot->params.simplex_noise.floor_threshold_percent >= 0 &&
+               snapshot->params.simplex_noise.floor_threshold_percent <= 100 &&
+               (snapshot->params.simplex_noise.ensure_connected == 0 ||
+                snapshot->params.simplex_noise.ensure_connected == 1);
     default:
         return false;
     }
@@ -611,6 +650,90 @@ static dg_status_t dg_write_snapshot_algorithm_params(
             file,
             (int32_t)snapshot->params.rooms_and_mazes.dead_end_prune_steps
         );
+    case DG_ALGORITHM_ROOM_GRAPH:
+        status = dg_write_i32(file, (int32_t)snapshot->params.room_graph.min_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.room_graph.max_rooms);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.room_graph.room_min_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.room_graph.room_max_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.room_graph.neighbor_candidates);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(
+            file,
+            (int32_t)snapshot->params.room_graph.extra_connection_chance_percent
+        );
+    case DG_ALGORITHM_WORM_CAVES:
+        status = dg_write_i32(file, (int32_t)snapshot->params.worm_caves.worm_count);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.worm_caves.wiggle_percent);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
+            (int32_t)snapshot->params.worm_caves.branch_chance_percent
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
+            (int32_t)snapshot->params.worm_caves.target_floor_percent
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.worm_caves.brush_radius);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
+            (int32_t)snapshot->params.worm_caves.max_steps_per_worm
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(file, (int32_t)snapshot->params.worm_caves.ensure_connected);
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        status = dg_write_i32(file, (int32_t)snapshot->params.simplex_noise.feature_size);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)snapshot->params.simplex_noise.octaves);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
+            (int32_t)snapshot->params.simplex_noise.persistence_percent
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(
+            file,
+            (int32_t)snapshot->params.simplex_noise.floor_threshold_percent
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        return dg_write_i32(file, (int32_t)snapshot->params.simplex_noise.ensure_connected);
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -961,6 +1084,118 @@ static dg_status_t dg_read_snapshot_algorithm_params(
         if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
                 value,
                 &snapshot->params.rooms_and_mazes.dead_end_prune_steps
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.room_graph.min_rooms)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.room_graph.max_rooms)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.room_graph.room_min_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.room_graph.room_max_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.room_graph.neighbor_candidates)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.room_graph.extra_connection_chance_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
+    case DG_ALGORITHM_WORM_CAVES:
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.worm_caves.worm_count)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.worm_caves.wiggle_percent)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.worm_caves.branch_chance_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.worm_caves.target_floor_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.worm_caves.brush_radius)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.worm_caves.max_steps_per_worm
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.worm_caves.ensure_connected
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        return DG_STATUS_OK;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.simplex_noise.feature_size)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK ||
+            !dg_i32_to_int_checked(value, &snapshot->params.simplex_noise.octaves)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.simplex_noise.persistence_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.simplex_noise.floor_threshold_percent
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value,
+                &snapshot->params.simplex_noise.ensure_connected
             )) {
             return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
         }
@@ -1353,6 +1588,38 @@ static dg_status_t dg_build_request_from_snapshot(
             snapshot->params.rooms_and_mazes.ensure_full_connectivity;
         request.params.rooms_and_mazes.dead_end_prune_steps =
             snapshot->params.rooms_and_mazes.dead_end_prune_steps;
+        break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        request.params.room_graph.min_rooms = snapshot->params.room_graph.min_rooms;
+        request.params.room_graph.max_rooms = snapshot->params.room_graph.max_rooms;
+        request.params.room_graph.room_min_size = snapshot->params.room_graph.room_min_size;
+        request.params.room_graph.room_max_size = snapshot->params.room_graph.room_max_size;
+        request.params.room_graph.neighbor_candidates =
+            snapshot->params.room_graph.neighbor_candidates;
+        request.params.room_graph.extra_connection_chance_percent =
+            snapshot->params.room_graph.extra_connection_chance_percent;
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        request.params.worm_caves.worm_count = snapshot->params.worm_caves.worm_count;
+        request.params.worm_caves.wiggle_percent = snapshot->params.worm_caves.wiggle_percent;
+        request.params.worm_caves.branch_chance_percent =
+            snapshot->params.worm_caves.branch_chance_percent;
+        request.params.worm_caves.target_floor_percent =
+            snapshot->params.worm_caves.target_floor_percent;
+        request.params.worm_caves.brush_radius = snapshot->params.worm_caves.brush_radius;
+        request.params.worm_caves.max_steps_per_worm =
+            snapshot->params.worm_caves.max_steps_per_worm;
+        request.params.worm_caves.ensure_connected = snapshot->params.worm_caves.ensure_connected;
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        request.params.simplex_noise.feature_size = snapshot->params.simplex_noise.feature_size;
+        request.params.simplex_noise.octaves = snapshot->params.simplex_noise.octaves;
+        request.params.simplex_noise.persistence_percent =
+            snapshot->params.simplex_noise.persistence_percent;
+        request.params.simplex_noise.floor_threshold_percent =
+            snapshot->params.simplex_noise.floor_threshold_percent;
+        request.params.simplex_noise.ensure_connected =
+            snapshot->params.simplex_noise.ensure_connected;
         break;
     default:
         return DG_STATUS_INVALID_ARGUMENT;
@@ -1997,6 +2264,12 @@ static const char *dg_export_algorithm_name(int algorithm_id)
         return "cellular_automata";
     case DG_ALGORITHM_VALUE_NOISE:
         return "value_noise";
+    case DG_ALGORITHM_ROOM_GRAPH:
+        return "room_graph";
+    case DG_ALGORITHM_WORM_CAVES:
+        return "worm_caves";
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        return "simplex_noise";
     default:
         return "unknown";
     }
@@ -2205,6 +2478,108 @@ static dg_status_t dg_export_write_json_generation_request(
                 file,
                 "      \"dead_end_prune_steps\": %d\n",
                 snapshot->params.rooms_and_mazes.dead_end_prune_steps
+            ) < 0) {
+            return DG_STATUS_IO_ERROR;
+        }
+        break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        if (fprintf(
+                file,
+                "      \"min_rooms\": %d,\n",
+                snapshot->params.room_graph.min_rooms
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"max_rooms\": %d,\n",
+                snapshot->params.room_graph.max_rooms
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"room_min_size\": %d,\n",
+                snapshot->params.room_graph.room_min_size
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"room_max_size\": %d,\n",
+                snapshot->params.room_graph.room_max_size
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"neighbor_candidates\": %d,\n",
+                snapshot->params.room_graph.neighbor_candidates
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"extra_connection_chance_percent\": %d\n",
+                snapshot->params.room_graph.extra_connection_chance_percent
+            ) < 0) {
+            return DG_STATUS_IO_ERROR;
+        }
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        if (fprintf(
+                file,
+                "      \"worm_count\": %d,\n",
+                snapshot->params.worm_caves.worm_count
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"wiggle_percent\": %d,\n",
+                snapshot->params.worm_caves.wiggle_percent
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"branch_chance_percent\": %d,\n",
+                snapshot->params.worm_caves.branch_chance_percent
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"target_floor_percent\": %d,\n",
+                snapshot->params.worm_caves.target_floor_percent
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"brush_radius\": %d,\n",
+                snapshot->params.worm_caves.brush_radius
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"max_steps_per_worm\": %d,\n",
+                snapshot->params.worm_caves.max_steps_per_worm
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"ensure_connected\": %d\n",
+                snapshot->params.worm_caves.ensure_connected
+            ) < 0) {
+            return DG_STATUS_IO_ERROR;
+        }
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        if (fprintf(
+                file,
+                "      \"feature_size\": %d,\n",
+                snapshot->params.simplex_noise.feature_size
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"octaves\": %d,\n",
+                snapshot->params.simplex_noise.octaves
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"persistence_percent\": %d,\n",
+                snapshot->params.simplex_noise.persistence_percent
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"floor_threshold_percent\": %d,\n",
+                snapshot->params.simplex_noise.floor_threshold_percent
+            ) < 0 ||
+            fprintf(
+                file,
+                "      \"ensure_connected\": %d\n",
+                snapshot->params.simplex_noise.ensure_connected
             ) < 0) {
             return DG_STATUS_IO_ERROR;
         }

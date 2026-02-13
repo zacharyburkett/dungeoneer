@@ -55,6 +55,9 @@ typedef struct dg_nuklear_app {
     dg_cellular_automata_config_t cellular_automata_config;
     dg_value_noise_config_t value_noise_config;
     dg_rooms_and_mazes_config_t rooms_and_mazes_config;
+    dg_room_graph_config_t room_graph_config;
+    dg_worm_caves_config_t worm_caves_config;
+    dg_simplex_noise_config_t simplex_noise_config;
     dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
     int process_enabled;
     int process_method_count;

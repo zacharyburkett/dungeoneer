@@ -212,6 +212,45 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
             return false;
         }
         break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        if (sa->params.room_graph.min_rooms != sb->params.room_graph.min_rooms ||
+            sa->params.room_graph.max_rooms != sb->params.room_graph.max_rooms ||
+            sa->params.room_graph.room_min_size != sb->params.room_graph.room_min_size ||
+            sa->params.room_graph.room_max_size != sb->params.room_graph.room_max_size ||
+            sa->params.room_graph.neighbor_candidates !=
+                sb->params.room_graph.neighbor_candidates ||
+            sa->params.room_graph.extra_connection_chance_percent !=
+                sb->params.room_graph.extra_connection_chance_percent) {
+            return false;
+        }
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        if (sa->params.worm_caves.worm_count != sb->params.worm_caves.worm_count ||
+            sa->params.worm_caves.wiggle_percent != sb->params.worm_caves.wiggle_percent ||
+            sa->params.worm_caves.branch_chance_percent !=
+                sb->params.worm_caves.branch_chance_percent ||
+            sa->params.worm_caves.target_floor_percent !=
+                sb->params.worm_caves.target_floor_percent ||
+            sa->params.worm_caves.brush_radius != sb->params.worm_caves.brush_radius ||
+            sa->params.worm_caves.max_steps_per_worm !=
+                sb->params.worm_caves.max_steps_per_worm ||
+            sa->params.worm_caves.ensure_connected !=
+                sb->params.worm_caves.ensure_connected) {
+            return false;
+        }
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        if (sa->params.simplex_noise.feature_size != sb->params.simplex_noise.feature_size ||
+            sa->params.simplex_noise.octaves != sb->params.simplex_noise.octaves ||
+            sa->params.simplex_noise.persistence_percent !=
+                sb->params.simplex_noise.persistence_percent ||
+            sa->params.simplex_noise.floor_threshold_percent !=
+                sb->params.simplex_noise.floor_threshold_percent ||
+            sa->params.simplex_noise.ensure_connected !=
+                sb->params.simplex_noise.ensure_connected) {
+            return false;
+        }
+        break;
     default:
         return false;
     }
@@ -1256,6 +1295,319 @@ static int test_value_noise_threshold_affects_layout(void)
 
         tight_request = open_request;
         tight_request.params.value_noise.floor_threshold_percent = 58;
+
+        ASSERT_STATUS(dg_generate(&open_request, &open_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&tight_request, &tight_map), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&open_map, &tight_map)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&open_map);
+        dg_map_destroy(&tight_map);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_room_graph_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 96, 54, 314159u);
+    request.params.room_graph.min_rooms = 8;
+    request.params.room_graph.max_rooms = 12;
+    request.params.room_graph.room_min_size = 4;
+    request.params.room_graph.room_max_size = 10;
+    request.params.room_graph.neighbor_candidates = 4;
+    request.params.room_graph.extra_connection_chance_percent = 20;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_ROOM_GRAPH);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE);
+    ASSERT_TRUE(map.metadata.room_count >= 2);
+    ASSERT_TRUE(map.metadata.room_count <= (size_t)request.params.room_graph.max_rooms);
+    ASSERT_TRUE(map.metadata.corridor_count >= map.metadata.room_count - 1);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(rooms_have_min_wall_separation(&map));
+    ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    for (i = 0; i < map.metadata.room_count; ++i) {
+        const dg_room_metadata_t *room = &map.metadata.rooms[i];
+        ASSERT_TRUE(room->bounds.width >= request.params.room_graph.room_min_size);
+        ASSERT_TRUE(room->bounds.width <= request.params.room_graph.room_max_size);
+        ASSERT_TRUE(room->bounds.height >= request.params.room_graph.room_min_size);
+        ASSERT_TRUE(room->bounds.height <= request.params.room_graph.room_max_size);
+        ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
+        ASSERT_TRUE(room->type_id == DG_ROOM_TYPE_UNASSIGNED);
+        ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
+    }
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_room_graph_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 88, 48, 161803u);
+    request.params.room_graph.min_rooms = 9;
+    request.params.room_graph.max_rooms = 14;
+    request.params.room_graph.room_min_size = 4;
+    request.params.room_graph.room_max_size = 9;
+    request.params.room_graph.neighbor_candidates = 5;
+    request.params.room_graph.extra_connection_chance_percent = 35;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_room_graph_loop_chance_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 8600u; seed < 8700u; ++seed) {
+        dg_generate_request_t tree_request;
+        dg_generate_request_t loopy_request;
+        dg_map_t tree_map = {0};
+        dg_map_t loopy_map = {0};
+
+        dg_default_generate_request(&tree_request, DG_ALGORITHM_ROOM_GRAPH, 88, 48, seed);
+        tree_request.params.room_graph.min_rooms = 9;
+        tree_request.params.room_graph.max_rooms = 14;
+        tree_request.params.room_graph.room_min_size = 4;
+        tree_request.params.room_graph.room_max_size = 9;
+        tree_request.params.room_graph.neighbor_candidates = 5;
+        tree_request.params.room_graph.extra_connection_chance_percent = 0;
+
+        loopy_request = tree_request;
+        loopy_request.params.room_graph.extra_connection_chance_percent = 100;
+
+        ASSERT_STATUS(dg_generate(&tree_request, &tree_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&loopy_request, &loopy_map), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&tree_map, &loopy_map) ||
+            tree_map.metadata.corridor_count != loopy_map.metadata.corridor_count) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&tree_map);
+        dg_map_destroy(&loopy_map);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_worm_caves_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 96, 54, 271828u);
+    request.params.worm_caves.worm_count = 8;
+    request.params.worm_caves.wiggle_percent = 55;
+    request.params.worm_caves.branch_chance_percent = 10;
+    request.params.worm_caves.target_floor_percent = 36;
+    request.params.worm_caves.brush_radius = 1;
+    request.params.worm_caves.max_steps_per_worm = 1000;
+    request.params.worm_caves.ensure_connected = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_WORM_CAVES);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE);
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_worm_caves_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 88, 48, 31415u);
+    request.params.worm_caves.worm_count = 6;
+    request.params.worm_caves.wiggle_percent = 45;
+    request.params.worm_caves.branch_chance_percent = 12;
+    request.params.worm_caves.target_floor_percent = 30;
+    request.params.worm_caves.brush_radius = 0;
+    request.params.worm_caves.max_steps_per_worm = 1200;
+    request.params.worm_caves.ensure_connected = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_worm_caves_branch_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 9100u; seed < 9200u; ++seed) {
+        dg_generate_request_t low_branch_request;
+        dg_generate_request_t high_branch_request;
+        dg_map_t low_branch_map = {0};
+        dg_map_t high_branch_map = {0};
+
+        dg_default_generate_request(&low_branch_request, DG_ALGORITHM_WORM_CAVES, 88, 48, seed);
+        low_branch_request.params.worm_caves.worm_count = 6;
+        low_branch_request.params.worm_caves.wiggle_percent = 40;
+        low_branch_request.params.worm_caves.branch_chance_percent = 0;
+        low_branch_request.params.worm_caves.target_floor_percent = 32;
+        low_branch_request.params.worm_caves.brush_radius = 0;
+        low_branch_request.params.worm_caves.max_steps_per_worm = 900;
+        low_branch_request.params.worm_caves.ensure_connected = 1;
+
+        high_branch_request = low_branch_request;
+        high_branch_request.params.worm_caves.branch_chance_percent = 45;
+
+        ASSERT_STATUS(dg_generate(&low_branch_request, &low_branch_map), DG_STATUS_OK);
+        ASSERT_STATUS(dg_generate(&high_branch_request, &high_branch_map), DG_STATUS_OK);
+
+        if (!maps_have_same_tiles(&low_branch_map, &high_branch_map)) {
+            found_difference = true;
+        }
+
+        dg_map_destroy(&low_branch_map);
+        dg_map_destroy(&high_branch_map);
+
+        if (found_difference) {
+            break;
+        }
+    }
+
+    ASSERT_TRUE(found_difference);
+    return 0;
+}
+
+static int test_simplex_noise_generation(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    size_t floors;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 96, 54, 141421u);
+    request.params.simplex_noise.feature_size = 16;
+    request.params.simplex_noise.octaves = 4;
+    request.params.simplex_noise.persistence_percent = 55;
+    request.params.simplex_noise.floor_threshold_percent = 50;
+    request.params.simplex_noise.ensure_connected = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    floors = count_walkable_tiles(&map);
+    ASSERT_TRUE(floors > 0);
+    ASSERT_TRUE(map.metadata.algorithm_id == DG_ALGORITHM_SIMPLEX_NOISE);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_CAVE_LIKE);
+    ASSERT_TRUE(map.metadata.room_count == 0);
+    ASSERT_TRUE(map.metadata.corridor_count == 0);
+    ASSERT_TRUE(map.metadata.connected_floor);
+    ASSERT_TRUE(map.metadata.connected_component_count == 1);
+    ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
+    ASSERT_TRUE(has_outer_walls(&map));
+    ASSERT_TRUE(is_connected(&map));
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_simplex_noise_determinism(void)
+{
+    dg_generate_request_t request;
+    dg_map_t a = {0};
+    dg_map_t b = {0};
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 88, 48, 173205u);
+    request.params.simplex_noise.feature_size = 15;
+    request.params.simplex_noise.octaves = 5;
+    request.params.simplex_noise.persistence_percent = 60;
+    request.params.simplex_noise.floor_threshold_percent = 52;
+    request.params.simplex_noise.ensure_connected = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &a), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request, &b), DG_STATUS_OK);
+
+    ASSERT_TRUE(maps_have_same_tiles(&a, &b));
+    ASSERT_TRUE(maps_have_same_metadata(&a, &b));
+
+    dg_map_destroy(&a);
+    dg_map_destroy(&b);
+    return 0;
+}
+
+static int test_simplex_noise_threshold_affects_layout(void)
+{
+    uint64_t seed;
+    bool found_difference;
+
+    found_difference = false;
+    for (seed = 9700u; seed < 9780u; ++seed) {
+        dg_generate_request_t open_request;
+        dg_generate_request_t tight_request;
+        dg_map_t open_map = {0};
+        dg_map_t tight_map = {0};
+
+        dg_default_generate_request(&open_request, DG_ALGORITHM_SIMPLEX_NOISE, 88, 48, seed);
+        open_request.params.simplex_noise.feature_size = 14;
+        open_request.params.simplex_noise.octaves = 4;
+        open_request.params.simplex_noise.persistence_percent = 55;
+        open_request.params.simplex_noise.floor_threshold_percent = 38;
+        open_request.params.simplex_noise.ensure_connected = 1;
+
+        tight_request = open_request;
+        tight_request.params.simplex_noise.floor_threshold_percent = 62;
 
         ASSERT_STATUS(dg_generate(&open_request, &open_map), DG_STATUS_OK);
         ASSERT_STATUS(dg_generate(&tight_request, &tight_map), DG_STATUS_OK);
@@ -2979,6 +3331,128 @@ static int test_invalid_generate_request(void)
     request.params.rooms_and_mazes.dead_end_prune_steps = -2;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.min_rooms = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.min_rooms = 10;
+    request.params.room_graph.max_rooms = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.room_min_size = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.room_min_size = 9;
+    request.params.room_graph.room_max_size = 8;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.neighbor_candidates = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.neighbor_candidates = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.extra_connection_chance_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOM_GRAPH, 80, 48, 1u);
+    request.params.room_graph.extra_connection_chance_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.worm_count = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.worm_count = 129;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.wiggle_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.wiggle_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.branch_chance_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.branch_chance_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.target_floor_percent = 4;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.target_floor_percent = 91;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.brush_radius = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.brush_radius = 4;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.max_steps_per_worm = 7;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.max_steps_per_worm = 20001;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_WORM_CAVES, 80, 48, 1u);
+    request.params.worm_caves.ensure_connected = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.feature_size = 1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.feature_size = 129;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.octaves = 0;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.octaves = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.persistence_percent = 9;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.persistence_percent = 91;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.floor_threshold_percent = -1;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.floor_threshold_percent = 101;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_SIMPLEX_NOISE, 80, 48, 1u);
+    request.params.simplex_noise.ensure_connected = 2;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     request.room_types.definition_count = 1;
     request.room_types.definitions = NULL;
@@ -3168,6 +3642,15 @@ int main(void)
         {"value_noise_generation", test_value_noise_generation},
         {"value_noise_determinism", test_value_noise_determinism},
         {"value_noise_threshold_affects_layout", test_value_noise_threshold_affects_layout},
+        {"room_graph_generation", test_room_graph_generation},
+        {"room_graph_determinism", test_room_graph_determinism},
+        {"room_graph_loop_chance_affects_layout", test_room_graph_loop_chance_affects_layout},
+        {"worm_caves_generation", test_worm_caves_generation},
+        {"worm_caves_determinism", test_worm_caves_determinism},
+        {"worm_caves_branch_affects_layout", test_worm_caves_branch_affects_layout},
+        {"simplex_noise_generation", test_simplex_noise_generation},
+        {"simplex_noise_determinism", test_simplex_noise_determinism},
+        {"simplex_noise_threshold_affects_layout", test_simplex_noise_threshold_affects_layout},
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},

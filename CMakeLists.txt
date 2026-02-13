@@ -22,6 +22,9 @@ add_library(dungeoneer
     src/generator/cellular_automata.c
     src/generator/value_noise.c
     src/generator/rooms_and_mazes.c
+    src/generator/room_graph_mst.c
+    src/generator/worm_caves.c
+    src/generator/simplex_noise.c
     src/generator/process.c
     src/generator/room_types.c
     src/generator/primitives.c

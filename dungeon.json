@@ -1,0 +1,110 @@
+{
+  "format": "dungeoneer_png_json_v1",
+  "image": {
+    "path": "dungeon.png",
+    "width": 240,
+    "height": 240,
+    "pixel_format": "rgba8"
+  },
+  "legend": [
+    {
+      "tile_id": 0,
+      "tile_name": "void",
+      "rgba": [0, 0, 0, 0]
+    },
+    {
+      "tile_id": 1,
+      "tile_name": "wall",
+      "rgba": [24, 28, 34, 255]
+    },
+    {
+      "tile_id": 2,
+      "tile_name": "floor",
+      "rgba": [232, 232, 228, 255]
+    },
+    {
+      "tile_id": 3,
+      "tile_name": "door",
+      "rgba": [208, 156, 66, 255]
+    }
+  ],
+  "room_type_palette": [
+  ],
+  "configured_room_types": [
+  ],
+  "metadata": {
+    "seed": 16997087979818005998,
+    "algorithm_id": 4,
+    "algorithm": "value_noise",
+    "generation_class": 2,
+    "generation_class_name": "cave_like",
+    "generation_attempts": 1,
+    "connected_floor": true,
+    "connected_component_count": 1,
+    "largest_component_size": 29264,
+    "walkable_tile_count": 29264,
+    "wall_tile_count": 28336,
+    "room_count": 0,
+    "typed_room_count": 0,
+    "untyped_room_count": 0,
+    "corridor_count": 0,
+    "corridor_total_length": 0,
+    "entrance_exit_distance": -1
+  },
+  "rooms": [
+  ],
+  "corridors": [
+  ],
+  "generation_request": {
+    "width": 40,
+    "height": 40,
+    "seed": 16997087979818005998,
+    "algorithm_id": 4,
+    "algorithm": "value_noise",
+    "params": {
+      "feature_size": 12,
+      "octaves": 3,
+      "persistence_percent": 55,
+      "floor_threshold_percent": 48
+    },
+    "post_process_enabled": 1,
+    "process": [
+      {
+        "type": 0,
+        "type_name": "scale",
+        "factor": 6
+      },
+      {
+        "type": 2,
+        "type_name": "path_smooth",
+        "strength": 2,
+        "inner_enabled": 1,
+        "outer_enabled": 1
+      },
+      {
+        "type": 3,
+        "type_name": "corridor_roughen",
+        "strength": 40,
+        "max_depth": 1,
+        "mode": 1,
+        "mode_name": "organic"
+      },
+      {
+        "type": 1,
+        "type_name": "room_shape",
+        "mode": 2,
+        "mode_name": "cellular",
+        "organicity": 0
+      }
+    ],
+    "room_types": {
+      "policy": {
+        "strict_mode": 0,
+        "allow_untyped_rooms": 1,
+        "default_type_id": 0
+      },
+      "definitions": [
+      ]
+    }
+  }
+}

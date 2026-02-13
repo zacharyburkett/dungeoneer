@@ -120,10 +120,13 @@ static uint64_t dg_nuklear_make_random_seed(const dg_nuklear_app_t *app)
 
 static const dg_algorithm_t DG_NUKLEAR_ALGORITHMS[] = {
     DG_ALGORITHM_BSP_TREE,
+    DG_ALGORITHM_ROOM_GRAPH,
     DG_ALGORITHM_ROOMS_AND_MAZES,
     DG_ALGORITHM_DRUNKARDS_WALK,
+    DG_ALGORITHM_WORM_CAVES,
     DG_ALGORITHM_CELLULAR_AUTOMATA,
-    DG_ALGORITHM_VALUE_NOISE
+    DG_ALGORITHM_VALUE_NOISE,
+    DG_ALGORITHM_SIMPLEX_NOISE
 };
 
 #define DG_NUKLEAR_ALGORITHM_COUNT \
@@ -169,6 +172,12 @@ static int dg_nuklear_algorithm_index_from_id(int algorithm_id)
 static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
 {
     switch (algorithm) {
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        return "simplex_noise";
+    case DG_ALGORITHM_WORM_CAVES:
+        return "worm_caves";
+    case DG_ALGORITHM_ROOM_GRAPH:
+        return "room_graph";
     case DG_ALGORITHM_VALUE_NOISE:
         return "value_noise";
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
@@ -186,14 +195,20 @@ static const char *dg_nuklear_algorithm_name(dg_algorithm_t algorithm)
 static const char *dg_nuklear_algorithm_display_name(dg_algorithm_t algorithm)
 {
     switch (algorithm) {
+    case DG_ALGORITHM_ROOM_GRAPH:
+        return "Room Graph (MST)";
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         return "Rooms + Mazes";
+    case DG_ALGORITHM_WORM_CAVES:
+        return "Worm Caves";
     case DG_ALGORITHM_DRUNKARDS_WALK:
         return "Drunkard's Walk";
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
         return "Cellular Automata";
     case DG_ALGORITHM_VALUE_NOISE:
         return "Value Noise";
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        return "Simplex Noise";
     case DG_ALGORITHM_BSP_TREE:
     default:
         return "BSP Tree";
@@ -497,7 +512,9 @@ static bool dg_nuklear_duplicate_process_method(dg_nuklear_app_t *app, int index
 
 static bool dg_nuklear_algorithm_supports_room_types(dg_algorithm_t algorithm)
 {
-    return algorithm == DG_ALGORITHM_BSP_TREE || algorithm == DG_ALGORITHM_ROOMS_AND_MAZES;
+    return algorithm == DG_ALGORITHM_BSP_TREE ||
+           algorithm == DG_ALGORITHM_ROOMS_AND_MAZES ||
+           algorithm == DG_ALGORITHM_ROOM_GRAPH;
 }
 
 static void dg_nuklear_sync_generation_class_with_algorithm(dg_nuklear_app_t *app)
@@ -1384,10 +1401,16 @@ static void dg_nuklear_reset_algorithm_defaults(dg_nuklear_app_t *app, dg_algori
     dg_default_generate_request(&defaults, algorithm, app->width, app->height, 1u);
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         app->drunkards_walk_config = defaults.params.drunkards_walk;
+    } else if (algorithm == DG_ALGORITHM_WORM_CAVES) {
+        app->worm_caves_config = defaults.params.worm_caves;
     } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
         app->cellular_automata_config = defaults.params.cellular_automata;
+    } else if (algorithm == DG_ALGORITHM_SIMPLEX_NOISE) {
+        app->simplex_noise_config = defaults.params.simplex_noise;
     } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
         app->value_noise_config = defaults.params.value_noise;
+    } else if (algorithm == DG_ALGORITHM_ROOM_GRAPH) {
+        app->room_graph_config = defaults.params.room_graph;
     } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
         app->rooms_and_mazes_config = defaults.params.rooms_and_mazes;
     } else {
@@ -1490,6 +1513,18 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     case DG_ALGORITHM_DRUNKARDS_WALK:
         app->drunkards_walk_config.wiggle_percent = snapshot->params.drunkards_walk.wiggle_percent;
         break;
+    case DG_ALGORITHM_WORM_CAVES:
+        app->worm_caves_config.worm_count = snapshot->params.worm_caves.worm_count;
+        app->worm_caves_config.wiggle_percent = snapshot->params.worm_caves.wiggle_percent;
+        app->worm_caves_config.branch_chance_percent =
+            snapshot->params.worm_caves.branch_chance_percent;
+        app->worm_caves_config.target_floor_percent =
+            snapshot->params.worm_caves.target_floor_percent;
+        app->worm_caves_config.brush_radius = snapshot->params.worm_caves.brush_radius;
+        app->worm_caves_config.max_steps_per_worm =
+            snapshot->params.worm_caves.max_steps_per_worm;
+        app->worm_caves_config.ensure_connected = snapshot->params.worm_caves.ensure_connected;
+        break;
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
         app->cellular_automata_config.initial_wall_percent =
             snapshot->params.cellular_automata.initial_wall_percent;
@@ -1506,6 +1541,16 @@ static bool dg_nuklear_apply_generation_request_snapshot(
         app->value_noise_config.floor_threshold_percent =
             snapshot->params.value_noise.floor_threshold_percent;
         break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        app->simplex_noise_config.feature_size = snapshot->params.simplex_noise.feature_size;
+        app->simplex_noise_config.octaves = snapshot->params.simplex_noise.octaves;
+        app->simplex_noise_config.persistence_percent =
+            snapshot->params.simplex_noise.persistence_percent;
+        app->simplex_noise_config.floor_threshold_percent =
+            snapshot->params.simplex_noise.floor_threshold_percent;
+        app->simplex_noise_config.ensure_connected =
+            snapshot->params.simplex_noise.ensure_connected;
+        break;
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         app->rooms_and_mazes_config.min_rooms = snapshot->params.rooms_and_mazes.min_rooms;
         app->rooms_and_mazes_config.max_rooms = snapshot->params.rooms_and_mazes.max_rooms;
@@ -1521,6 +1566,15 @@ static bool dg_nuklear_apply_generation_request_snapshot(
             snapshot->params.rooms_and_mazes.ensure_full_connectivity;
         app->rooms_and_mazes_config.dead_end_prune_steps =
             snapshot->params.rooms_and_mazes.dead_end_prune_steps;
+        break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        app->room_graph_config.min_rooms = snapshot->params.room_graph.min_rooms;
+        app->room_graph_config.max_rooms = snapshot->params.room_graph.max_rooms;
+        app->room_graph_config.room_min_size = snapshot->params.room_graph.room_min_size;
+        app->room_graph_config.room_max_size = snapshot->params.room_graph.room_max_size;
+        app->room_graph_config.neighbor_candidates = snapshot->params.room_graph.neighbor_candidates;
+        app->room_graph_config.extra_connection_chance_percent =
+            snapshot->params.room_graph.extra_connection_chance_percent;
         break;
     case DG_ALGORITHM_BSP_TREE:
     default:
@@ -1595,6 +1649,13 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
     hash = dg_nuklear_hash_i32(hash, app->bsp_config.room_max_size);
 
     hash = dg_nuklear_hash_i32(hash, app->drunkards_walk_config.wiggle_percent);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.worm_count);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.wiggle_percent);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.branch_chance_percent);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.target_floor_percent);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.brush_radius);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.max_steps_per_worm);
+    hash = dg_nuklear_hash_i32(hash, app->worm_caves_config.ensure_connected);
 
     hash = dg_nuklear_hash_i32(hash, app->cellular_automata_config.initial_wall_percent);
     hash = dg_nuklear_hash_i32(hash, app->cellular_automata_config.simulation_steps);
@@ -1604,6 +1665,11 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
     hash = dg_nuklear_hash_i32(hash, app->value_noise_config.octaves);
     hash = dg_nuklear_hash_i32(hash, app->value_noise_config.persistence_percent);
     hash = dg_nuklear_hash_i32(hash, app->value_noise_config.floor_threshold_percent);
+    hash = dg_nuklear_hash_i32(hash, app->simplex_noise_config.feature_size);
+    hash = dg_nuklear_hash_i32(hash, app->simplex_noise_config.octaves);
+    hash = dg_nuklear_hash_i32(hash, app->simplex_noise_config.persistence_percent);
+    hash = dg_nuklear_hash_i32(hash, app->simplex_noise_config.floor_threshold_percent);
+    hash = dg_nuklear_hash_i32(hash, app->simplex_noise_config.ensure_connected);
 
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.min_rooms);
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.max_rooms);
@@ -1614,6 +1680,15 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.max_room_connections);
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.ensure_full_connectivity);
     hash = dg_nuklear_hash_i32(hash, app->rooms_and_mazes_config.dead_end_prune_steps);
+    hash = dg_nuklear_hash_i32(hash, app->room_graph_config.min_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->room_graph_config.max_rooms);
+    hash = dg_nuklear_hash_i32(hash, app->room_graph_config.room_min_size);
+    hash = dg_nuklear_hash_i32(hash, app->room_graph_config.room_max_size);
+    hash = dg_nuklear_hash_i32(hash, app->room_graph_config.neighbor_candidates);
+    hash = dg_nuklear_hash_i32(
+        hash,
+        app->room_graph_config.extra_connection_chance_percent
+    );
 
     hash = dg_nuklear_hash_i32(hash, app->process_enabled);
     if (app->process_enabled != 0) {
@@ -1729,10 +1804,16 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
+    } else if (algorithm == DG_ALGORITHM_WORM_CAVES) {
+        request.params.worm_caves = app->worm_caves_config;
     } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
         request.params.cellular_automata = app->cellular_automata_config;
+    } else if (algorithm == DG_ALGORITHM_SIMPLEX_NOISE) {
+        request.params.simplex_noise = app->simplex_noise_config;
     } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
         request.params.value_noise = app->value_noise_config;
+    } else if (algorithm == DG_ALGORITHM_ROOM_GRAPH) {
+        request.params.room_graph = app->room_graph_config;
     } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
         request.params.rooms_and_mazes = app->rooms_and_mazes_config;
     } else {
@@ -2820,6 +2901,76 @@ static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_
     }
 }
 
+static void dg_nuklear_draw_room_graph_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(ctx, "Min Rooms", 1, &app->room_graph_config.min_rooms, 256, 1, 0.25f);
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(ctx, "Max Rooms", 1, &app->room_graph_config.max_rooms, 256, 1, 0.25f);
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Room Min Size",
+        3,
+        &app->room_graph_config.room_min_size,
+        64,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Room Max Size",
+        3,
+        &app->room_graph_config.room_max_size,
+        64,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Neighbor Candidates",
+        1,
+        &app->room_graph_config.neighbor_candidates,
+        8,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Extra Loops (%)",
+        0,
+        &app->room_graph_config.extra_connection_chance_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    if (app->room_graph_config.max_rooms < app->room_graph_config.min_rooms) {
+        app->room_graph_config.max_rooms = app->room_graph_config.min_rooms;
+    }
+    if (app->room_graph_config.room_max_size < app->room_graph_config.room_min_size) {
+        app->room_graph_config.room_max_size = app->room_graph_config.room_min_size;
+    }
+    app->room_graph_config.neighbor_candidates =
+        dg_nuklear_clamp_int(app->room_graph_config.neighbor_candidates, 1, 8);
+    app->room_graph_config.extra_connection_chance_percent =
+        dg_nuklear_clamp_int(app->room_graph_config.extra_connection_chance_percent, 0, 100);
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Room Graph Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOM_GRAPH);
+        dg_nuklear_set_status(app, "Room Graph defaults restored.");
+    }
+}
+
 static void dg_nuklear_draw_drunkards_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     nk_layout_row_dynamic(ctx, 28.0f, 1);
@@ -2837,6 +2988,101 @@ static void dg_nuklear_draw_drunkards_settings(struct nk_context *ctx, dg_nuklea
     if (nk_button_label(ctx, "Reset Drunkard Defaults")) {
         dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
         dg_nuklear_set_status(app, "Drunkard's Walk defaults restored.");
+    }
+}
+
+static void dg_nuklear_draw_worm_caves_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Worm Count",
+        1,
+        &app->worm_caves_config.worm_count,
+        128,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Wiggle (%)",
+        0,
+        &app->worm_caves_config.wiggle_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Branch Chance (%)",
+        0,
+        &app->worm_caves_config.branch_chance_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Target Floor (%)",
+        5,
+        &app->worm_caves_config.target_floor_percent,
+        90,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Brush Radius",
+        0,
+        &app->worm_caves_config.brush_radius,
+        3,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Max Steps/Worm",
+        8,
+        &app->worm_caves_config.max_steps_per_worm,
+        20000,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->worm_caves_config.ensure_connected = nk_check_label(
+        ctx,
+        "Ensure Connected Floor",
+        app->worm_caves_config.ensure_connected
+    );
+    app->worm_caves_config.worm_count =
+        dg_nuklear_clamp_int(app->worm_caves_config.worm_count, 1, 128);
+    app->worm_caves_config.wiggle_percent =
+        dg_nuklear_clamp_int(app->worm_caves_config.wiggle_percent, 0, 100);
+    app->worm_caves_config.branch_chance_percent =
+        dg_nuklear_clamp_int(app->worm_caves_config.branch_chance_percent, 0, 100);
+    app->worm_caves_config.target_floor_percent =
+        dg_nuklear_clamp_int(app->worm_caves_config.target_floor_percent, 5, 90);
+    app->worm_caves_config.brush_radius =
+        dg_nuklear_clamp_int(app->worm_caves_config.brush_radius, 0, 3);
+    app->worm_caves_config.max_steps_per_worm =
+        dg_nuklear_clamp_int(app->worm_caves_config.max_steps_per_worm, 8, 20000);
+    app->worm_caves_config.ensure_connected = app->worm_caves_config.ensure_connected ? 1 : 0;
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Worm Caves Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_WORM_CAVES);
+        dg_nuklear_set_status(app, "Worm Caves defaults restored.");
     }
 }
 
@@ -2954,6 +3200,79 @@ static void dg_nuklear_draw_value_noise_settings(
     if (nk_button_label(ctx, "Reset Value Noise Defaults")) {
         dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_VALUE_NOISE);
         dg_nuklear_set_status(app, "Value Noise defaults restored.");
+    }
+}
+
+static void dg_nuklear_draw_simplex_noise_settings(
+    struct nk_context *ctx,
+    dg_nuklear_app_t *app
+)
+{
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Feature Size",
+        2,
+        &app->simplex_noise_config.feature_size,
+        128,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Octaves",
+        1,
+        &app->simplex_noise_config.octaves,
+        8,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Persistence (%)",
+        10,
+        &app->simplex_noise_config.persistence_percent,
+        90,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
+    nk_property_int(
+        ctx,
+        "Floor Threshold (%)",
+        0,
+        &app->simplex_noise_config.floor_threshold_percent,
+        100,
+        1,
+        0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 24.0f, 1);
+    app->simplex_noise_config.ensure_connected = nk_check_label(
+        ctx,
+        "Ensure Connected Floor",
+        app->simplex_noise_config.ensure_connected
+    );
+    app->simplex_noise_config.feature_size =
+        dg_nuklear_clamp_int(app->simplex_noise_config.feature_size, 2, 128);
+    app->simplex_noise_config.octaves =
+        dg_nuklear_clamp_int(app->simplex_noise_config.octaves, 1, 8);
+    app->simplex_noise_config.persistence_percent =
+        dg_nuklear_clamp_int(app->simplex_noise_config.persistence_percent, 10, 90);
+    app->simplex_noise_config.floor_threshold_percent =
+        dg_nuklear_clamp_int(app->simplex_noise_config.floor_threshold_percent, 0, 100);
+    app->simplex_noise_config.ensure_connected =
+        app->simplex_noise_config.ensure_connected ? 1 : 0;
+
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    if (nk_button_label(ctx, "Reset Simplex Defaults")) {
+        dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_SIMPLEX_NOISE);
+        dg_nuklear_set_status(app, "Simplex Noise defaults restored.");
     }
 }
 
@@ -3855,10 +4174,16 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
 
         if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
             dg_nuklear_draw_drunkards_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_WORM_CAVES) {
+            dg_nuklear_draw_worm_caves_settings(ctx, app);
         } else if (algorithm == DG_ALGORITHM_CELLULAR_AUTOMATA) {
             dg_nuklear_draw_cellular_automata_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_SIMPLEX_NOISE) {
+            dg_nuklear_draw_simplex_noise_settings(ctx, app);
         } else if (algorithm == DG_ALGORITHM_VALUE_NOISE) {
             dg_nuklear_draw_value_noise_settings(ctx, app);
+        } else if (algorithm == DG_ALGORITHM_ROOM_GRAPH) {
+            dg_nuklear_draw_room_graph_settings(ctx, app);
         } else if (algorithm == DG_ALGORITHM_ROOMS_AND_MAZES) {
             dg_nuklear_draw_rooms_and_mazes_settings(ctx, app);
         } else {
@@ -3871,7 +4196,7 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
             nk_layout_row_dynamic(ctx, 48.0f, 1);
             nk_label_wrap(
                 ctx,
-                "Rooms workflow is unavailable for this layout algorithm. Switch to BSP Tree or Rooms + Mazes."
+                "Rooms workflow is unavailable for this layout algorithm. Switch to BSP Tree, Room Graph, or Rooms + Mazes."
             );
         }
     } else {
@@ -3902,9 +4227,12 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     app->height = 40;
 
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_BSP_TREE);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOM_GRAPH);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_DRUNKARDS_WALK);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_WORM_CAVES);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_CELLULAR_AUTOMATA);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_VALUE_NOISE);
+    dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_SIMPLEX_NOISE);
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
     dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);

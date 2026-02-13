@@ -89,6 +89,33 @@ typedef struct dg_snapshot_rooms_and_mazes_config {
     int dead_end_prune_steps;
 } dg_snapshot_rooms_and_mazes_config_t;
 
+typedef struct dg_snapshot_room_graph_config {
+    int min_rooms;
+    int max_rooms;
+    int room_min_size;
+    int room_max_size;
+    int neighbor_candidates;
+    int extra_connection_chance_percent;
+} dg_snapshot_room_graph_config_t;
+
+typedef struct dg_snapshot_worm_caves_config {
+    int worm_count;
+    int wiggle_percent;
+    int branch_chance_percent;
+    int target_floor_percent;
+    int brush_radius;
+    int max_steps_per_worm;
+    int ensure_connected;
+} dg_snapshot_worm_caves_config_t;
+
+typedef struct dg_snapshot_simplex_noise_config {
+    int feature_size;
+    int octaves;
+    int persistence_percent;
+    int floor_threshold_percent;
+    int ensure_connected;
+} dg_snapshot_simplex_noise_config_t;
+
 typedef struct dg_snapshot_room_type_constraints {
     int area_min;
     int area_max;
@@ -178,6 +205,9 @@ typedef struct dg_generation_request_snapshot {
         dg_snapshot_cellular_automata_config_t cellular_automata;
         dg_snapshot_value_noise_config_t value_noise;
         dg_snapshot_rooms_and_mazes_config_t rooms_and_mazes;
+        dg_snapshot_room_graph_config_t room_graph;
+        dg_snapshot_worm_caves_config_t worm_caves;
+        dg_snapshot_simplex_noise_config_t simplex_noise;
     } params;
     dg_snapshot_process_config_t process;
     dg_snapshot_room_type_assignment_config_t room_types;

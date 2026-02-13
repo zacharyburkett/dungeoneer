@@ -282,6 +282,106 @@ static dg_status_t dg_validate_rooms_and_mazes_config(const dg_rooms_and_mazes_c
     return DG_STATUS_OK;
 }
 
+static dg_status_t dg_validate_room_graph_config(const dg_room_graph_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->min_rooms < 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_rooms < config->min_rooms) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_min_size < 3) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->room_max_size < config->room_min_size) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->neighbor_candidates < 1 || config->neighbor_candidates > 8) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->extra_connection_chance_percent < 0 ||
+        config->extra_connection_chance_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_validate_worm_caves_config(const dg_worm_caves_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->worm_count < 1 || config->worm_count > 128) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->wiggle_percent < 0 || config->wiggle_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->branch_chance_percent < 0 || config->branch_chance_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->target_floor_percent < 5 || config->target_floor_percent > 90) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->brush_radius < 0 || config->brush_radius > 3) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->max_steps_per_worm < 8 || config->max_steps_per_worm > 20000) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->ensure_connected != 0 && config->ensure_connected != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_validate_simplex_noise_config(const dg_simplex_noise_config_t *config)
+{
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->feature_size < 2 || config->feature_size > 128) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->octaves < 1 || config->octaves > 8) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->persistence_percent < 10 || config->persistence_percent > 90) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->floor_threshold_percent < 0 || config->floor_threshold_percent > 100) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->ensure_connected != 0 && config->ensure_connected != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    return DG_STATUS_OK;
+}
+
 static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
 {
     size_t i;
@@ -545,6 +645,38 @@ static dg_status_t dg_snapshot_generation_request(
         snapshot.params.rooms_and_mazes.dead_end_prune_steps =
             request->params.rooms_and_mazes.dead_end_prune_steps;
         break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        snapshot.params.room_graph.min_rooms = request->params.room_graph.min_rooms;
+        snapshot.params.room_graph.max_rooms = request->params.room_graph.max_rooms;
+        snapshot.params.room_graph.room_min_size = request->params.room_graph.room_min_size;
+        snapshot.params.room_graph.room_max_size = request->params.room_graph.room_max_size;
+        snapshot.params.room_graph.neighbor_candidates =
+            request->params.room_graph.neighbor_candidates;
+        snapshot.params.room_graph.extra_connection_chance_percent =
+            request->params.room_graph.extra_connection_chance_percent;
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        snapshot.params.worm_caves.worm_count = request->params.worm_caves.worm_count;
+        snapshot.params.worm_caves.wiggle_percent = request->params.worm_caves.wiggle_percent;
+        snapshot.params.worm_caves.branch_chance_percent =
+            request->params.worm_caves.branch_chance_percent;
+        snapshot.params.worm_caves.target_floor_percent =
+            request->params.worm_caves.target_floor_percent;
+        snapshot.params.worm_caves.brush_radius = request->params.worm_caves.brush_radius;
+        snapshot.params.worm_caves.max_steps_per_worm =
+            request->params.worm_caves.max_steps_per_worm;
+        snapshot.params.worm_caves.ensure_connected = request->params.worm_caves.ensure_connected;
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        snapshot.params.simplex_noise.feature_size = request->params.simplex_noise.feature_size;
+        snapshot.params.simplex_noise.octaves = request->params.simplex_noise.octaves;
+        snapshot.params.simplex_noise.persistence_percent =
+            request->params.simplex_noise.persistence_percent;
+        snapshot.params.simplex_noise.floor_threshold_percent =
+            request->params.simplex_noise.floor_threshold_percent;
+        snapshot.params.simplex_noise.ensure_connected =
+            request->params.simplex_noise.ensure_connected;
+        break;
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -637,6 +769,48 @@ void dg_default_value_noise_config(dg_value_noise_config_t *config)
     config->octaves = 3;
     config->persistence_percent = 55;
     config->floor_threshold_percent = 48;
+}
+
+void dg_default_room_graph_config(dg_room_graph_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->min_rooms = 10;
+    config->max_rooms = 20;
+    config->room_min_size = 4;
+    config->room_max_size = 11;
+    config->neighbor_candidates = 3;
+    config->extra_connection_chance_percent = 20;
+}
+
+void dg_default_worm_caves_config(dg_worm_caves_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->worm_count = 6;
+    config->wiggle_percent = 55;
+    config->branch_chance_percent = 7;
+    config->target_floor_percent = 34;
+    config->brush_radius = 0;
+    config->max_steps_per_worm = 900;
+    config->ensure_connected = 1;
+}
+
+void dg_default_simplex_noise_config(dg_simplex_noise_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->feature_size = 14;
+    config->octaves = 4;
+    config->persistence_percent = 55;
+    config->floor_threshold_percent = 50;
+    config->ensure_connected = 1;
 }
 
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints)
@@ -779,8 +953,17 @@ void dg_default_generate_request(
     case DG_ALGORITHM_ROOMS_AND_MAZES:
         dg_default_rooms_and_mazes_config(&request->params.rooms_and_mazes);
         break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        dg_default_room_graph_config(&request->params.room_graph);
+        break;
     case DG_ALGORITHM_DRUNKARDS_WALK:
         dg_default_drunkards_walk_config(&request->params.drunkards_walk);
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        dg_default_worm_caves_config(&request->params.worm_caves);
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        dg_default_simplex_noise_config(&request->params.simplex_noise);
         break;
     case DG_ALGORITHM_BSP_TREE:
     default:
@@ -794,10 +977,13 @@ dg_map_generation_class_t dg_algorithm_generation_class(dg_algorithm_t algorithm
     switch (algorithm) {
     case DG_ALGORITHM_BSP_TREE:
     case DG_ALGORITHM_ROOMS_AND_MAZES:
+    case DG_ALGORITHM_ROOM_GRAPH:
         return DG_MAP_GENERATION_CLASS_ROOM_LIKE;
     case DG_ALGORITHM_DRUNKARDS_WALK:
     case DG_ALGORITHM_CELLULAR_AUTOMATA:
     case DG_ALGORITHM_VALUE_NOISE:
+    case DG_ALGORITHM_WORM_CAVES:
+    case DG_ALGORITHM_SIMPLEX_NOISE:
         return DG_MAP_GENERATION_CLASS_CAVE_LIKE;
     default:
         return DG_MAP_GENERATION_CLASS_UNKNOWN;
@@ -859,6 +1045,15 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     case DG_ALGORITHM_VALUE_NOISE:
         status = dg_validate_value_noise_config(&request->params.value_noise);
         break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        status = dg_validate_room_graph_config(&request->params.room_graph);
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        status = dg_validate_worm_caves_config(&request->params.worm_caves);
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        status = dg_validate_simplex_noise_config(&request->params.simplex_noise);
+        break;
     default:
         return DG_STATUS_INVALID_ARGUMENT;
     }
@@ -895,6 +1090,15 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         break;
     case DG_ALGORITHM_VALUE_NOISE:
         status = dg_generate_value_noise_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        status = dg_generate_room_graph_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        status = dg_generate_worm_caves_impl(request, &generated, &rng);
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        status = dg_generate_simplex_noise_impl(request, &generated, &rng);
         break;
     default:
         status = DG_STATUS_INVALID_ARGUMENT;
