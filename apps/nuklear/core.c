@@ -784,6 +784,271 @@ static struct nk_color dg_nuklear_tile_color(const dg_map_t *map, int x, int y, 
     }
 }
 
+static void dg_nuklear_free_preview_image_buffer(dg_nuklear_app_t *app)
+{
+    if (app == NULL) {
+        return;
+    }
+
+    free(app->preview_image_pixels);
+    app->preview_image_pixels = NULL;
+    app->preview_image_width = 0;
+    app->preview_image_height = 0;
+}
+
+static void dg_nuklear_free_preview_tile_colors(dg_nuklear_app_t *app)
+{
+    if (app == NULL) {
+        return;
+    }
+
+    free(app->preview_tile_colors);
+    app->preview_tile_colors = NULL;
+    app->preview_tile_color_width = 0;
+    app->preview_tile_color_height = 0;
+    app->preview_tile_colors_valid = 0;
+}
+
+static bool dg_nuklear_ensure_preview_image_buffer(
+    dg_nuklear_app_t *app,
+    int image_width,
+    int image_height
+)
+{
+    size_t pixel_count;
+    size_t byte_count;
+    unsigned char *buffer;
+
+    if (app == NULL || image_width <= 0 || image_height <= 0) {
+        return false;
+    }
+
+    if (app->preview_image_pixels != NULL && app->preview_image_width == image_width &&
+        app->preview_image_height == image_height) {
+        return true;
+    }
+
+    if ((size_t)image_width > (SIZE_MAX / (size_t)image_height)) {
+        return false;
+    }
+    pixel_count = (size_t)image_width * (size_t)image_height;
+    if (pixel_count > (SIZE_MAX / 4u)) {
+        return false;
+    }
+    byte_count = pixel_count * 4u;
+
+    buffer = (unsigned char *)malloc(byte_count);
+    if (buffer == NULL) {
+        return false;
+    }
+
+    dg_nuklear_free_preview_image_buffer(app);
+    app->preview_image_pixels = buffer;
+    app->preview_image_width = image_width;
+    app->preview_image_height = image_height;
+    return true;
+}
+
+static bool dg_nuklear_rebuild_preview_tile_colors(dg_nuklear_app_t *app)
+{
+    size_t cell_count;
+    size_t i;
+    unsigned char *tile_colors;
+    unsigned char *room_mask;
+    uint32_t *room_type_by_tile;
+    size_t room_count;
+
+    if (app == NULL || !app->has_map || app->map.tiles == NULL || app->map.width <= 0 || app->map.height <= 0) {
+        return false;
+    }
+
+    if ((size_t)app->map.width > (SIZE_MAX / (size_t)app->map.height)) {
+        return false;
+    }
+    cell_count = (size_t)app->map.width * (size_t)app->map.height;
+    if (cell_count > (SIZE_MAX / 4u)) {
+        return false;
+    }
+
+    tile_colors = (unsigned char *)malloc(cell_count * 4u);
+    if (tile_colors == NULL) {
+        return false;
+    }
+
+    room_mask = NULL;
+    room_type_by_tile = NULL;
+    room_count = app->map.metadata.room_count;
+    if (
+        app->map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE &&
+        room_count > 0 &&
+        app->map.metadata.rooms != NULL
+    ) {
+        room_mask = (unsigned char *)calloc(cell_count, sizeof(unsigned char));
+        room_type_by_tile = (uint32_t *)malloc(cell_count * sizeof(uint32_t));
+        if (room_mask == NULL || room_type_by_tile == NULL) {
+            free(tile_colors);
+            free(room_mask);
+            free(room_type_by_tile);
+            return false;
+        }
+        for (i = 0; i < cell_count; ++i) {
+            room_type_by_tile[i] = DG_ROOM_TYPE_UNASSIGNED;
+        }
+
+        for (i = 0; i < room_count; ++i) {
+            const dg_room_metadata_t *room = &app->map.metadata.rooms[i];
+            int x0;
+            int y0;
+            int x1;
+            int y1;
+            int x;
+            int y;
+
+            x0 = room->bounds.x;
+            y0 = room->bounds.y;
+            x1 = room->bounds.x + room->bounds.width;
+            y1 = room->bounds.y + room->bounds.height;
+            if (x0 < 0) {
+                x0 = 0;
+            }
+            if (y0 < 0) {
+                y0 = 0;
+            }
+            if (x1 > app->map.width) {
+                x1 = app->map.width;
+            }
+            if (y1 > app->map.height) {
+                y1 = app->map.height;
+            }
+            if (x0 >= x1 || y0 >= y1) {
+                continue;
+            }
+
+            for (y = y0; y < y1; ++y) {
+                for (x = x0; x < x1; ++x) {
+                    size_t tile_index = (size_t)y * (size_t)app->map.width + (size_t)x;
+                    if (app->map.tiles[tile_index] != DG_TILE_FLOOR) {
+                        continue;
+                    }
+                    room_mask[tile_index] = 1u;
+                    if (room->type_id != DG_ROOM_TYPE_UNASSIGNED &&
+                        room_type_by_tile[tile_index] == DG_ROOM_TYPE_UNASSIGNED) {
+                        room_type_by_tile[tile_index] = room->type_id;
+                    }
+                }
+            }
+        }
+    }
+
+    for (i = 0; i < cell_count; ++i) {
+        dg_tile_t tile = app->map.tiles[i];
+        struct nk_color color;
+        unsigned char *dst = tile_colors + (i * 4u);
+
+        if (tile == DG_TILE_FLOOR && room_mask != NULL && room_mask[i] != 0u) {
+            if (room_type_by_tile[i] != DG_ROOM_TYPE_UNASSIGNED) {
+                color = dg_nuklear_color_for_room_type(room_type_by_tile[i]);
+            } else {
+                color = nk_rgb(112, 176, 221);
+            }
+        } else {
+            switch (tile) {
+            case DG_TILE_WALL:
+                color = nk_rgb(48, 54, 66);
+                break;
+            case DG_TILE_FLOOR:
+                color = nk_rgb(188, 196, 173);
+                break;
+            case DG_TILE_DOOR:
+                color = nk_rgb(224, 176, 85);
+                break;
+            case DG_TILE_VOID:
+            default:
+                color = nk_rgb(18, 22, 28);
+                break;
+            }
+        }
+
+        dst[0] = color.r;
+        dst[1] = color.g;
+        dst[2] = color.b;
+        dst[3] = color.a;
+    }
+
+    free(room_mask);
+    free(room_type_by_tile);
+
+    dg_nuklear_free_preview_tile_colors(app);
+    app->preview_tile_colors = tile_colors;
+    app->preview_tile_color_width = app->map.width;
+    app->preview_tile_color_height = app->map.height;
+    app->preview_tile_colors_valid = 1;
+    return true;
+}
+
+static bool dg_nuklear_ensure_preview_tile_colors(dg_nuklear_app_t *app)
+{
+    if (app == NULL || !app->has_map || app->map.tiles == NULL || app->map.width <= 0 || app->map.height <= 0) {
+        return false;
+    }
+
+    if (app->preview_tile_colors_valid != 0 && app->preview_tile_colors != NULL &&
+        app->preview_tile_color_width == app->map.width &&
+        app->preview_tile_color_height == app->map.height) {
+        return true;
+    }
+
+    return dg_nuklear_rebuild_preview_tile_colors(app);
+}
+
+static void dg_nuklear_rasterize_preview_image(
+    dg_nuklear_app_t *app,
+    float origin_x_tiles,
+    float origin_y_tiles,
+    float scale,
+    int image_width,
+    int image_height
+)
+{
+    int px;
+    int py;
+    int tile_width;
+    int tile_height;
+    const unsigned char outside_rgba[4] = {18u, 22u, 28u, 255u};
+
+    if (app == NULL || app->preview_image_pixels == NULL || app->preview_tile_colors == NULL || scale <= 0.0f) {
+        return;
+    }
+
+    tile_width = app->preview_tile_color_width;
+    tile_height = app->preview_tile_color_height;
+
+    for (py = 0; py < image_height; ++py) {
+        float map_yf = origin_y_tiles + (((float)py + 0.5f) / scale);
+        int map_y = dg_nuklear_floor_to_int(map_yf);
+
+        for (px = 0; px < image_width; ++px) {
+            float map_xf = origin_x_tiles + (((float)px + 0.5f) / scale);
+            int map_x = dg_nuklear_floor_to_int(map_xf);
+            size_t dst_index = ((size_t)py * (size_t)image_width + (size_t)px) * 4u;
+
+            if (map_x >= 0 && map_y >= 0 && map_x < tile_width && map_y < tile_height) {
+                size_t src_index =
+                    ((size_t)map_y * (size_t)tile_width + (size_t)map_x) * 4u;
+                app->preview_image_pixels[dst_index + 0u] = app->preview_tile_colors[src_index + 0u];
+                app->preview_image_pixels[dst_index + 1u] = app->preview_tile_colors[src_index + 1u];
+                app->preview_image_pixels[dst_index + 2u] = app->preview_tile_colors[src_index + 2u];
+                app->preview_image_pixels[dst_index + 3u] = app->preview_tile_colors[src_index + 3u];
+            } else {
+                app->preview_image_pixels[dst_index + 0u] = outside_rgba[0];
+                app->preview_image_pixels[dst_index + 1u] = outside_rgba[1];
+                app->preview_image_pixels[dst_index + 2u] = outside_rgba[2];
+                app->preview_image_pixels[dst_index + 3u] = outside_rgba[3];
+            }
+        }
+    }
+}
+
 static void dg_nuklear_reset_preview_camera(dg_nuklear_app_t *app)
 {
     if (app == NULL) {
@@ -805,6 +1070,8 @@ static void dg_nuklear_destroy_map(dg_nuklear_app_t *app)
     if (app == NULL) {
         return;
     }
+
+    dg_nuklear_free_preview_tile_colors(app);
 
     if (app->has_map) {
         dg_map_destroy(&app->map);
@@ -1458,7 +1725,8 @@ static void dg_nuklear_load_map(dg_nuklear_app_t *app)
 static void dg_nuklear_draw_map(
     struct nk_context *ctx,
     dg_nuklear_app_t *app,
-    float suggested_height
+    float suggested_height,
+    const dg_nuklear_preview_renderer_t *preview_renderer
 )
 {
     struct nk_rect preview_bounds;
@@ -1513,6 +1781,8 @@ static void dg_nuklear_draw_map(
         int x_end;
         int y_start;
         int y_end;
+        int image_width;
+        int image_height;
         int sample_step;
         int x;
         int y;
@@ -1526,6 +1796,7 @@ static void dg_nuklear_draw_map(
         float center_y;
         float origin_x_tiles;
         float origin_y_tiles;
+        bool drew_image;
         bool hovered;
         float scroll_delta;
 
@@ -1627,7 +1898,42 @@ static void dg_nuklear_draw_map(
             x_end = dg_nuklear_clamp_int(x_end, 0, app->map.width);
             y_end = dg_nuklear_clamp_int(y_end, 0, app->map.height);
 
-            if (x_end > x_start && y_end > y_start) {
+            drew_image = false;
+            image_width = dg_nuklear_clamp_int((int)preview_content_bounds.w, 1, 4096);
+            image_height = dg_nuklear_clamp_int((int)preview_content_bounds.h, 1, 4096);
+            if (
+                preview_renderer != NULL &&
+                preview_renderer->upload_rgba8 != NULL &&
+                dg_nuklear_ensure_preview_tile_colors(app) &&
+                dg_nuklear_ensure_preview_image_buffer(app, image_width, image_height)
+            ) {
+                struct nk_image preview_image;
+                dg_nuklear_rasterize_preview_image(
+                    app,
+                    origin_x_tiles,
+                    origin_y_tiles,
+                    scale,
+                    image_width,
+                    image_height
+                );
+                if (preview_renderer->upload_rgba8(
+                        preview_renderer->user_data,
+                        image_width,
+                        image_height,
+                        app->preview_image_pixels,
+                        &preview_image
+                    )) {
+                    nk_draw_image(
+                        canvas,
+                        preview_content_bounds,
+                        &preview_image,
+                        nk_rgba(255, 255, 255, 255)
+                    );
+                    drew_image = true;
+                }
+            }
+
+            if (!drew_image && x_end > x_start && y_end > y_start) {
                 sample_step = 1;
                 max_preview_quads = 4000u;
                 sampled_quads = (size_t)(x_end - x_start) * (size_t)(y_end - y_start);
@@ -2853,13 +3159,15 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
 void dg_nuklear_app_shutdown(dg_nuklear_app_t *app)
 {
     dg_nuklear_destroy_map(app);
+    dg_nuklear_free_preview_image_buffer(app);
 }
 
 void dg_nuklear_app_draw(
     struct nk_context *ctx,
     dg_nuklear_app_t *app,
     int screen_width,
-    int screen_height
+    int screen_height,
+    const dg_nuklear_preview_renderer_t *preview_renderer
 )
 {
     const float margin = 10.0f;
@@ -2965,7 +3273,7 @@ void dg_nuklear_app_draw(
             map_rect,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR
         )) {
-        dg_nuklear_draw_map(ctx, app, map_rect.h - 50.0f);
+        dg_nuklear_draw_map(ctx, app, map_rect.h - 50.0f, preview_renderer);
     }
     nk_end(ctx);
 

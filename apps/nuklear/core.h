@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 struct nk_context;
+struct nk_image;
 
 #define DG_NUKLEAR_MAX_ROOM_TYPES 8
 #define DG_NUKLEAR_MAX_PROCESS_METHODS 16
@@ -52,6 +53,13 @@ typedef struct dg_nuklear_app {
     float preview_zoom;
     float preview_center_x;
     float preview_center_y;
+    unsigned char *preview_image_pixels;
+    int preview_image_width;
+    int preview_image_height;
+    unsigned char *preview_tile_colors;
+    int preview_tile_color_width;
+    int preview_tile_color_height;
+    int preview_tile_colors_valid;
     uint64_t last_live_config_hash;
     int last_live_config_hash_valid;
     int room_types_enabled;
@@ -64,13 +72,27 @@ typedef struct dg_nuklear_app {
     char status_text[256];
 } dg_nuklear_app_t;
 
+typedef bool (*dg_nuklear_preview_upload_rgba8_fn)(
+    void *user_data,
+    int width,
+    int height,
+    const unsigned char *pixels,
+    struct nk_image *out_image
+);
+
+typedef struct dg_nuklear_preview_renderer {
+    void *user_data;
+    dg_nuklear_preview_upload_rgba8_fn upload_rgba8;
+} dg_nuklear_preview_renderer_t;
+
 void dg_nuklear_app_init(dg_nuklear_app_t *app);
 void dg_nuklear_app_shutdown(dg_nuklear_app_t *app);
 void dg_nuklear_app_draw(
     struct nk_context *ctx,
     dg_nuklear_app_t *app,
     int screen_width,
-    int screen_height
+    int screen_height,
+    const dg_nuklear_preview_renderer_t *preview_renderer
 );
 
 #ifdef __cplusplus
