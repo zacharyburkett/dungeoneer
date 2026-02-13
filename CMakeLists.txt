@@ -14,6 +14,7 @@ option(
 add_library(dungeoneer
     src/core.c
     src/io.c
+    src/io_export.c
     src/map.c
     src/rng.c
     src/generator/api.c

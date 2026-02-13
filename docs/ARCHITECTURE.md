@@ -27,11 +27,11 @@ Owns map storage and metadata:
 - Room adjacency graph metadata (spans + neighbor list)
 - Runtime diagnostics (coverage/connectivity/attempts)
 
-### `io.h` + `src/io.c`
+### `io.h` + `src/io.c` / `src/io_export.c`
 
 Persistence and export:
-- Save/load generation configuration snapshots (`.dgmap`) for deterministic regeneration
-- PNG + JSON export for engine-agnostic consumption
+- `src/io.c`: save/load generation configuration snapshots (`.dgmap`) for deterministic regeneration
+- `src/io_export.c`: PNG + JSON export for engine-agnostic consumption
 - Snapshot validation and strict schema checks
 
 ### `rng.h` + `src/rng.c`
