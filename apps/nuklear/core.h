@@ -17,6 +17,9 @@ struct nk_image;
 #define DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL 2
 #define DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP 3
 #define DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM 4
+#define DG_NUKLEAR_WORKFLOW_LAYOUT 0
+#define DG_NUKLEAR_WORKFLOW_ROOMS 1
+#define DG_NUKLEAR_WORKFLOW_PROCESS 2
 
 typedef struct dg_nuklear_room_type_ui {
     char label[24];
@@ -55,6 +58,7 @@ typedef struct dg_nuklear_app {
     dg_process_method_t process_methods[DG_NUKLEAR_MAX_PROCESS_METHODS];
     int process_method_count;
     int process_add_method_type_index;
+    int controls_workflow_tab;
     float preview_zoom;
     float preview_center_x;
     float preview_center_y;

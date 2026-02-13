@@ -3400,6 +3400,27 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
     }
 }
 
+static bool dg_nuklear_workflow_tab_button(
+    struct nk_context *ctx,
+    const char *label,
+    int selected
+)
+{
+    char button_label[48];
+
+    if (ctx == NULL || label == NULL) {
+        return false;
+    }
+
+    if (selected) {
+        (void)snprintf(button_label, sizeof(button_label), "[%s]", label);
+    } else {
+        (void)snprintf(button_label, sizeof(button_label), "%s", label);
+    }
+
+    return nk_button_label(ctx, button_label) != 0;
+}
+
 static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     dg_algorithm_t algorithm;
@@ -3408,9 +3429,40 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         return;
     }
 
+    app->controls_workflow_tab = dg_nuklear_clamp_int(
+        app->controls_workflow_tab,
+        DG_NUKLEAR_WORKFLOW_LAYOUT,
+        DG_NUKLEAR_WORKFLOW_PROCESS
+    );
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Layout", NK_MAXIMIZED)) {
+    nk_layout_row_dynamic(ctx, 30.0f, 3);
+    if (dg_nuklear_workflow_tab_button(
+            ctx,
+            "Layout",
+            app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_LAYOUT
+        )) {
+        app->controls_workflow_tab = DG_NUKLEAR_WORKFLOW_LAYOUT;
+    }
+    if (dg_nuklear_workflow_tab_button(
+            ctx,
+            "Rooms",
+            app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_ROOMS
+        )) {
+        app->controls_workflow_tab = DG_NUKLEAR_WORKFLOW_ROOMS;
+    }
+    if (dg_nuklear_workflow_tab_button(
+            ctx,
+            "Post-Process",
+            app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_PROCESS
+        )) {
+        app->controls_workflow_tab = DG_NUKLEAR_WORKFLOW_PROCESS;
+    }
+
+    nk_layout_row_dynamic(ctx, 6.0f, 1);
+    nk_label(ctx, "", NK_TEXT_LEFT);
+
+    if (app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_LAYOUT) {
         dg_nuklear_draw_generation_settings(ctx, app);
         algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
         nk_layout_row_dynamic(ctx, 18.0f, 1);
@@ -3427,19 +3479,18 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         } else {
             dg_nuklear_draw_bsp_settings(ctx, app);
         }
-        nk_tree_pop(ctx);
-    }
-
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Process", NK_MINIMIZED)) {
-        dg_nuklear_draw_process_settings(ctx, app, algorithm);
-        nk_tree_pop(ctx);
-    }
-
-    if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
-        if (nk_tree_push(ctx, NK_TREE_TAB, "Room Type Assignment", NK_MINIMIZED)) {
+    } else if (app->controls_workflow_tab == DG_NUKLEAR_WORKFLOW_ROOMS) {
+        if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
             dg_nuklear_draw_room_type_settings(ctx, app, algorithm);
-            nk_tree_pop(ctx);
+        } else {
+            nk_layout_row_dynamic(ctx, 48.0f, 1);
+            nk_label_wrap(
+                ctx,
+                "Rooms workflow is unavailable for this layout algorithm. Switch to BSP Tree or Rooms + Mazes."
+            );
         }
+    } else {
+        dg_nuklear_draw_process_settings(ctx, app, algorithm);
     }
 
     dg_nuklear_maybe_auto_generate(app);
@@ -3472,6 +3523,7 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
     dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);
+    app->controls_workflow_tab = DG_NUKLEAR_WORKFLOW_LAYOUT;
     dg_nuklear_reset_preview_camera(app);
     dg_nuklear_sync_generation_class_with_algorithm(app);
     app->layout_side_left_ratio = 0.30f;
@@ -3812,7 +3864,7 @@ void dg_nuklear_app_draw(
 
     if (nk_begin(
             ctx,
-            "Dungeoneer Editor",
+            "Configuration",
             controls_rect,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE
         )) {
@@ -3822,7 +3874,7 @@ void dg_nuklear_app_draw(
 
     if (nk_begin(
             ctx,
-            "Map Preview",
+            "Preview",
             map_rect,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_NO_SCROLLBAR
         )) {
@@ -3832,7 +3884,7 @@ void dg_nuklear_app_draw(
 
     if (nk_begin(
             ctx,
-            "Map Metadata",
+            "Metadata",
             metadata_rect,
             NK_WINDOW_BORDER | NK_WINDOW_TITLE
         )) {
