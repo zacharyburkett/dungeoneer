@@ -12,6 +12,11 @@ struct nk_image;
 
 #define DG_NUKLEAR_MAX_ROOM_TYPES 8
 #define DG_NUKLEAR_MAX_PROCESS_METHODS 16
+#define DG_NUKLEAR_LAYOUT_SPLITTER_NONE 0
+#define DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL 1
+#define DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL 2
+#define DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP 3
+#define DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM 4
 
 typedef struct dg_nuklear_room_type_ui {
     char label[24];
@@ -54,6 +59,12 @@ typedef struct dg_nuklear_app {
     float preview_center_x;
     float preview_center_y;
     int preview_show_grid;
+    float layout_side_left_ratio;
+    float layout_side_map_ratio;
+    float layout_stacked_controls_ratio;
+    float layout_stacked_metadata_ratio;
+    int layout_active_splitter;
+    int layout_hover_splitter;
     unsigned char *preview_image_pixels;
     int preview_image_width;
     int preview_image_height;

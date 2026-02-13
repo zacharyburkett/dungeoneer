@@ -467,6 +467,91 @@ static struct nk_rect dg_nuklear_rect_intersection(struct nk_rect a, struct nk_r
     return nk_rect(left, top, right - left, bottom - top);
 }
 
+static void dg_nuklear_draw_splitter_overlay(
+    struct nk_context *ctx,
+    const char *name,
+    struct nk_rect rect,
+    int vertical,
+    int active,
+    int hovered
+)
+{
+    struct nk_command_buffer *canvas;
+    struct nk_rect bounds;
+    struct nk_rect track_rect;
+    struct nk_color track_color;
+    struct nk_color grip_color;
+    float grip_half_span;
+    float track_thickness;
+    float center_x;
+    float center_y;
+    float t0;
+    float t1;
+    nk_flags flags;
+
+    if (ctx == NULL || name == NULL || rect.w <= 0.0f || rect.h <= 0.0f) {
+        return;
+    }
+
+    flags = NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT | NK_WINDOW_BACKGROUND;
+    if (!nk_begin(ctx, name, rect, flags)) {
+        nk_end(ctx);
+        return;
+    }
+
+    canvas = nk_window_get_canvas(ctx);
+    bounds = nk_window_get_bounds(ctx);
+    if (canvas == NULL || bounds.w <= 0.0f || bounds.h <= 0.0f) {
+        nk_end(ctx);
+        return;
+    }
+
+    if (active) {
+        track_color = nk_rgba(92, 108, 138, 220);
+        grip_color = nk_rgba(220, 230, 255, 240);
+    } else if (hovered) {
+        track_color = nk_rgba(80, 92, 116, 190);
+        grip_color = nk_rgba(210, 218, 240, 220);
+    } else {
+        track_color = nk_rgba(65, 74, 92, 148);
+        grip_color = nk_rgba(190, 200, 220, 165);
+    }
+
+    if (vertical) {
+        track_rect = bounds;
+    } else {
+        track_thickness = dg_nuklear_clamp_float(bounds.h * 0.16f, 1.0f, 2.0f);
+        track_rect = nk_rect(
+            bounds.x,
+            bounds.y + (bounds.h - track_thickness) * 0.5f,
+            bounds.w,
+            track_thickness
+        );
+    }
+    nk_fill_rect(canvas, track_rect, 0.0f, track_color);
+
+    center_x = bounds.x + bounds.w * 0.5f;
+    center_y = bounds.y + bounds.h * 0.5f;
+    grip_half_span = vertical ? bounds.h * 0.16f : bounds.w * 0.16f;
+    grip_half_span = dg_nuklear_clamp_float(grip_half_span, 10.0f, 28.0f);
+
+    if (vertical) {
+        t0 = center_y - grip_half_span;
+        t1 = center_y + grip_half_span;
+        nk_stroke_line(canvas, center_x - 2.0f, t0, center_x - 2.0f, t1, 1.0f, grip_color);
+        nk_stroke_line(canvas, center_x, t0, center_x, t1, 1.0f, grip_color);
+        nk_stroke_line(canvas, center_x + 2.0f, t0, center_x + 2.0f, t1, 1.0f, grip_color);
+    } else {
+        t0 = center_x - grip_half_span;
+        t1 = center_x + grip_half_span;
+        nk_stroke_line(canvas, t0, center_y - 0.5f, t1, center_y - 0.5f, 1.0f, grip_color);
+        nk_stroke_line(canvas, t0, center_y, t1, center_y, 1.0f, grip_color);
+        nk_stroke_line(canvas, t0, center_y + 0.5f, t1, center_y + 0.5f, 1.0f, grip_color);
+    }
+
+    nk_end(ctx);
+}
+
 static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, int index)
 {
     if (slot == NULL) {
@@ -3252,6 +3337,12 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_room_type_defaults(app);
     dg_nuklear_reset_preview_camera(app);
     dg_nuklear_sync_generation_class_with_algorithm(app);
+    app->layout_side_left_ratio = 0.30f;
+    app->layout_side_map_ratio = 0.74f;
+    app->layout_stacked_controls_ratio = 0.52f;
+    app->layout_stacked_metadata_ratio = 0.21f;
+    app->layout_active_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
+    app->layout_hover_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
 
     (void)snprintf(app->seed_text, sizeof(app->seed_text), "1337");
     (void)snprintf(app->file_path, sizeof(app->file_path), "dungeon.dgmap");
@@ -3273,12 +3364,26 @@ void dg_nuklear_app_draw(
 )
 {
     const float margin = 10.0f;
-    const float side_metadata_height = 220.0f;
-    const float stacked_metadata_height = 180.0f;
-    float left_width = 420.0f;
+    const float splitter_size = margin;
+    int stacked_mode;
+    int hovered_splitter;
+    float left_width;
     float right_x;
     float right_width;
+    float controls_height;
     float map_height;
+    float metadata_height;
+    float total_width;
+    float total_height;
+    float min_controls_width;
+    float min_right_width;
+    float min_map_height;
+    float min_metadata_height;
+    float min_controls_height;
+    struct nk_rect side_vertical_splitter_rect;
+    struct nk_rect side_horizontal_splitter_rect;
+    struct nk_rect stacked_top_splitter_rect;
+    struct nk_rect stacked_bottom_splitter_rect;
     struct nk_rect controls_rect;
     struct nk_rect map_rect;
     struct nk_rect metadata_rect;
@@ -3287,76 +3392,285 @@ void dg_nuklear_app_draw(
         return;
     }
 
-    if (screen_width < 980 || screen_height < 640) {
-        float controls_height;
+    total_width = (float)screen_width - (margin * 2.0f);
+    total_height = (float)screen_height - (margin * 2.0f);
+    if (total_width < 1.0f) {
+        total_width = 1.0f;
+    }
+    if (total_height < 1.0f) {
+        total_height = 1.0f;
+    }
 
-        controls_height = (float)screen_height * 0.50f;
-        if (controls_height < 220.0f) {
-            controls_height = 220.0f;
+    stacked_mode = (screen_width < 980 || screen_height < 640) ? 1 : 0;
+    if (stacked_mode) {
+        if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL ||
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL) {
+            app->layout_active_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
+        }
+    } else {
+        if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP ||
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM) {
+            app->layout_active_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
+        }
+    }
+
+    side_vertical_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    side_horizontal_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    stacked_top_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    stacked_bottom_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+
+    min_controls_width = 280.0f;
+    min_right_width = 240.0f;
+    if (min_controls_width + min_right_width > total_width - splitter_size) {
+        float width_scale;
+        width_scale = (total_width - splitter_size) / (min_controls_width + min_right_width);
+        if (width_scale < 0.15f) {
+            width_scale = 0.15f;
+        }
+        min_controls_width *= width_scale;
+        min_right_width *= width_scale;
+    }
+
+    min_map_height = 120.0f;
+    min_metadata_height = 120.0f;
+    min_controls_height = 140.0f;
+    if (min_map_height + min_metadata_height > total_height - splitter_size) {
+        float height_scale;
+        height_scale = (total_height - splitter_size) / (min_map_height + min_metadata_height);
+        if (height_scale < 0.20f) {
+            height_scale = 0.20f;
+        }
+        min_map_height *= height_scale;
+        min_metadata_height *= height_scale;
+    }
+    if (min_map_height + min_metadata_height + min_controls_height > total_height - splitter_size * 2.0f) {
+        float stacked_scale;
+        stacked_scale = (total_height - splitter_size * 2.0f) /
+            (min_map_height + min_metadata_height + min_controls_height);
+        if (stacked_scale < 0.20f) {
+            stacked_scale = 0.20f;
+        }
+        min_map_height *= stacked_scale;
+        min_metadata_height *= stacked_scale;
+        min_controls_height *= stacked_scale;
+    }
+
+    if (stacked_mode) {
+        float content_height;
+        float controls_max;
+        float metadata_max;
+
+        content_height = (float)screen_height - margin * 4.0f;
+        if (content_height < 1.0f) {
+            content_height = 1.0f;
         }
 
-        map_height = (float)screen_height - controls_height - stacked_metadata_height - (margin * 4.0f);
-        if (map_height < 120.0f) {
-            map_height = 120.0f;
-            controls_height = (float)screen_height - stacked_metadata_height - map_height - (margin * 4.0f);
-            if (controls_height < 180.0f) {
-                controls_height = 180.0f;
+        controls_height = app->layout_stacked_controls_ratio * content_height;
+        metadata_height = app->layout_stacked_metadata_ratio * content_height;
+
+        controls_max = content_height - min_map_height - min_metadata_height;
+        if (controls_max < min_controls_height) {
+            controls_max = min_controls_height;
+        }
+        controls_height = dg_nuklear_clamp_float(controls_height, min_controls_height, controls_max);
+
+        metadata_max = content_height - controls_height - min_map_height;
+        if (metadata_max < min_metadata_height) {
+            metadata_max = min_metadata_height;
+        }
+        metadata_height = dg_nuklear_clamp_float(metadata_height, min_metadata_height, metadata_max);
+
+        map_height = content_height - controls_height - metadata_height;
+        if (map_height < min_map_height) {
+            float deficit;
+            float from_controls;
+            float from_metadata;
+
+            deficit = min_map_height - map_height;
+            from_controls = dg_nuklear_clamp_float(controls_height - min_controls_height, 0.0f, deficit);
+            controls_height -= from_controls;
+            deficit -= from_controls;
+            from_metadata = dg_nuklear_clamp_float(metadata_height - min_metadata_height, 0.0f, deficit);
+            metadata_height -= from_metadata;
+            map_height = content_height - controls_height - metadata_height;
+        }
+
+        if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP &&
+            nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            controls_height += ctx->input.mouse.delta.y;
+            controls_max = content_height - min_map_height - metadata_height;
+            if (controls_max < min_controls_height) {
+                controls_max = min_controls_height;
             }
+            controls_height = dg_nuklear_clamp_float(controls_height, min_controls_height, controls_max);
+            map_height = content_height - controls_height - metadata_height;
+        } else if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM &&
+            nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            metadata_height -= ctx->input.mouse.delta.y;
+            metadata_max = content_height - min_map_height - controls_height;
+            if (metadata_max < min_metadata_height) {
+                metadata_max = min_metadata_height;
+            }
+            metadata_height = dg_nuklear_clamp_float(metadata_height, min_metadata_height, metadata_max);
+            map_height = content_height - controls_height - metadata_height;
+        }
+
+        if (content_height > 1.0f) {
+            app->layout_stacked_controls_ratio = controls_height / content_height;
+            app->layout_stacked_metadata_ratio = metadata_height / content_height;
         }
 
         controls_rect = nk_rect(
             margin,
             margin,
-            (float)screen_width - (margin * 2.0f),
+            total_width,
             controls_height
         );
 
         map_rect = nk_rect(
             margin,
             margin * 2.0f + controls_height,
-            (float)screen_width - (margin * 2.0f),
+            total_width,
             map_height
         );
 
         metadata_rect = nk_rect(
             margin,
             margin * 3.0f + controls_height + map_height,
-            (float)screen_width - (margin * 2.0f),
-            stacked_metadata_height
+            total_width,
+            metadata_height
+        );
+
+        stacked_top_splitter_rect = nk_rect(
+            margin,
+            controls_rect.y + controls_rect.h,
+            total_width,
+            splitter_size
+        );
+        stacked_bottom_splitter_rect = nk_rect(
+            margin,
+            map_rect.y + map_rect.h,
+            total_width,
+            splitter_size
         );
     } else {
-        if (left_width > (float)screen_width * 0.45f) {
-            left_width = (float)screen_width * 0.45f;
+        float content_width;
+        float content_height;
+        float controls_max;
+        float map_max;
+
+        content_width = (float)screen_width - margin * 3.0f;
+        content_height = (float)screen_height - margin * 3.0f;
+        if (content_width < 1.0f) {
+            content_width = 1.0f;
         }
-        if (left_width < 340.0f) {
-            left_width = 340.0f;
+        if (content_height < 1.0f) {
+            content_height = 1.0f;
+        }
+
+        left_width = app->layout_side_left_ratio * content_width;
+        controls_max = content_width - min_right_width;
+        if (controls_max < min_controls_width) {
+            controls_max = min_controls_width;
+        }
+        left_width = dg_nuklear_clamp_float(left_width, min_controls_width, controls_max);
+
+        right_width = content_width - left_width;
+        if (right_width < min_right_width) {
+            right_width = min_right_width;
+            left_width = content_width - right_width;
+            if (left_width < min_controls_width) {
+                left_width = min_controls_width;
+                right_width = content_width - left_width;
+            }
+        }
+
+        metadata_height = app->layout_side_map_ratio * content_height;
+        map_max = content_height - min_metadata_height;
+        if (map_max < min_map_height) {
+            map_max = min_map_height;
+        }
+        map_height = dg_nuklear_clamp_float(metadata_height, min_map_height, map_max);
+        metadata_height = content_height - map_height;
+
+        if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL &&
+            nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            left_width += ctx->input.mouse.delta.x;
+            controls_max = content_width - min_right_width;
+            if (controls_max < min_controls_width) {
+                controls_max = min_controls_width;
+            }
+            left_width = dg_nuklear_clamp_float(left_width, min_controls_width, controls_max);
+            right_width = content_width - left_width;
+        } else if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL &&
+            nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            map_height += ctx->input.mouse.delta.y;
+            map_max = content_height - min_metadata_height;
+            if (map_max < min_map_height) {
+                map_max = min_map_height;
+            }
+            map_height = dg_nuklear_clamp_float(map_height, min_map_height, map_max);
+            metadata_height = content_height - map_height;
         }
 
         right_x = margin + left_width + margin;
-        right_width = (float)screen_width - right_x - margin;
-        if (right_width < 260.0f) {
-            right_width = 260.0f;
-            left_width = (float)screen_width - right_width - (margin * 3.0f);
-        }
 
-        map_height = (float)screen_height - (margin * 3.0f) - side_metadata_height;
-        if (map_height < 200.0f) {
-            map_height = 200.0f;
-        }
+        app->layout_side_left_ratio = left_width / content_width;
+        app->layout_side_map_ratio = map_height / content_height;
 
         controls_rect = nk_rect(
             margin,
             margin,
             left_width,
-            (float)screen_height - margin * 2.0f
+            total_height
         );
         map_rect = nk_rect(right_x, margin, right_width, map_height);
         metadata_rect = nk_rect(
             right_x,
             margin * 2.0f + map_height,
             right_width,
-            side_metadata_height
+            metadata_height
         );
+
+        side_vertical_splitter_rect = nk_rect(
+            controls_rect.x + controls_rect.w,
+            margin,
+            splitter_size,
+            (float)screen_height - margin * 2.0f
+        );
+        side_horizontal_splitter_rect = nk_rect(
+            right_x,
+            map_rect.y + map_rect.h,
+            right_width,
+            splitter_size
+        );
+    }
+
+    hovered_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
+    if (stacked_mode) {
+        if (nk_input_is_mouse_hovering_rect(&ctx->input, stacked_top_splitter_rect)) {
+            hovered_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP;
+        } else if (nk_input_is_mouse_hovering_rect(&ctx->input, stacked_bottom_splitter_rect)) {
+            hovered_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM;
+        }
+    } else {
+        if (nk_input_is_mouse_hovering_rect(&ctx->input, side_vertical_splitter_rect)) {
+            hovered_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL;
+        } else if (nk_input_is_mouse_hovering_rect(&ctx->input, side_horizontal_splitter_rect)) {
+            hovered_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL;
+        }
+    }
+
+    if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+        app->layout_active_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
+    } else if (app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_NONE &&
+        nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        app->layout_active_splitter = hovered_splitter;
+    }
+
+    app->layout_hover_splitter = hovered_splitter;
+    if (app->layout_active_splitter != DG_NUKLEAR_LAYOUT_SPLITTER_NONE) {
+        app->layout_hover_splitter = app->layout_active_splitter;
     }
 
     if (nk_begin(
@@ -3388,4 +3702,40 @@ void dg_nuklear_app_draw(
         dg_nuklear_draw_metadata(ctx, app);
     }
     nk_end(ctx);
+
+    if (stacked_mode) {
+        dg_nuklear_draw_splitter_overlay(
+            ctx,
+            "__dg_splitter_stacked_top",
+            stacked_top_splitter_rect,
+            0,
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP,
+            app->layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP
+        );
+        dg_nuklear_draw_splitter_overlay(
+            ctx,
+            "__dg_splitter_stacked_bottom",
+            stacked_bottom_splitter_rect,
+            0,
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM,
+            app->layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM
+        );
+    } else {
+        dg_nuklear_draw_splitter_overlay(
+            ctx,
+            "__dg_splitter_side_vertical",
+            side_vertical_splitter_rect,
+            1,
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL,
+            app->layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL
+        );
+        dg_nuklear_draw_splitter_overlay(
+            ctx,
+            "__dg_splitter_side_horizontal",
+            side_horizontal_splitter_rect,
+            0,
+            app->layout_active_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL,
+            app->layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL
+        );
+    }
 }

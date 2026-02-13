@@ -78,11 +78,14 @@ static bool dg_glfw_preview_upload_rgba8(
 int main(void)
 {
     GLFWwindow *window;
+    GLFWcursor *hresize_cursor;
+    GLFWcursor *vresize_cursor;
     struct nk_context *ctx;
     struct nk_font_atlas *atlas;
     dg_nuklear_app_t app;
     dg_glfw_preview_renderer_t preview_renderer;
     dg_nuklear_preview_renderer_t core_preview_renderer;
+    int last_cursor_kind;
 
     if (glfwInit() == 0) {
         fprintf(stderr, "glfwInit failed\n");
@@ -101,6 +104,9 @@ int main(void)
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
+    hresize_cursor = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
+    vresize_cursor = glfwCreateStandardCursor(GLFW_VRESIZE_CURSOR);
+    last_cursor_kind = -1;
 
     ctx = nk_glfw3_init(window, NK_GLFW3_INSTALL_CALLBACKS);
     if (ctx == NULL) {
@@ -124,6 +130,7 @@ int main(void)
         int window_height;
         int fb_width;
         int fb_height;
+        int cursor_kind;
 
         glfwPollEvents();
         nk_glfw3_new_frame();
@@ -138,6 +145,26 @@ int main(void)
             &core_preview_renderer
         );
 
+        cursor_kind = 0;
+        if (app.layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL) {
+            cursor_kind = 1;
+        } else if (app.layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL ||
+            app.layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_TOP ||
+            app.layout_hover_splitter == DG_NUKLEAR_LAYOUT_SPLITTER_STACKED_BOTTOM) {
+            cursor_kind = 2;
+        }
+
+        if (cursor_kind != last_cursor_kind) {
+            if (cursor_kind == 1 && hresize_cursor != NULL) {
+                glfwSetCursor(window, hresize_cursor);
+            } else if (cursor_kind == 2 && vresize_cursor != NULL) {
+                glfwSetCursor(window, vresize_cursor);
+            } else {
+                glfwSetCursor(window, NULL);
+            }
+            last_cursor_kind = cursor_kind;
+        }
+
         glViewport(0, 0, fb_width, fb_height);
         glClearColor(0.11f, 0.13f, 0.16f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -149,6 +176,12 @@ int main(void)
 
     if (preview_renderer.texture != 0u) {
         glDeleteTextures(1, &preview_renderer.texture);
+    }
+    if (hresize_cursor != NULL) {
+        glfwDestroyCursor(hresize_cursor);
+    }
+    if (vresize_cursor != NULL) {
+        glfwDestroyCursor(vresize_cursor);
     }
     dg_nuklear_app_shutdown(&app);
     nk_glfw3_shutdown();
