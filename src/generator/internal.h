@@ -40,7 +40,8 @@ dg_status_t dg_populate_runtime_metadata(
     uint64_t seed,
     int algorithm_id,
     dg_map_generation_class_t generation_class,
-    size_t generation_attempts
+    size_t generation_attempts,
+    bool reset_room_assignments
 );
 
 void dg_init_empty_map(dg_map_t *map);

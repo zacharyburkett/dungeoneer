@@ -186,7 +186,8 @@ dg_status_t dg_populate_runtime_metadata(
     uint64_t seed,
     int algorithm_id,
     dg_map_generation_class_t generation_class,
-    size_t generation_attempts
+    size_t generation_attempts,
+    bool reset_room_assignments
 )
 {
     size_t i;
@@ -217,8 +218,10 @@ dg_status_t dg_populate_runtime_metadata(
 
     special_room_count = 0;
     for (i = 0; i < map->metadata.room_count; ++i) {
-        map->metadata.rooms[i].role = DG_ROOM_ROLE_NONE;
-        map->metadata.rooms[i].type_id = DG_ROOM_TYPE_UNASSIGNED;
+        if (reset_room_assignments) {
+            map->metadata.rooms[i].role = DG_ROOM_ROLE_NONE;
+            map->metadata.rooms[i].type_id = DG_ROOM_TYPE_UNASSIGNED;
+        }
         if ((map->metadata.rooms[i].flags & DG_ROOM_FLAG_SPECIAL) != 0u) {
             special_room_count += 1;
         }

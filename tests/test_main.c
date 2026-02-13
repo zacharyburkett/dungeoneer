@@ -466,6 +466,42 @@ static size_t count_rooms_with_assigned_type(const dg_map_t *map)
     return count;
 }
 
+static bool room_types_match_by_room_id(const dg_map_t *a, const dg_map_t *b)
+{
+    size_t i;
+
+    if (a == NULL || b == NULL) {
+        return false;
+    }
+
+    if (a->metadata.room_count != b->metadata.room_count) {
+        return false;
+    }
+
+    if (a->metadata.room_count > 0 &&
+        (a->metadata.rooms == NULL || b->metadata.rooms == NULL)) {
+        return false;
+    }
+
+    for (i = 0; i < a->metadata.room_count; ++i) {
+        int room_id = a->metadata.rooms[i].id;
+
+        if (room_id < 0 || (size_t)room_id >= b->metadata.room_count) {
+            return false;
+        }
+
+        if (b->metadata.rooms[room_id].id != room_id) {
+            return false;
+        }
+
+        if (a->metadata.rooms[i].type_id != b->metadata.rooms[room_id].type_id) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool has_outer_walls(const dg_map_t *map)
 {
     int x;
@@ -2547,6 +2583,70 @@ static int test_room_type_assignment_determinism(void)
     return 0;
 }
 
+static int test_room_type_assignment_stable_across_post_process(void)
+{
+    dg_generate_request_t base_request;
+    dg_generate_request_t no_roughen_request;
+    dg_generate_request_t roughen_request;
+    dg_map_t no_roughen_map = {0};
+    dg_map_t roughen_map = {0};
+    dg_room_type_definition_t definitions[2];
+    dg_process_method_t roughen_method[1];
+
+    dg_default_generate_request(&base_request, DG_ALGORITHM_BSP_TREE, 88, 48, 700701u);
+    base_request.params.bsp.min_rooms = 12;
+    base_request.params.bsp.max_rooms = 12;
+    base_request.params.bsp.room_min_size = 4;
+    base_request.params.bsp.room_max_size = 10;
+
+    dg_default_room_type_definition(&definitions[0], 901u);
+    dg_default_room_type_definition(&definitions[1], 902u);
+
+    definitions[0].min_count = 0;
+    definitions[0].max_count = -1;
+    definitions[0].target_count = -1;
+    definitions[0].preferences.weight = 1;
+    definitions[0].preferences.larger_room_bias = 0;
+    definitions[0].preferences.higher_degree_bias = 0;
+    definitions[0].preferences.border_distance_bias = 0;
+
+    definitions[1].min_count = 0;
+    definitions[1].max_count = -1;
+    definitions[1].target_count = -1;
+    definitions[1].preferences.weight = 1;
+    definitions[1].preferences.larger_room_bias = 0;
+    definitions[1].preferences.higher_degree_bias = 0;
+    definitions[1].preferences.border_distance_bias = 0;
+
+    base_request.room_types.definitions = definitions;
+    base_request.room_types.definition_count = 2;
+    base_request.room_types.policy.strict_mode = 0;
+    base_request.room_types.policy.allow_untyped_rooms = 0;
+    base_request.room_types.policy.default_type_id = 901u;
+
+    no_roughen_request = base_request;
+
+    roughen_request = base_request;
+    dg_default_process_method(&roughen_method[0], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    roughen_method[0].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_UNIFORM;
+    roughen_method[0].params.corridor_roughen.strength = 55;
+    roughen_method[0].params.corridor_roughen.max_depth = 4;
+    roughen_request.process.methods = roughen_method;
+    roughen_request.process.method_count = 1;
+
+    ASSERT_STATUS(dg_generate(&no_roughen_request, &no_roughen_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&roughen_request, &roughen_map), DG_STATUS_OK);
+
+    ASSERT_TRUE(no_roughen_map.metadata.room_count == roughen_map.metadata.room_count);
+    ASSERT_TRUE(count_rooms_with_assigned_type(&no_roughen_map) == no_roughen_map.metadata.room_count);
+    ASSERT_TRUE(count_rooms_with_assigned_type(&roughen_map) == roughen_map.metadata.room_count);
+    ASSERT_TRUE(room_types_match_by_room_id(&no_roughen_map, &roughen_map));
+
+    dg_map_destroy(&no_roughen_map);
+    dg_map_destroy(&roughen_map);
+    return 0;
+}
+
 static int test_room_type_assignment_minimums(void)
 {
     dg_generate_request_t request;
@@ -2975,6 +3075,8 @@ int main(void)
         {"map_export_png_json", test_map_export_png_json},
         {"room_type_config_scaffold", test_room_type_config_scaffold},
         {"room_type_assignment_determinism", test_room_type_assignment_determinism},
+        {"room_type_assignment_stable_across_post_process",
+         test_room_type_assignment_stable_across_post_process},
         {"room_type_assignment_minimums", test_room_type_assignment_minimums},
         {"room_type_strict_minimum_infeasible", test_room_type_strict_minimum_infeasible},
         {"room_type_strict_requires_full_coverage", test_room_type_strict_requires_full_coverage},

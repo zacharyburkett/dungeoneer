@@ -898,6 +898,25 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return status;
     }
 
+    status = dg_populate_runtime_metadata(
+        &generated,
+        request->seed,
+        (int)request->algorithm,
+        generation_class,
+        1u,
+        true
+    );
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
+
+    status = dg_apply_room_type_assignment(request, &generated, &rng);
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
+
     status = dg_apply_post_processes(request, &generated, &rng);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
@@ -916,14 +935,9 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         request->seed,
         (int)request->algorithm,
         generation_class,
-        1u
+        1u,
+        false
     );
-    if (status != DG_STATUS_OK) {
-        dg_map_destroy(&generated);
-        return status;
-    }
-
-    status = dg_apply_room_type_assignment(request, &generated, &rng);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
         return status;
