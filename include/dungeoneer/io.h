@@ -19,6 +19,16 @@ dg_status_t dg_map_save_file(const dg_map_t *map, const char *path);
  */
 dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map);
 
+/*
+ * Exports the current map to a colorized PNG plus a JSON sidecar.
+ * JSON includes a tile legend and useful map metadata.
+ */
+dg_status_t dg_map_export_png_json(
+    const dg_map_t *map,
+    const char *png_path,
+    const char *json_path
+);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1310,6 +1310,92 @@ static void dg_nuklear_save_map(dg_nuklear_app_t *app)
     dg_nuklear_set_status(app, "Saved map to %s", app->file_path);
 }
 
+static void dg_nuklear_build_export_paths(
+    const char *source_path,
+    char *out_png_path,
+    size_t png_path_capacity,
+    char *out_json_path,
+    size_t json_path_capacity
+)
+{
+    const char *fallback = "dungeon";
+    const char *source;
+    const char *slash_forward;
+    const char *slash_back;
+    const char *separator;
+    const char *dot;
+    size_t stem_length;
+    int stem_precision;
+
+    if (out_png_path == NULL || png_path_capacity == 0u ||
+        out_json_path == NULL || json_path_capacity == 0u) {
+        return;
+    }
+
+    source = (source_path != NULL && source_path[0] != '\0') ? source_path : fallback;
+    slash_forward = strrchr(source, '/');
+    slash_back = strrchr(source, '\\');
+    separator = slash_forward;
+    if (slash_back != NULL && (separator == NULL || slash_back > separator)) {
+        separator = slash_back;
+    }
+
+    dot = strrchr(source, '.');
+    stem_length = strlen(source);
+    if (dot != NULL && (separator == NULL || dot > separator) && dot != source) {
+        stem_length = (size_t)(dot - source);
+    }
+
+    if (stem_length > (size_t)INT_MAX) {
+        stem_precision = INT_MAX;
+    } else {
+        stem_precision = (int)stem_length;
+    }
+
+    (void)snprintf(out_png_path, png_path_capacity, "%.*s.png", stem_precision, source);
+    (void)snprintf(out_json_path, json_path_capacity, "%.*s.json", stem_precision, source);
+}
+
+static void dg_nuklear_export_map_png_json(dg_nuklear_app_t *app)
+{
+    dg_status_t status;
+    char png_path[512];
+    char json_path[512];
+    uint64_t desired_hash;
+
+    if (app == NULL) {
+        return;
+    }
+
+    desired_hash = dg_nuklear_compute_live_config_hash(app);
+    if (!app->last_live_config_hash_valid || app->last_live_config_hash != desired_hash) {
+        dg_nuklear_generate_map(app);
+        if (!app->last_live_config_hash_valid || app->last_live_config_hash != desired_hash) {
+            return;
+        }
+    }
+
+    if (!app->has_map) {
+        dg_nuklear_set_status(app, "No map to export.");
+        return;
+    }
+
+    dg_nuklear_build_export_paths(
+        app->file_path,
+        png_path,
+        sizeof(png_path),
+        json_path,
+        sizeof(json_path)
+    );
+    status = dg_map_export_png_json(&app->map, png_path, json_path);
+    if (status != DG_STATUS_OK) {
+        dg_nuklear_set_status(app, "Export failed: %s", dg_status_string(status));
+        return;
+    }
+
+    dg_nuklear_set_status(app, "Exported %s and %s", png_path, json_path);
+}
+
 static void dg_nuklear_load_map(dg_nuklear_app_t *app)
 {
     dg_map_t loaded;
@@ -2672,12 +2758,15 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
         nk_filter_default
     );
 
-    nk_layout_row_dynamic(ctx, 32.0f, 2);
+    nk_layout_row_dynamic(ctx, 32.0f, 3);
     if (nk_button_label(ctx, "Save")) {
         dg_nuklear_save_map(app);
     }
     if (nk_button_label(ctx, "Load")) {
         dg_nuklear_load_map(app);
+    }
+    if (nk_button_label(ctx, "Export PNG + JSON")) {
+        dg_nuklear_export_map_png_json(app);
     }
 }
 

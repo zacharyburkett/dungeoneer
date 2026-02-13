@@ -37,6 +37,18 @@ target_include_directories(dungeoneer
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBPNG QUIET IMPORTED_TARGET libpng)
+endif()
+
+if(TARGET PkgConfig::LIBPNG)
+    target_link_libraries(dungeoneer PUBLIC PkgConfig::LIBPNG)
+else()
+    find_package(PNG REQUIRED)
+    target_link_libraries(dungeoneer PUBLIC PNG::PNG)
+endif()
+
 if(MSVC)
     target_compile_options(dungeoneer PRIVATE /W4 /WX)
 else()

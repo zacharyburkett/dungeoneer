@@ -2206,6 +2206,90 @@ static int test_map_load_rejects_invalid_magic(void)
     return 0;
 }
 
+static int test_map_export_png_json(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_room_type_definition_t definitions[3];
+    const char *png_path = "dungeoneer_test_export.png";
+    const char *json_path = "dungeoneer_test_export.json";
+    FILE *file;
+    unsigned char signature[8];
+    size_t read_count;
+    char *json_text;
+    long file_size;
+
+    static const unsigned char expected_png_signature[8] = {
+        137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u
+    };
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 424200u);
+    request.params.rooms_and_mazes.min_rooms = 10;
+    request.params.rooms_and_mazes.max_rooms = 14;
+    request.params.rooms_and_mazes.room_min_size = 4;
+    request.params.rooms_and_mazes.room_max_size = 10;
+    request.params.rooms_and_mazes.dead_end_prune_steps = 6;
+    dg_default_room_type_definition(&definitions[0], 610u);
+    definitions[0].min_count = 1;
+    definitions[0].preferences.weight = 3;
+    dg_default_room_type_definition(&definitions[1], 620u);
+    definitions[1].min_count = 1;
+    definitions[1].preferences.weight = 2;
+    definitions[1].preferences.higher_degree_bias = 30;
+    dg_default_room_type_definition(&definitions[2], 630u);
+    definitions[2].min_count = 1;
+    definitions[2].preferences.weight = 2;
+    definitions[2].preferences.border_distance_bias = 40;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 3;
+    request.room_types.policy.strict_mode = 0;
+    request.room_types.policy.allow_untyped_rooms = 1;
+    request.room_types.policy.default_type_id = 610u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_export_png_json(&map, png_path, json_path), DG_STATUS_OK);
+
+    file = fopen(png_path, "rb");
+    ASSERT_TRUE(file != NULL);
+    read_count = fread(signature, 1, sizeof(signature), file);
+    ASSERT_TRUE(fclose(file) == 0);
+    ASSERT_TRUE(read_count == sizeof(signature));
+    ASSERT_TRUE(memcmp(signature, expected_png_signature, sizeof(signature)) == 0);
+
+    file = fopen(json_path, "rb");
+    ASSERT_TRUE(file != NULL);
+    ASSERT_TRUE(fseek(file, 0, SEEK_END) == 0);
+    file_size = ftell(file);
+    ASSERT_TRUE(file_size >= 0);
+    ASSERT_TRUE(fseek(file, 0, SEEK_SET) == 0);
+
+    json_text = (char *)malloc((size_t)file_size + 1u);
+    ASSERT_TRUE(json_text != NULL);
+    read_count = fread(json_text, 1, (size_t)file_size, file);
+    ASSERT_TRUE(fclose(file) == 0);
+    ASSERT_TRUE(read_count == (size_t)file_size);
+    json_text[file_size] = '\0';
+
+    ASSERT_TRUE(strstr(json_text, "\"format\": \"dungeoneer_png_json_v1\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"legend\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"room_type_palette\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"configured_room_types\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"metadata\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"rooms\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"corridors\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"generation_request\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"typed_room_count\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"type_id\": 610") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"type_id\": 620") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"type_id\": 630") != NULL);
+
+    free(json_text);
+    dg_map_destroy(&map);
+    (void)remove(png_path);
+    (void)remove(json_path);
+    return 0;
+}
+
 static int test_room_type_config_scaffold(void)
 {
     dg_generate_request_t request;
@@ -2666,6 +2750,7 @@ int main(void)
         {"map_serialization_roundtrip_value_noise",
          test_map_serialization_roundtrip_value_noise},
         {"map_load_rejects_invalid_magic", test_map_load_rejects_invalid_magic},
+        {"map_export_png_json", test_map_export_png_json},
         {"room_type_config_scaffold", test_room_type_config_scaffold},
         {"room_type_assignment_determinism", test_room_type_assignment_determinism},
         {"room_type_assignment_minimums", test_room_type_assignment_minimums},

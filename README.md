@@ -21,10 +21,13 @@ The library still includes:
 - Generation-class-aware metadata (`room-like` vs `cave-like`)
 - Room/corridor metadata and room adjacency graph metadata for room-like algorithms
 - Connectivity/coverage diagnostics in map metadata
-- Binary map save/load for editor workflows
+- Config save/load for editor workflows
+- PNG + JSON export for non-library integrations
 - Unit tests and a Nuklear editor app
 
 ## Build
+
+Core dependency: `libpng` (for PNG export).
 
 ```sh
 cmake -S . -B build
@@ -63,11 +66,14 @@ If built with `-DDUNGEONEER_BUILD_NUKLEAR_APP=ON`:
 ./build/dungeoneer_editor
 ```
 
-## Map Serialization
+## Map Save/Export
 
-Binary map snapshots can be saved and loaded through:
+Config snapshots can be saved and loaded through:
 - `dg_map_save_file(const dg_map_t *map, const char *path)`
 - `dg_map_load_file(const char *path, dg_map_t *out_map)`
+
+PNG+JSON export:
+- `dg_map_export_png_json(const dg_map_t *map, const char *png_path, const char *json_path)`
 
 ## Project docs
 
