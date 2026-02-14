@@ -45,6 +45,69 @@ typedef struct dg_room_entrance_metadata {
     int normal_y;
 } dg_room_entrance_metadata_t;
 
+typedef enum dg_map_edge_side {
+    DG_MAP_EDGE_TOP = 0,
+    DG_MAP_EDGE_RIGHT = 1,
+    DG_MAP_EDGE_BOTTOM = 2,
+    DG_MAP_EDGE_LEFT = 3
+} dg_map_edge_side_t;
+
+typedef enum dg_map_edge_opening_role {
+    DG_MAP_EDGE_OPENING_ROLE_NONE = 0,
+    DG_MAP_EDGE_OPENING_ROLE_ENTRANCE = 1,
+    DG_MAP_EDGE_OPENING_ROLE_EXIT = 2
+} dg_map_edge_opening_role_t;
+
+#define DG_MAP_EDGE_MASK_NONE ((uint32_t)0u)
+#define DG_MAP_EDGE_MASK_TOP ((uint32_t)(1u << DG_MAP_EDGE_TOP))
+#define DG_MAP_EDGE_MASK_RIGHT ((uint32_t)(1u << DG_MAP_EDGE_RIGHT))
+#define DG_MAP_EDGE_MASK_BOTTOM ((uint32_t)(1u << DG_MAP_EDGE_BOTTOM))
+#define DG_MAP_EDGE_MASK_LEFT ((uint32_t)(1u << DG_MAP_EDGE_LEFT))
+#define DG_MAP_EDGE_MASK_ALL                                                     \
+    (DG_MAP_EDGE_MASK_TOP | DG_MAP_EDGE_MASK_RIGHT | DG_MAP_EDGE_MASK_BOTTOM | \
+     DG_MAP_EDGE_MASK_LEFT)
+
+#define DG_MAP_EDGE_OPENING_ROLE_MASK_NONE \
+    ((uint32_t)(1u << DG_MAP_EDGE_OPENING_ROLE_NONE))
+#define DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE \
+    ((uint32_t)(1u << DG_MAP_EDGE_OPENING_ROLE_ENTRANCE))
+#define DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT \
+    ((uint32_t)(1u << DG_MAP_EDGE_OPENING_ROLE_EXIT))
+#define DG_MAP_EDGE_OPENING_ROLE_MASK_ANY                                      \
+    (DG_MAP_EDGE_OPENING_ROLE_MASK_NONE | DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE | \
+     DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT)
+
+#define DG_MAP_EDGE_COMPONENT_UNKNOWN SIZE_MAX
+
+typedef struct dg_map_edge_opening {
+    int id;
+    dg_map_edge_side_t side;
+    int start;
+    int end;
+    int length;
+    dg_point_t edge_tile;
+    dg_point_t inward_tile;
+    int normal_x;
+    int normal_y;
+    size_t component_id;
+    dg_map_edge_opening_role_t role;
+} dg_map_edge_opening_t;
+
+typedef struct dg_map_edge_opening_query {
+    /* Bitmask of DG_MAP_EDGE_MASK_* values. 0 means no side filtering. */
+    uint32_t side_mask;
+    /* Bitmask of DG_MAP_EDGE_OPENING_ROLE_MASK_* values. 0 means any role. */
+    uint32_t role_mask;
+    /* Inclusive overlap range on edge coordinates (x for top/bottom, y for left/right). */
+    int edge_coord_min;
+    int edge_coord_max;
+    /* Opening length bounds; max_length=-1 means unbounded. */
+    int min_length;
+    int max_length;
+    /* Connected component filter; -1 means any component. */
+    int require_component;
+} dg_map_edge_opening_query_t;
+
 typedef struct dg_room_neighbor {
     int room_id;
     int corridor_index;
@@ -270,6 +333,12 @@ typedef struct dg_map_metadata {
     size_t room_entrance_count;
     size_t room_entrance_capacity;
 
+    dg_map_edge_opening_t *edge_openings;
+    size_t edge_opening_count;
+    size_t edge_opening_capacity;
+    int primary_entrance_opening_id;
+    int primary_exit_opening_id;
+
     /*
      * Room graph represented as adjacency spans into `room_neighbors`.
      * For room i, neighbors are in:
@@ -322,6 +391,22 @@ dg_status_t dg_map_add_corridor(
     int to_room_id,
     int width,
     int length
+);
+
+void dg_default_map_edge_opening_query(dg_map_edge_opening_query_t *query);
+/*
+ * Returns the number of matching edge openings.
+ * If `out_indices` is non-NULL, up to `max_indices` matching opening indices are written.
+ */
+size_t dg_map_query_edge_openings(
+    const dg_map_t *map,
+    const dg_map_edge_opening_query_t *query,
+    size_t *out_indices,
+    size_t max_indices
+);
+const dg_map_edge_opening_t *dg_map_find_edge_opening_by_id(
+    const dg_map_t *map,
+    int opening_id
 );
 
 #ifdef __cplusplus

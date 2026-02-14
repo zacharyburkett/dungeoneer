@@ -65,6 +65,7 @@ static bool dg_map_is_empty(const dg_map_t *map)
            map->metadata.rooms == NULL &&
            map->metadata.corridors == NULL &&
            map->metadata.room_entrances == NULL &&
+           map->metadata.edge_openings == NULL &&
            map->metadata.room_adjacency == NULL &&
            map->metadata.room_neighbors == NULL &&
            map->metadata.diagnostics.process_steps == NULL &&

@@ -2789,6 +2789,16 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
         nk_label(ctx, line, NK_TEXT_LEFT);
     }
 
+    (void)snprintf(
+        line,
+        sizeof(line),
+        "edge openings: %llu (entry=%d exit=%d)",
+        (unsigned long long)app->map.metadata.edge_opening_count,
+        app->map.metadata.primary_entrance_opening_id,
+        app->map.metadata.primary_exit_opening_id
+    );
+    nk_label(ctx, line, NK_TEXT_LEFT);
+
     (void)snprintf(line, sizeof(line), "room graph: avg degree=%.2f", average_room_degree);
     nk_label(ctx, line, NK_TEXT_LEFT);
 

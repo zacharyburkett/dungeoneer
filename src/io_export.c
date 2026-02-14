@@ -521,6 +521,35 @@ static const char *dg_export_room_role_name(dg_room_role_t role)
     }
 }
 
+static const char *dg_export_edge_side_name(dg_map_edge_side_t side)
+{
+    switch (side) {
+    case DG_MAP_EDGE_TOP:
+        return "top";
+    case DG_MAP_EDGE_RIGHT:
+        return "right";
+    case DG_MAP_EDGE_BOTTOM:
+        return "bottom";
+    case DG_MAP_EDGE_LEFT:
+        return "left";
+    default:
+        return "unknown";
+    }
+}
+
+static const char *dg_export_edge_opening_role_name(dg_map_edge_opening_role_t role)
+{
+    switch (role) {
+    case DG_MAP_EDGE_OPENING_ROLE_ENTRANCE:
+        return "entrance";
+    case DG_MAP_EDGE_OPENING_ROLE_EXIT:
+        return "exit";
+    case DG_MAP_EDGE_OPENING_ROLE_NONE:
+    default:
+        return "none";
+    }
+}
+
 static dg_status_t dg_export_json_write_escaped(FILE *file, const char *value)
 {
     const unsigned char *cursor;
@@ -973,6 +1002,9 @@ static dg_status_t dg_export_write_json_file(
     if (map->metadata.room_entrance_count > 0u && map->metadata.room_entrances == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
+    if (map->metadata.edge_opening_count > 0u && map->metadata.edge_openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     snapshot = &map->metadata.generation_request;
     configured_type_count = snapshot->present == 1 ? snapshot->room_types.definition_count : 0u;
@@ -1127,7 +1159,10 @@ static dg_status_t dg_export_write_json_file(
             "    \"corridor_count\": %llu,\n"
             "    \"corridor_total_length\": %llu,\n"
             "    \"entrance_exit_distance\": %d,\n"
-            "    \"room_entrance_count\": %llu\n"
+            "    \"room_entrance_count\": %llu,\n"
+            "    \"edge_opening_count\": %llu,\n"
+            "    \"primary_edge_entrance_id\": %d,\n"
+            "    \"primary_edge_exit_id\": %d\n"
             "  },\n",
             (unsigned long long)map->metadata.seed,
             map->metadata.algorithm_id,
@@ -1146,7 +1181,10 @@ static dg_status_t dg_export_write_json_file(
             (unsigned long long)map->metadata.corridor_count,
             (unsigned long long)map->metadata.corridor_total_length,
             map->metadata.entrance_exit_distance,
-            (unsigned long long)map->metadata.room_entrance_count
+            (unsigned long long)map->metadata.room_entrance_count,
+            (unsigned long long)map->metadata.edge_opening_count,
+            map->metadata.primary_entrance_opening_id,
+            map->metadata.primary_exit_opening_id
         ) < 0) {
         (void)fclose(file);
         return DG_STATUS_IO_ERROR;
@@ -1239,6 +1277,54 @@ static dg_status_t dg_export_write_json_file(
                 entrance->corridor_tile.y,
                 entrance->normal_x,
                 entrance->normal_y,
+                comma
+            ) < 0) {
+            (void)fclose(file);
+            return DG_STATUS_IO_ERROR;
+        }
+    }
+
+    if (fprintf(file, "  ],\n  \"edge_openings\": [\n") < 0) {
+        (void)fclose(file);
+        return DG_STATUS_IO_ERROR;
+    }
+    for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+        const dg_map_edge_opening_t *opening = &map->metadata.edge_openings[i];
+        const char *comma = (i + 1u < map->metadata.edge_opening_count) ? "," : "";
+        if (fprintf(
+                file,
+                "    {\n"
+                "      \"id\": %d,\n"
+                "      \"side\": %d,\n"
+                "      \"side_name\": \"%s\",\n"
+                "      \"start\": %d,\n"
+                "      \"end\": %d,\n"
+                "      \"length\": %d,\n"
+                "      \"edge_x\": %d,\n"
+                "      \"edge_y\": %d,\n"
+                "      \"inward_x\": %d,\n"
+                "      \"inward_y\": %d,\n"
+                "      \"normal_x\": %d,\n"
+                "      \"normal_y\": %d,\n"
+                "      \"component_id\": %llu,\n"
+                "      \"role\": %d,\n"
+                "      \"role_name\": \"%s\"\n"
+                "    }%s\n",
+                opening->id,
+                (int)opening->side,
+                dg_export_edge_side_name(opening->side),
+                opening->start,
+                opening->end,
+                opening->length,
+                opening->edge_tile.x,
+                opening->edge_tile.y,
+                opening->inward_tile.x,
+                opening->inward_tile.y,
+                opening->normal_x,
+                opening->normal_y,
+                (unsigned long long)opening->component_id,
+                (int)opening->role,
+                dg_export_edge_opening_role_name(opening->role),
                 comma
             ) < 0) {
             (void)fclose(file);

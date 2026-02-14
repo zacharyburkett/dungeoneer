@@ -357,6 +357,9 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         a->metadata.room_count != b->metadata.room_count ||
         a->metadata.corridor_count != b->metadata.corridor_count ||
         a->metadata.room_entrance_count != b->metadata.room_entrance_count ||
+        a->metadata.edge_opening_count != b->metadata.edge_opening_count ||
+        a->metadata.primary_entrance_opening_id != b->metadata.primary_entrance_opening_id ||
+        a->metadata.primary_exit_opening_id != b->metadata.primary_exit_opening_id ||
         a->metadata.room_adjacency_count != b->metadata.room_adjacency_count ||
         a->metadata.room_neighbor_count != b->metadata.room_neighbor_count ||
         a->metadata.walkable_tile_count != b->metadata.walkable_tile_count ||
@@ -392,6 +395,8 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
          (a->metadata.corridors == NULL || b->metadata.corridors == NULL)) ||
         (a->metadata.room_entrance_count > 0 &&
          (a->metadata.room_entrances == NULL || b->metadata.room_entrances == NULL)) ||
+        (a->metadata.edge_opening_count > 0 &&
+         (a->metadata.edge_openings == NULL || b->metadata.edge_openings == NULL)) ||
         (a->metadata.room_adjacency_count > 0 &&
          (a->metadata.room_adjacency == NULL || b->metadata.room_adjacency == NULL)) ||
         (a->metadata.room_neighbor_count > 0 &&
@@ -441,6 +446,26 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
             ea->corridor_tile.y != eb->corridor_tile.y ||
             ea->normal_x != eb->normal_x ||
             ea->normal_y != eb->normal_y) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.edge_opening_count; ++i) {
+        const dg_map_edge_opening_t *oa = &a->metadata.edge_openings[i];
+        const dg_map_edge_opening_t *ob = &b->metadata.edge_openings[i];
+        if (oa->id != ob->id ||
+            oa->side != ob->side ||
+            oa->start != ob->start ||
+            oa->end != ob->end ||
+            oa->length != ob->length ||
+            oa->edge_tile.x != ob->edge_tile.x ||
+            oa->edge_tile.y != ob->edge_tile.y ||
+            oa->inward_tile.x != ob->inward_tile.x ||
+            oa->inward_tile.y != ob->inward_tile.y ||
+            oa->normal_x != ob->normal_x ||
+            oa->normal_y != ob->normal_y ||
+            oa->component_id != ob->component_id ||
+            oa->role != ob->role) {
             return false;
         }
     }
@@ -1079,6 +1104,86 @@ static int test_map_basics(void)
     ASSERT_STATUS(dg_map_add_corridor(&map, 0, 0, 1, 3), DG_STATUS_OK);
     ASSERT_TRUE(map.metadata.room_count == 1);
     ASSERT_TRUE(map.metadata.corridor_count == 1);
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_map_edge_opening_query_filters(void)
+{
+    dg_map_t map = {0};
+    dg_map_edge_opening_query_t query;
+    size_t matches[8];
+    size_t count;
+    const dg_map_edge_opening_t *found;
+
+    ASSERT_STATUS(dg_map_init(&map, 8, 8, DG_TILE_WALL), DG_STATUS_OK);
+
+    map.metadata.edge_openings =
+        (dg_map_edge_opening_t *)calloc(3u, sizeof(dg_map_edge_opening_t));
+    ASSERT_TRUE(map.metadata.edge_openings != NULL);
+    map.metadata.edge_opening_capacity = 3u;
+    map.metadata.edge_opening_count = 3u;
+    map.metadata.primary_entrance_opening_id = 0;
+    map.metadata.primary_exit_opening_id = 1;
+
+    map.metadata.edge_openings[0].id = 0;
+    map.metadata.edge_openings[0].side = DG_MAP_EDGE_TOP;
+    map.metadata.edge_openings[0].start = 1;
+    map.metadata.edge_openings[0].end = 2;
+    map.metadata.edge_openings[0].length = 2;
+    map.metadata.edge_openings[0].component_id = 0u;
+    map.metadata.edge_openings[0].role = DG_MAP_EDGE_OPENING_ROLE_ENTRANCE;
+
+    map.metadata.edge_openings[1].id = 1;
+    map.metadata.edge_openings[1].side = DG_MAP_EDGE_RIGHT;
+    map.metadata.edge_openings[1].start = 3;
+    map.metadata.edge_openings[1].end = 5;
+    map.metadata.edge_openings[1].length = 3;
+    map.metadata.edge_openings[1].component_id = 0u;
+    map.metadata.edge_openings[1].role = DG_MAP_EDGE_OPENING_ROLE_EXIT;
+
+    map.metadata.edge_openings[2].id = 2;
+    map.metadata.edge_openings[2].side = DG_MAP_EDGE_LEFT;
+    map.metadata.edge_openings[2].start = 4;
+    map.metadata.edge_openings[2].end = 4;
+    map.metadata.edge_openings[2].length = 1;
+    map.metadata.edge_openings[2].component_id = 1u;
+    map.metadata.edge_openings[2].role = DG_MAP_EDGE_OPENING_ROLE_NONE;
+
+    dg_default_map_edge_opening_query(&query);
+    count = dg_map_query_edge_openings(&map, &query, matches, sizeof(matches) / sizeof(matches[0]));
+    ASSERT_TRUE(count == 3u);
+    ASSERT_TRUE(matches[0] == 0u);
+    ASSERT_TRUE(matches[1] == 1u);
+    ASSERT_TRUE(matches[2] == 2u);
+
+    query.role_mask = DG_MAP_EDGE_OPENING_ROLE_MASK_ANY;
+    query.side_mask = DG_MAP_EDGE_MASK_RIGHT;
+    count = dg_map_query_edge_openings(&map, &query, matches, sizeof(matches) / sizeof(matches[0]));
+    ASSERT_TRUE(count == 1u);
+    ASSERT_TRUE(matches[0] == 1u);
+
+    query.side_mask = DG_MAP_EDGE_MASK_ALL;
+    query.require_component = 1;
+    count = dg_map_query_edge_openings(&map, &query, matches, sizeof(matches) / sizeof(matches[0]));
+    ASSERT_TRUE(count == 1u);
+    ASSERT_TRUE(matches[0] == 2u);
+
+    query.require_component = -1;
+    query.edge_coord_min = 2;
+    query.edge_coord_max = 4;
+    query.min_length = 2;
+    query.max_length = 2;
+    count = dg_map_query_edge_openings(&map, &query, matches, sizeof(matches) / sizeof(matches[0]));
+    ASSERT_TRUE(count == 1u);
+    ASSERT_TRUE(matches[0] == 0u);
+
+    found = dg_map_find_edge_opening_by_id(&map, 1);
+    ASSERT_TRUE(found != NULL);
+    ASSERT_TRUE(found->side == DG_MAP_EDGE_RIGHT);
+    ASSERT_TRUE(found->role == DG_MAP_EDGE_OPENING_ROLE_EXIT);
+    ASSERT_TRUE(dg_map_find_edge_opening_by_id(&map, 99) == NULL);
 
     dg_map_destroy(&map);
     return 0;
@@ -3004,8 +3109,10 @@ static int test_map_export_png_json(void)
     ASSERT_TRUE(strstr(json_text, "\"metadata\"") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"rooms\"") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"corridors\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"edge_openings\"") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"generation_request\"") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"typed_room_count\"") != NULL);
+    ASSERT_TRUE(strstr(json_text, "\"edge_opening_count\"") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"type_id\": 610") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"type_id\": 620") != NULL);
     ASSERT_TRUE(strstr(json_text, "\"type_id\": 630") != NULL);
@@ -3648,6 +3755,7 @@ int main(void)
 
     const struct test_case tests[] = {
         {"map_basics", test_map_basics},
+        {"map_edge_opening_query_filters", test_map_edge_opening_query_filters},
         {"rng_reproducibility", test_rng_reproducibility},
         {"bsp_generation", test_bsp_generation},
         {"bsp_determinism", test_bsp_determinism},

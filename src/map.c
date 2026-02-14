@@ -76,6 +76,11 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.room_entrances = NULL;
     map->metadata.room_entrance_count = 0;
     map->metadata.room_entrance_capacity = 0;
+    map->metadata.edge_openings = NULL;
+    map->metadata.edge_opening_count = 0;
+    map->metadata.edge_opening_capacity = 0;
+    map->metadata.primary_entrance_opening_id = -1;
+    map->metadata.primary_exit_opening_id = -1;
     map->metadata.room_adjacency = NULL;
     map->metadata.room_adjacency_count = 0;
     map->metadata.room_neighbors = NULL;
@@ -177,6 +182,7 @@ void dg_map_clear_metadata(dg_map_t *map)
     free(map->metadata.rooms);
     free(map->metadata.corridors);
     free(map->metadata.room_entrances);
+    free(map->metadata.edge_openings);
     free(map->metadata.room_adjacency);
     free(map->metadata.room_neighbors);
     dg_map_clear_generation_diagnostics(&map->metadata.diagnostics);
@@ -190,6 +196,11 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.room_entrances = NULL;
     map->metadata.room_entrance_count = 0;
     map->metadata.room_entrance_capacity = 0;
+    map->metadata.edge_openings = NULL;
+    map->metadata.edge_opening_count = 0;
+    map->metadata.edge_opening_capacity = 0;
+    map->metadata.primary_entrance_opening_id = -1;
+    map->metadata.primary_exit_opening_id = -1;
     map->metadata.room_adjacency = NULL;
     map->metadata.room_adjacency_count = 0;
     map->metadata.room_neighbors = NULL;
@@ -333,4 +344,136 @@ dg_status_t dg_map_add_corridor(
     map->metadata.corridor_count += 1;
 
     return DG_STATUS_OK;
+}
+
+void dg_default_map_edge_opening_query(dg_map_edge_opening_query_t *query)
+{
+    if (query == NULL) {
+        return;
+    }
+
+    query->side_mask = DG_MAP_EDGE_MASK_ALL;
+    query->role_mask = DG_MAP_EDGE_OPENING_ROLE_MASK_ANY;
+    query->edge_coord_min = -1;
+    query->edge_coord_max = -1;
+    query->min_length = 1;
+    query->max_length = -1;
+    query->require_component = -1;
+}
+
+static bool dg_map_edge_opening_matches_query(
+    const dg_map_edge_opening_t *opening,
+    const dg_map_edge_opening_query_t *query
+)
+{
+    uint32_t side_bit;
+    uint32_t role_bit;
+
+    if (opening == NULL || query == NULL) {
+        return false;
+    }
+
+    if ((unsigned int)opening->side > (unsigned int)DG_MAP_EDGE_LEFT) {
+        return false;
+    }
+
+    side_bit = (uint32_t)(1u << (unsigned int)opening->side);
+    if (query->side_mask != DG_MAP_EDGE_MASK_NONE && (query->side_mask & side_bit) == 0u) {
+        return false;
+    }
+
+    if (opening->role == DG_MAP_EDGE_OPENING_ROLE_NONE) {
+        role_bit = DG_MAP_EDGE_OPENING_ROLE_MASK_NONE;
+    } else if (opening->role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE) {
+        role_bit = DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE;
+    } else if (opening->role == DG_MAP_EDGE_OPENING_ROLE_EXIT) {
+        role_bit = DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT;
+    } else {
+        return false;
+    }
+
+    if (query->role_mask != DG_MAP_EDGE_OPENING_ROLE_MASK_NONE &&
+        (query->role_mask & role_bit) == 0u) {
+        return false;
+    }
+
+    if (query->edge_coord_min >= 0 && opening->end < query->edge_coord_min) {
+        return false;
+    }
+    if (query->edge_coord_max >= 0 && opening->start > query->edge_coord_max) {
+        return false;
+    }
+
+    if (query->min_length > 0 && opening->length < query->min_length) {
+        return false;
+    }
+    if (query->max_length >= 0 && opening->length > query->max_length) {
+        return false;
+    }
+
+    if (query->require_component >= 0) {
+        if (opening->component_id == DG_MAP_EDGE_COMPONENT_UNKNOWN) {
+            return false;
+        }
+        if (opening->component_id != (size_t)query->require_component) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+size_t dg_map_query_edge_openings(
+    const dg_map_t *map,
+    const dg_map_edge_opening_query_t *query,
+    size_t *out_indices,
+    size_t max_indices
+)
+{
+    size_t i;
+    size_t matched;
+
+    if (map == NULL || query == NULL) {
+        return 0u;
+    }
+    if (map->metadata.edge_opening_count > 0u && map->metadata.edge_openings == NULL) {
+        return 0u;
+    }
+
+    matched = 0u;
+    for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+        if (!dg_map_edge_opening_matches_query(&map->metadata.edge_openings[i], query)) {
+            continue;
+        }
+
+        if (out_indices != NULL && matched < max_indices) {
+            out_indices[matched] = i;
+        }
+        matched += 1u;
+    }
+
+    return matched;
+}
+
+const dg_map_edge_opening_t *dg_map_find_edge_opening_by_id(
+    const dg_map_t *map,
+    int opening_id
+)
+{
+    size_t i;
+
+    if (map == NULL || opening_id < 0) {
+        return NULL;
+    }
+    if (map->metadata.edge_opening_count > 0u && map->metadata.edge_openings == NULL) {
+        return NULL;
+    }
+
+    for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+        if (map->metadata.edge_openings[i].id == opening_id) {
+            return &map->metadata.edge_openings[i];
+        }
+    }
+
+    return NULL;
 }
