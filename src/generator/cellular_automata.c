@@ -54,8 +54,8 @@ dg_status_t dg_generate_cellular_automata_impl(
     }
     dg_map_clear_metadata(map);
 
-    for (y = 1; y < map->height - 1; ++y) {
-        for (x = 1; x < map->width - 1; ++x) {
+    for (y = 0; y < map->height; ++y) {
+        for (x = 0; x < map->width; ++x) {
             if (dg_rng_range(rng, 0, 99) >= config->initial_wall_percent) {
                 (void)dg_map_set_tile(map, x, y, DG_TILE_FLOOR);
             }
@@ -72,11 +72,6 @@ dg_status_t dg_generate_cellular_automata_impl(
             for (x = 0; x < map->width; ++x) {
                 size_t index = dg_tile_index(map, x, y);
                 int wall_neighbors;
-
-                if (x == 0 || y == 0 || x == map->width - 1 || y == map->height - 1) {
-                    scratch[index] = DG_TILE_WALL;
-                    continue;
-                }
 
                 wall_neighbors = dg_count_neighbor_walls(map, x, y);
                 scratch[index] = (wall_neighbors >= config->wall_threshold)

@@ -170,8 +170,8 @@ dg_status_t dg_generate_simplex_noise_impl(
     persistence = (double)config->persistence_percent / 100.0;
 
     for (octave = 0; octave < config->octaves; ++octave) {
-        for (y = 1; y < map->height - 1; ++y) {
-            for (x = 1; x < map->width - 1; ++x) {
+        for (y = 0; y < map->height; ++y) {
+            for (x = 0; x < map->width; ++x) {
                 size_t index;
                 double sample;
                 double normalized_sample;
@@ -198,8 +198,8 @@ dg_status_t dg_generate_simplex_noise_impl(
     }
 
     threshold = (double)config->floor_threshold_percent / 100.0;
-    for (y = 1; y < map->height - 1; ++y) {
-        for (x = 1; x < map->width - 1; ++x) {
+    for (y = 0; y < map->height; ++y) {
+        for (x = 0; x < map->width; ++x) {
             size_t index = dg_tile_index(map, x, y);
             double normalized = accum[index] / total_amplitude;
             if (normalized >= threshold) {

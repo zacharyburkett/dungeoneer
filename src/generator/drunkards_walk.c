@@ -2,9 +2,9 @@
 
 #include <stdlib.h>
 
-static bool dg_interior_in_bounds(const dg_map_t *map, int x, int y)
+static bool dg_walk_in_bounds(const dg_map_t *map, int x, int y)
 {
-    return x > 0 && y > 0 && x < map->width - 1 && y < map->height - 1;
+    return dg_map_in_bounds(map, x, y);
 }
 
 dg_status_t dg_generate_drunkards_walk_impl(
@@ -55,8 +55,8 @@ dg_status_t dg_generate_drunkards_walk_impl(
         max_steps = target_floor_tiles;
     }
 
-    x = dg_rng_range(rng, 1, map->width - 2);
-    y = dg_rng_range(rng, 1, map->height - 2);
+    x = dg_rng_range(rng, 0, map->width - 1);
+    y = dg_rng_range(rng, 0, map->height - 1);
     dir_index = dg_rng_range(rng, 0, 3);
 
     carved_count = 0;
@@ -76,7 +76,7 @@ dg_status_t dg_generate_drunkards_walk_impl(
         nx = x + directions[dir_index][0];
         ny = y + directions[dir_index][1];
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_walk_in_bounds(map, nx, ny)) {
             dir_index = dg_rng_range(rng, 0, 3);
             continue;
         }

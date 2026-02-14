@@ -122,7 +122,6 @@ static dg_status_t dg_generate_impl(
         }
     }
 
-    dg_paint_outer_walls(&generated);
     status = dg_apply_explicit_edge_openings(request, &generated);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);

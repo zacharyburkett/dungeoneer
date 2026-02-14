@@ -652,32 +652,6 @@ static bool room_types_match_by_room_id(const dg_map_t *a, const dg_map_t *b)
     return true;
 }
 
-static bool has_outer_walls(const dg_map_t *map)
-{
-    int x;
-    int y;
-
-    for (x = 0; x < map->width; ++x) {
-        if (dg_map_get_tile(map, x, 0) != DG_TILE_WALL) {
-            return false;
-        }
-        if (dg_map_get_tile(map, x, map->height - 1) != DG_TILE_WALL) {
-            return false;
-        }
-    }
-
-    for (y = 0; y < map->height; ++y) {
-        if (dg_map_get_tile(map, 0, y) != DG_TILE_WALL) {
-            return false;
-        }
-        if (dg_map_get_tile(map, map->width - 1, y) != DG_TILE_WALL) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 static bool rects_overlap_with_padding(const dg_rect_t *a, const dg_rect_t *b, int padding)
 {
     long long a_left;
@@ -1286,7 +1260,6 @@ static int test_bsp_generation(void)
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.generation_attempts == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     for (i = 0; i < map.metadata.room_count; ++i) {
@@ -1390,7 +1363,6 @@ static int test_drunkards_walk_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     dg_map_destroy(&map);
@@ -1476,7 +1448,6 @@ static int test_cellular_automata_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     dg_map_destroy(&map);
@@ -1567,7 +1538,6 @@ static int test_value_noise_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     dg_map_destroy(&map);
@@ -1664,7 +1634,6 @@ static int test_room_graph_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(rooms_have_min_wall_separation(&map));
     ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
     ASSERT_TRUE(is_connected(&map));
@@ -1778,7 +1747,6 @@ static int test_worm_caves_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     dg_map_destroy(&map);
@@ -1878,7 +1846,6 @@ static int test_simplex_noise_generation(void)
     ASSERT_TRUE(map.metadata.connected_floor);
     ASSERT_TRUE(map.metadata.connected_component_count == 1);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(is_connected(&map));
 
     dg_map_destroy(&map);
@@ -1972,7 +1939,6 @@ static int test_rooms_and_mazes_generation(void)
     ASSERT_TRUE(map.metadata.room_count >= (size_t)request.params.rooms_and_mazes.min_rooms);
     ASSERT_TRUE(map.metadata.room_count <= (size_t)request.params.rooms_and_mazes.max_rooms);
     ASSERT_TRUE(map.metadata.walkable_tile_count == floors);
-    ASSERT_TRUE(has_outer_walls(&map));
     ASSERT_TRUE(rooms_have_min_wall_separation(&map));
     ASSERT_TRUE(corridors_have_unique_room_pairs(&map));
     ASSERT_TRUE(count_non_room_diagonal_touches_to_room_tiles(&map) == 0);

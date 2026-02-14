@@ -395,8 +395,8 @@ dg_status_t dg_generate_room_graph_impl(
         size_t ri;
         int overlaps;
 
-        max_width = dg_min_int(config->room_max_size, map->width - 4);
-        max_height = dg_min_int(config->room_max_size, map->height - 4);
+        max_width = dg_min_int(config->room_max_size, map->width - 2);
+        max_height = dg_min_int(config->room_max_size, map->height - 2);
         if (max_width < config->room_min_size || max_height < config->room_min_size) {
             break;
         }
@@ -404,12 +404,12 @@ dg_status_t dg_generate_room_graph_impl(
         width = dg_rng_range(rng, config->room_min_size, max_width);
         height = dg_rng_range(rng, config->room_min_size, max_height);
 
-        if (map->width - width - 2 <= 1 || map->height - height - 2 <= 1) {
+        if (map->width - width < 0 || map->height - height < 0) {
             continue;
         }
 
-        x = dg_rng_range(rng, 1, map->width - width - 2);
-        y = dg_rng_range(rng, 1, map->height - height - 2);
+        x = dg_rng_range(rng, 0, map->width - width);
+        y = dg_rng_range(rng, 0, map->height - height);
         room = (dg_rect_t){x, y, width, height};
 
         overlaps = 0;

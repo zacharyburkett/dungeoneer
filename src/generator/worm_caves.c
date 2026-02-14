@@ -10,9 +10,9 @@ typedef struct dg_worm_state {
     int alive;
 } dg_worm_state_t;
 
-static int dg_worm_interior_in_bounds(const dg_map_t *map, int x, int y)
+static int dg_worm_in_bounds(const dg_map_t *map, int x, int y)
 {
-    return x > 0 && y > 0 && x < map->width - 1 && y < map->height - 1;
+    return dg_map_in_bounds(map, x, y) ? 1 : 0;
 }
 
 static size_t dg_worm_carve_brush_count(dg_map_t *map, int cx, int cy, int radius)
@@ -45,7 +45,7 @@ static size_t dg_worm_carve_brush_count(dg_map_t *map, int cx, int cy, int radiu
 
             nx = cx + dx;
             ny = cy + dy;
-            if (!dg_worm_interior_in_bounds(map, nx, ny)) {
+            if (!dg_worm_in_bounds(map, nx, ny)) {
                 continue;
             }
 
@@ -136,8 +136,8 @@ dg_status_t dg_generate_worm_caves_impl(
 
     active_count = config->worm_count;
     for (i = 0; i < config->worm_count; ++i) {
-        worms[i].x = dg_rng_range(rng, 1, map->width - 2);
-        worms[i].y = dg_rng_range(rng, 1, map->height - 2);
+        worms[i].x = dg_rng_range(rng, 0, map->width - 1);
+        worms[i].y = dg_rng_range(rng, 0, map->height - 1);
         worms[i].dir = dg_rng_range(rng, 0, 3);
         worms[i].steps = 0;
         worms[i].alive = 1;
@@ -182,7 +182,7 @@ dg_status_t dg_generate_worm_caves_impl(
 
             nx = worms[i].x + k_dirs[worms[i].dir][0];
             ny = worms[i].y + k_dirs[worms[i].dir][1];
-            if (!dg_worm_interior_in_bounds(map, nx, ny)) {
+            if (!dg_worm_in_bounds(map, nx, ny)) {
                 worms[i].dir = dg_rng_range(rng, 0, 3);
                 continue;
             }
@@ -194,8 +194,8 @@ dg_status_t dg_generate_worm_caves_impl(
 
             if (worms[i].steps >= config->max_steps_per_worm) {
                 if (i < config->worm_count) {
-                    worms[i].x = dg_rng_range(rng, 1, map->width - 2);
-                    worms[i].y = dg_rng_range(rng, 1, map->height - 2);
+                    worms[i].x = dg_rng_range(rng, 0, map->width - 1);
+                    worms[i].y = dg_rng_range(rng, 0, map->height - 1);
                     worms[i].dir = dg_rng_range(rng, 0, 3);
                     worms[i].steps = 0;
                 } else {

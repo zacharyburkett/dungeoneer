@@ -227,6 +227,10 @@ static dg_status_t dg_place_room_in_leaf(
     dg_rng_t *rng
 )
 {
+    int left_margin;
+    int top_margin;
+    int right_margin;
+    int bottom_margin;
     int max_room_width;
     int max_room_height;
     int room_width;
@@ -238,8 +242,19 @@ static dg_status_t dg_place_room_in_leaf(
     dg_rect_t room;
     dg_status_t status;
 
-    max_room_width = dg_bsp_min_int(config->room_max_size, leaf->bounds.width - 2);
-    max_room_height = dg_bsp_min_int(config->room_max_size, leaf->bounds.height - 2);
+    left_margin = (leaf->bounds.x > 0) ? 1 : 0;
+    top_margin = (leaf->bounds.y > 0) ? 1 : 0;
+    right_margin = (leaf->bounds.x + leaf->bounds.width < map->width) ? 1 : 0;
+    bottom_margin = (leaf->bounds.y + leaf->bounds.height < map->height) ? 1 : 0;
+
+    max_room_width = dg_bsp_min_int(
+        config->room_max_size,
+        leaf->bounds.width - left_margin - right_margin
+    );
+    max_room_height = dg_bsp_min_int(
+        config->room_max_size,
+        leaf->bounds.height - top_margin - bottom_margin
+    );
 
     if (max_room_width < config->room_min_size || max_room_height < config->room_min_size) {
         return DG_STATUS_GENERATION_FAILED;
@@ -248,10 +263,10 @@ static dg_status_t dg_place_room_in_leaf(
     room_width = dg_rng_range(rng, config->room_min_size, max_room_width);
     room_height = dg_rng_range(rng, config->room_min_size, max_room_height);
 
-    min_x = leaf->bounds.x + 1;
-    max_x = leaf->bounds.x + leaf->bounds.width - room_width - 1;
-    min_y = leaf->bounds.y + 1;
-    max_y = leaf->bounds.y + leaf->bounds.height - room_height - 1;
+    min_x = leaf->bounds.x + left_margin;
+    max_x = leaf->bounds.x + leaf->bounds.width - room_width - right_margin;
+    min_y = leaf->bounds.y + top_margin;
+    max_y = leaf->bounds.y + leaf->bounds.height - room_height - bottom_margin;
 
     if (max_x < min_x || max_y < min_y) {
         return DG_STATUS_GENERATION_FAILED;
@@ -351,7 +366,7 @@ dg_status_t dg_generate_bsp_tree_impl(
     target_rooms = dg_rng_range(rng, config->min_rooms, config->max_rooms);
     min_leaf_size = config->room_min_size + 2;
 
-    if (map->width - 2 < min_leaf_size || map->height - 2 < min_leaf_size) {
+    if (map->width < min_leaf_size || map->height < min_leaf_size) {
         return DG_STATUS_GENERATION_FAILED;
     }
 
@@ -366,7 +381,7 @@ dg_status_t dg_generate_bsp_tree_impl(
         return DG_STATUS_ALLOCATION_FAILED;
     }
 
-    nodes[0].bounds = (dg_rect_t){1, 1, map->width - 2, map->height - 2};
+    nodes[0].bounds = (dg_rect_t){0, 0, map->width, map->height};
     nodes[0].left = -1;
     nodes[0].right = -1;
     nodes[0].room_id = -1;

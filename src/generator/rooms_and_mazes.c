@@ -33,9 +33,9 @@ static const int DG_CARDINAL_DIRECTIONS[4][2] = {
     {0, -1}
 };
 
-static bool dg_interior_in_bounds(const dg_map_t *map, int x, int y)
+static bool dg_grid_in_bounds(const dg_map_t *map, int x, int y)
 {
-    return x > 0 && y > 0 && x < map->width - 1 && y < map->height - 1;
+    return dg_map_in_bounds(map, x, y);
 }
 
 static int dg_region_find_root(int *parents, int region_id)
@@ -238,6 +238,8 @@ static dg_status_t dg_place_random_rooms(
     const dg_rooms_and_mazes_config_t *config,
     dg_map_t *map,
     dg_rng_t *rng,
+    int grid_parity_x,
+    int grid_parity_y,
     int *regions,
     int *out_next_region_id
 )
@@ -253,14 +255,16 @@ static dg_status_t dg_place_random_rooms(
         map == NULL ||
         map->tiles == NULL ||
         rng == NULL ||
+        (grid_parity_x != 0 && grid_parity_x != 1) ||
+        (grid_parity_y != 0 && grid_parity_y != 1) ||
         regions == NULL ||
         out_next_region_id == NULL
     ) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    max_room_width = dg_min_int(config->room_max_size, map->width - 2);
-    max_room_height = dg_min_int(config->room_max_size, map->height - 2);
+    max_room_width = dg_min_int(config->room_max_size, map->width);
+    max_room_height = dg_min_int(config->room_max_size, map->height);
     if (max_room_width < config->room_min_size || max_room_height < config->room_min_size) {
         return DG_STATUS_GENERATION_FAILED;
     }
@@ -297,17 +301,17 @@ static dg_status_t dg_place_random_rooms(
             room.height = dg_rng_range(rng, config->room_min_size, max_room_height);
         }
 
-        max_x = map->width - room.width - 1;
-        max_y = map->height - room.height - 1;
-        if (max_x < 1 || max_y < 1) {
+        max_x = map->width - room.width;
+        max_y = map->height - room.height;
+        if (max_x < 0 || max_y < 0) {
             continue;
         }
 
-        if (!dg_rng_range_with_parity(rng, 1, max_x, 1, &room.x)) {
-            room.x = dg_rng_range(rng, 1, max_x);
+        if (!dg_rng_range_with_parity(rng, 0, max_x, grid_parity_x, &room.x)) {
+            room.x = dg_rng_range(rng, 0, max_x);
         }
-        if (!dg_rng_range_with_parity(rng, 1, max_y, 1, &room.y)) {
-            room.y = dg_rng_range(rng, 1, max_y);
+        if (!dg_rng_range_with_parity(rng, 0, max_y, grid_parity_y, &room.y)) {
+            room.y = dg_rng_range(rng, 0, max_y);
         }
 
         if (dg_room_overlaps_existing(map, &room)) {
@@ -367,7 +371,7 @@ static bool dg_can_carve_maze_step(
     dst_x = x + dir_x * 2;
     dst_y = y + dir_y * 2;
 
-    if (!dg_interior_in_bounds(map, mid_x, mid_y) || !dg_interior_in_bounds(map, dst_x, dst_y)) {
+    if (!dg_grid_in_bounds(map, mid_x, mid_y) || !dg_grid_in_bounds(map, dst_x, dst_y)) {
         return false;
     }
 
@@ -395,7 +399,7 @@ static bool dg_can_carve_maze_step(
         int nx = mid_x + directions[d][0];
         int ny = mid_y + directions[d][1];
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_grid_in_bounds(map, nx, ny)) {
             continue;
         }
 
@@ -412,7 +416,7 @@ static bool dg_can_carve_maze_step(
         int nx = dst_x + directions[d][0];
         int ny = dst_y + directions[d][1];
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_grid_in_bounds(map, nx, ny)) {
             continue;
         }
 
@@ -436,7 +440,7 @@ static bool dg_can_carve_maze_step(
         size_t nindex;
         int neighbor_region;
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_grid_in_bounds(map, nx, ny)) {
             continue;
         }
 
@@ -458,7 +462,7 @@ static bool dg_can_carve_maze_step(
         size_t nindex;
         int neighbor_region;
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_grid_in_bounds(map, nx, ny)) {
             continue;
         }
 
@@ -618,6 +622,8 @@ static dg_status_t dg_generate_maze_regions(
     int *regions,
     int next_region_id,
     int wiggle_percent,
+    int start_x,
+    int start_y,
     dg_rng_t *rng,
     int *out_next_region_id
 )
@@ -630,13 +636,15 @@ static dg_status_t dg_generate_maze_regions(
         map->tiles == NULL ||
         regions == NULL ||
         rng == NULL ||
+        (start_x != 0 && start_x != 1) ||
+        (start_y != 0 && start_y != 1) ||
         out_next_region_id == NULL
     ) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    for (y = 1; y < map->height - 1; y += 2) {
-        for (x = 1; x < map->width - 1; x += 2) {
+    for (y = start_y; y < map->height; y += 2) {
+        for (x = start_x; x < map->width; x += 2) {
             size_t index = dg_tile_index(map, x, y);
             dg_status_t status;
 
@@ -712,7 +720,7 @@ static void dg_try_add_room_connector_candidate(
     wall_y = boundary_y + dir_y;
     target_x = boundary_x + dir_x * 2;
     target_y = boundary_y + dir_y * 2;
-    if (!dg_interior_in_bounds(map, wall_x, wall_y) || !dg_interior_in_bounds(map, target_x, target_y)) {
+    if (!dg_grid_in_bounds(map, wall_x, wall_y) || !dg_grid_in_bounds(map, target_x, target_y)) {
         return;
     }
 
@@ -800,7 +808,7 @@ static int dg_collect_wall_neighbor_regions(
         int i;
         bool duplicate;
 
-        if (!dg_interior_in_bounds(map, nx, ny)) {
+        if (!dg_grid_in_bounds(map, nx, ny)) {
             continue;
         }
         if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
@@ -943,8 +951,8 @@ static bool dg_choose_random_region_connector(
     candidate_count = 0;
     chosen = (dg_region_connector_t){0};
 
-    for (y = 1; y < map->height - 1; ++y) {
-        for (x = 1; x < map->width - 1; ++x) {
+    for (y = 0; y < map->height; ++y) {
+        for (x = 0; x < map->width; ++x) {
             int neighbor_regions[4];
             int neighbor_rooms[4];
             int neighbor_count;
@@ -1415,8 +1423,8 @@ static dg_status_t dg_remove_dead_ends(
         }
 
         remove_count = 0;
-        for (y = 1; y < map->height - 1; ++y) {
-            for (x = 1; x < map->width - 1; ++x) {
+        for (y = 0; y < map->height; ++y) {
+            for (x = 0; x < map->width; ++x) {
                 size_t index = dg_tile_index(map, x, y);
                 int neighbors;
                 int d;
@@ -1475,6 +1483,8 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     size_t cell_count;
     int *regions;
     int next_region_id;
+    int grid_parity_x;
+    int grid_parity_y;
     dg_status_t status;
 
     if (request == NULL || map == NULL || rng == NULL) {
@@ -1488,6 +1498,8 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     dg_map_clear_metadata(map);
 
     config = &request->params.rooms_and_mazes;
+    grid_parity_x = dg_rng_range(rng, 0, 1);
+    grid_parity_y = dg_rng_range(rng, 0, 1);
     cell_count = (size_t)map->width * (size_t)map->height;
     regions = (int *)malloc(cell_count * sizeof(int));
     if (regions == NULL) {
@@ -1495,7 +1507,15 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     }
     memset(regions, 0xFF, cell_count * sizeof(int));
 
-    status = dg_place_random_rooms(config, map, rng, regions, &next_region_id);
+    status = dg_place_random_rooms(
+        config,
+        map,
+        rng,
+        grid_parity_x,
+        grid_parity_y,
+        regions,
+        &next_region_id
+    );
     if (status != DG_STATUS_OK) {
         free(regions);
         return status;
@@ -1506,6 +1526,8 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
         regions,
         next_region_id,
         config->maze_wiggle_percent,
+        grid_parity_x,
+        grid_parity_y,
         rng,
         &next_region_id
     );
