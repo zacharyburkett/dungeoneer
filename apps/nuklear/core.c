@@ -342,8 +342,6 @@ static const char *dg_nuklear_process_method_label(dg_process_method_type_t type
     switch (type) {
     case DG_PROCESS_METHOD_SCALE:
         return "General: Scale";
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        return "Room: Shape";
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return "Corridor: Path Smoothing";
     case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
@@ -356,12 +354,10 @@ static const char *dg_nuklear_process_method_label(dg_process_method_type_t type
 static int dg_nuklear_process_type_to_ui_index(dg_process_method_type_t type)
 {
     switch (type) {
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        return 1;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
-        return 2;
+        return 1;
     case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
-        return 3;
+        return 2;
     case DG_PROCESS_METHOD_SCALE:
     default:
         return 0;
@@ -372,10 +368,8 @@ static dg_process_method_type_t dg_nuklear_process_ui_index_to_type(int index)
 {
     switch (index) {
     case 1:
-        return DG_PROCESS_METHOD_ROOM_SHAPE;
-    case 2:
         return DG_PROCESS_METHOD_PATH_SMOOTH;
-    case 3:
+    case 2:
         return DG_PROCESS_METHOD_CORRIDOR_ROUGHEN;
     case 0:
     default:
@@ -385,54 +379,14 @@ static dg_process_method_type_t dg_nuklear_process_ui_index_to_type(int index)
 
 static const char *DG_NUKLEAR_PROCESS_METHOD_TYPES[] = {
     "General: Scale",
-    "Room: Shape",
     "Corridor: Path Smoothing",
     "Corridor: Roughen"
-};
-
-static const char *DG_NUKLEAR_ROOM_SHAPE_MODES[] = {
-    "Rectangular",
-    "Organic (Noise Blob)",
-    "Cellular",
-    "Chamfered"
 };
 
 static const char *DG_NUKLEAR_CORRIDOR_ROUGHEN_MODES[] = {
     "Uniform",
     "Organic"
 };
-
-static int dg_nuklear_room_shape_mode_to_ui_index(dg_room_shape_mode_t mode)
-{
-    switch (mode) {
-    case DG_ROOM_SHAPE_RECTANGULAR:
-        return 0;
-    case DG_ROOM_SHAPE_ORGANIC:
-        return 1;
-    case DG_ROOM_SHAPE_CELLULAR:
-        return 2;
-    case DG_ROOM_SHAPE_CHAMFERED:
-        return 3;
-    default:
-        return 1;
-    }
-}
-
-static dg_room_shape_mode_t dg_nuklear_room_shape_ui_index_to_mode(int index)
-{
-    switch (index) {
-    case 0:
-        return DG_ROOM_SHAPE_RECTANGULAR;
-    case 1:
-        return DG_ROOM_SHAPE_ORGANIC;
-    case 2:
-        return DG_ROOM_SHAPE_CELLULAR;
-    case 3:
-        return DG_ROOM_SHAPE_CHAMFERED;
-    default:
-        return DG_ROOM_SHAPE_ORGANIC;
-    }
-}
 
 static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
 {
@@ -443,16 +397,6 @@ static void dg_nuklear_sanitize_process_method(dg_process_method_t *method)
     switch (method->type) {
     case DG_PROCESS_METHOD_SCALE:
         method->params.scale.factor = dg_nuklear_clamp_int(method->params.scale.factor, 1, 8);
-        break;
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
-            method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC &&
-            method->params.room_shape.mode != DG_ROOM_SHAPE_CELLULAR &&
-            method->params.room_shape.mode != DG_ROOM_SHAPE_CHAMFERED) {
-            method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-        }
-        method->params.room_shape.organicity =
-            dg_nuklear_clamp_int(method->params.room_shape.organicity, 0, 100);
         break;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         method->params.path_smooth.strength =
@@ -492,7 +436,7 @@ static void dg_nuklear_sanitize_process_settings(dg_nuklear_app_t *app)
         DG_NUKLEAR_MAX_PROCESS_METHODS
     );
     app->process_add_method_type_index =
-        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 3);
+        dg_nuklear_clamp_int(app->process_add_method_type_index, 0, 2);
     app->process_enabled = app->process_enabled ? 1 : 0;
 
     for (i = 0; i < app->process_method_count; ++i) {
@@ -1577,12 +1521,6 @@ static bool dg_nuklear_apply_generation_request_snapshot(
             app->process_methods[i].params.scale.factor =
                 snapshot->process.methods[i].params.scale.factor;
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            app->process_methods[i].params.room_shape.mode =
-                (dg_room_shape_mode_t)snapshot->process.methods[i].params.room_shape.mode;
-            app->process_methods[i].params.room_shape.organicity =
-                snapshot->process.methods[i].params.room_shape.organicity;
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             app->process_methods[i].params.path_smooth.strength =
                 snapshot->process.methods[i].params.path_smooth.strength;
@@ -1798,10 +1736,6 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
             switch (method->type) {
             case DG_PROCESS_METHOD_SCALE:
                 hash = dg_nuklear_hash_i32(hash, method->params.scale.factor);
-                break;
-            case DG_PROCESS_METHOD_ROOM_SHAPE:
-                hash = dg_nuklear_hash_i32(hash, (int)method->params.room_shape.mode);
-                hash = dg_nuklear_hash_i32(hash, method->params.room_shape.organicity);
                 break;
             case DG_PROCESS_METHOD_PATH_SMOOTH:
                 hash = dg_nuklear_hash_i32(hash, method->params.path_smooth.strength);
@@ -3592,21 +3526,6 @@ static void dg_nuklear_draw_rooms_and_mazes_settings(
     }
 }
 
-static const char *dg_nuklear_room_shape_mode_label(dg_room_shape_mode_t mode)
-{
-    switch (mode) {
-    case DG_ROOM_SHAPE_RECTANGULAR:
-        return "Rectangular";
-    case DG_ROOM_SHAPE_CELLULAR:
-        return "Cellular";
-    case DG_ROOM_SHAPE_CHAMFERED:
-        return "Chamfered";
-    case DG_ROOM_SHAPE_ORGANIC:
-    default:
-        return "Organic";
-    }
-}
-
 static const char *dg_nuklear_corridor_roughen_mode_label(dg_corridor_roughen_mode_t mode)
 {
     return (mode == DG_CORRIDOR_ROUGHEN_UNIFORM) ? "Uniform" : "Organic";
@@ -3635,24 +3554,6 @@ static void dg_nuklear_process_method_summary(
             "Factor x%d",
             method->params.scale.factor
         );
-        break;
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        if (method->params.room_shape.mode == DG_ROOM_SHAPE_RECTANGULAR) {
-            (void)snprintf(
-                out_text,
-                out_text_capacity,
-                "Mode: %s",
-                dg_nuklear_room_shape_mode_label(method->params.room_shape.mode)
-            );
-        } else {
-            (void)snprintf(
-                out_text,
-                out_text_capacity,
-                "Mode: %s, Strength %d%%",
-                dg_nuklear_room_shape_mode_label(method->params.room_shape.mode),
-                method->params.room_shape.organicity
-            );
-        }
         break;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         (void)snprintf(
@@ -3687,6 +3588,8 @@ static void dg_nuklear_draw_process_method_editor(
     dg_process_method_t *method
 )
 {
+    (void)algorithm;
+
     int type_index;
 
     if (ctx == NULL || app == NULL || method == NULL) {
@@ -3727,44 +3630,6 @@ static void dg_nuklear_draw_process_method_editor(
             1,
             0.25f
         );
-    } else if (method->type == DG_PROCESS_METHOD_ROOM_SHAPE) {
-        int room_shape_index =
-            dg_nuklear_room_shape_mode_to_ui_index(method->params.room_shape.mode);
-
-        nk_layout_row_dynamic(ctx, 20.0f, 1);
-        nk_label(ctx, "Room Shape Mode", NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 28.0f, 1);
-        room_shape_index = nk_combo(
-            ctx,
-            DG_NUKLEAR_ROOM_SHAPE_MODES,
-            (int)(sizeof(DG_NUKLEAR_ROOM_SHAPE_MODES) / sizeof(DG_NUKLEAR_ROOM_SHAPE_MODES[0])),
-            room_shape_index,
-            22,
-            nk_vec2(280.0f, 112.0f)
-        );
-        method->params.room_shape.mode =
-            dg_nuklear_room_shape_ui_index_to_mode(room_shape_index);
-
-        if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR) {
-            nk_layout_row_dynamic(ctx, 28.0f, 1);
-            nk_property_int(
-                ctx,
-                "Strength (%)",
-                0,
-                &method->params.room_shape.organicity,
-                100,
-                1,
-                0.25f
-            );
-        }
-        if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
-            dg_algorithm_generation_class(algorithm) != DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
-            nk_layout_row_dynamic(ctx, 36.0f, 1);
-            nk_label_wrap(
-                ctx,
-                "Room shape processing only affects room-like layouts."
-            );
-        }
     } else if (method->type == DG_PROCESS_METHOD_PATH_SMOOTH) {
         nk_layout_row_dynamic(ctx, 28.0f, 1);
         nk_property_int(

@@ -165,22 +165,6 @@ typedef struct dg_simplex_noise_config {
     int ensure_connected;
 } dg_simplex_noise_config_t;
 
-typedef enum dg_room_shape_mode {
-    DG_ROOM_SHAPE_RECTANGULAR = 0,
-    /*
-     * Irregular blob-like rooms generated from coherent noise.
-     */
-    DG_ROOM_SHAPE_ORGANIC = 1,
-    /*
-     * Cellular-automata carved rooms for cave-like interior variation.
-     */
-    DG_ROOM_SHAPE_CELLULAR = 2,
-    /*
-     * Rounded/chamfered room corners while preserving doorway connectivity.
-     */
-    DG_ROOM_SHAPE_CHAMFERED = 3
-} dg_room_shape_mode_t;
-
 typedef enum dg_corridor_roughen_mode {
     DG_CORRIDOR_ROUGHEN_UNIFORM = 0,
     DG_CORRIDOR_ROUGHEN_ORGANIC = 1
@@ -188,9 +172,8 @@ typedef enum dg_corridor_roughen_mode {
 
 typedef enum dg_process_method_type {
     DG_PROCESS_METHOD_SCALE = 0,
-    DG_PROCESS_METHOD_ROOM_SHAPE = 1,
-    DG_PROCESS_METHOD_PATH_SMOOTH = 2,
-    DG_PROCESS_METHOD_CORRIDOR_ROUGHEN = 3
+    DG_PROCESS_METHOD_PATH_SMOOTH = 1,
+    DG_PROCESS_METHOD_CORRIDOR_ROUGHEN = 2
 } dg_process_method_type_t;
 
 typedef struct dg_process_scale_config {
@@ -201,22 +184,6 @@ typedef struct dg_process_scale_config {
      */
     int factor;
 } dg_process_scale_config_t;
-
-typedef struct dg_process_room_shape_config {
-    /*
-     * Room shape post-process:
-     *   RECTANGULAR = preserve layout room rectangles
-     *   ORGANIC     = coherent noisy/blob-like room interiors
-     *   CELLULAR    = cave-like cellular room interiors
-     *   CHAMFERED   = rounded/chamfered room corners
-     */
-    dg_room_shape_mode_t mode;
-    /*
-     * Shape strength (0..100).
-     * Higher values increase mode-specific deformation intensity.
-     */
-    int organicity;
-} dg_process_room_shape_config_t;
 
 typedef struct dg_process_path_smooth_config {
     /*
@@ -257,7 +224,6 @@ typedef struct dg_process_method {
     dg_process_method_type_t type;
     union {
         dg_process_scale_config_t scale;
-        dg_process_room_shape_config_t room_shape;
         dg_process_path_smooth_config_t path_smooth;
         dg_process_corridor_roughen_config_t corridor_roughen;
     } params;

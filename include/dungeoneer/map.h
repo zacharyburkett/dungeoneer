@@ -168,11 +168,6 @@ typedef struct dg_snapshot_process_scale_config {
     int factor;
 } dg_snapshot_process_scale_config_t;
 
-typedef struct dg_snapshot_process_room_shape_config {
-    int mode;
-    int organicity;
-} dg_snapshot_process_room_shape_config_t;
-
 typedef struct dg_snapshot_process_path_smooth_config {
     int strength;
     int inner_enabled;
@@ -189,7 +184,6 @@ typedef struct dg_snapshot_process_method {
     int type;
     union {
         dg_snapshot_process_scale_config_t scale;
-        dg_snapshot_process_room_shape_config_t room_shape;
         dg_snapshot_process_path_smooth_config_t path_smooth;
         dg_snapshot_process_corridor_roughen_config_t corridor_roughen;
     } params;

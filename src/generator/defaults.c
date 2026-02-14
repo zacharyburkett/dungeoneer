@@ -183,10 +183,6 @@ void dg_default_process_method(dg_process_method_t *method, dg_process_method_ty
     case DG_PROCESS_METHOD_SCALE:
         method->params.scale.factor = 2;
         break;
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        method->params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-        method->params.room_shape.organicity = 45;
-        break;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         method->params.path_smooth.strength = 2;
         method->params.path_smooth.inner_enabled = 1;

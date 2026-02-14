@@ -291,12 +291,6 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
                 return false;
             }
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            if (ma->params.room_shape.mode != mb->params.room_shape.mode ||
-                ma->params.room_shape.organicity != mb->params.room_shape.organicity) {
-                return false;
-            }
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             if (ma->params.path_smooth.strength != mb->params.path_smooth.strength ||
                 ma->params.path_smooth.inner_enabled != mb->params.path_smooth.inner_enabled ||
@@ -2048,138 +2042,6 @@ static int test_post_process_disabled_bypasses_pipeline(void)
     return 0;
 }
 
-static int test_post_process_room_shape_changes_layout(void)
-{
-    dg_generate_request_t rectangular_request;
-    dg_generate_request_t shaped_request;
-    dg_map_t rectangular_map = {0};
-    dg_process_method_t shape_methods[1];
-    const dg_room_shape_mode_t modes[] = {
-        DG_ROOM_SHAPE_ORGANIC,
-        DG_ROOM_SHAPE_CELLULAR,
-        DG_ROOM_SHAPE_CHAMFERED
-    };
-    size_t i;
-
-    dg_default_generate_request(&rectangular_request, DG_ALGORITHM_BSP_TREE, 80, 48, 222333u);
-    rectangular_request.params.bsp.min_rooms = 10;
-    rectangular_request.params.bsp.max_rooms = 12;
-    rectangular_request.params.bsp.room_min_size = 5;
-    rectangular_request.params.bsp.room_max_size = 10;
-
-    ASSERT_STATUS(dg_generate(&rectangular_request, &rectangular_map), DG_STATUS_OK);
-
-    for (i = 0; i < (sizeof(modes) / sizeof(modes[0])); ++i) {
-        dg_map_t shaped_map = {0};
-
-        shaped_request = rectangular_request;
-        dg_default_process_method(&shape_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-        shape_methods[0].params.room_shape.mode = modes[i];
-        shape_methods[0].params.room_shape.organicity = 75;
-        shaped_request.process.methods = shape_methods;
-        shaped_request.process.method_count = 1;
-
-        ASSERT_STATUS(dg_generate(&shaped_request, &shaped_map), DG_STATUS_OK);
-        ASSERT_TRUE(!maps_have_same_tiles(&rectangular_map, &shaped_map));
-        ASSERT_TRUE(shaped_map.metadata.generation_request.process.method_count == 1);
-        ASSERT_TRUE(
-            shaped_map.metadata.generation_request.process.methods[0].type ==
-            (int)DG_PROCESS_METHOD_ROOM_SHAPE
-        );
-        ASSERT_TRUE(
-            shaped_map.metadata.generation_request.process.methods[0].params.room_shape.mode ==
-            (int)modes[i]
-        );
-
-        dg_map_destroy(&shaped_map);
-    }
-
-    dg_map_destroy(&rectangular_map);
-    return 0;
-}
-
-static int test_room_entrances_preserved_with_room_shape(void)
-{
-    dg_generate_request_t request;
-    dg_map_t map = {0};
-    dg_process_method_t methods[1];
-    size_t *entrances_per_room;
-    size_t i;
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 52, 606060u);
-    request.params.bsp.min_rooms = 10;
-    request.params.bsp.max_rooms = 10;
-    request.params.bsp.room_min_size = 5;
-    request.params.bsp.room_max_size = 11;
-
-    dg_default_process_method(&methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-    methods[0].params.room_shape.organicity = 85;
-    request.process.methods = methods;
-    request.process.method_count = 1;
-
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
-    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE);
-    ASSERT_TRUE(map.metadata.room_count > 0);
-    ASSERT_TRUE(map.metadata.corridor_count > 0);
-    ASSERT_TRUE(map.metadata.room_entrance_count > 0);
-    ASSERT_TRUE(room_entrances_are_valid(&map));
-
-    entrances_per_room = (size_t *)calloc(map.metadata.room_count, sizeof(size_t));
-    ASSERT_TRUE(entrances_per_room != NULL);
-
-    for (i = 0; i < map.metadata.room_entrance_count; ++i) {
-        int room_id = map.metadata.room_entrances[i].room_id;
-        ASSERT_TRUE(room_id >= 0);
-        ASSERT_TRUE((size_t)room_id < map.metadata.room_count);
-        entrances_per_room[room_id] += 1u;
-    }
-
-    if (map.metadata.room_adjacency_count == map.metadata.room_count &&
-        map.metadata.room_adjacency != NULL) {
-        for (i = 0; i < map.metadata.room_count; ++i) {
-            if (map.metadata.room_adjacency[i].count > 0u) {
-                ASSERT_TRUE(entrances_per_room[i] > 0u);
-            }
-        }
-    }
-
-    free(entrances_per_room);
-    dg_map_destroy(&map);
-    return 0;
-}
-
-static int test_post_process_room_shape_no_effect_on_cave_layout(void)
-{
-    dg_generate_request_t base_request;
-    dg_generate_request_t shaped_request;
-    dg_map_t base_map = {0};
-    dg_map_t shaped_map = {0};
-    dg_process_method_t shape_methods[1];
-
-    dg_default_generate_request(&base_request, DG_ALGORITHM_VALUE_NOISE, 88, 48, 99331u);
-    base_request.params.value_noise.feature_size = 9;
-    base_request.params.value_noise.octaves = 3;
-    base_request.params.value_noise.persistence_percent = 52;
-    base_request.params.value_noise.floor_threshold_percent = 49;
-
-    shaped_request = base_request;
-    dg_default_process_method(&shape_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    shape_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_CELLULAR;
-    shape_methods[0].params.room_shape.organicity = 80;
-    shaped_request.process.methods = shape_methods;
-    shaped_request.process.method_count = 1;
-
-    ASSERT_STATUS(dg_generate(&base_request, &base_map), DG_STATUS_OK);
-    ASSERT_STATUS(dg_generate(&shaped_request, &shaped_map), DG_STATUS_OK);
-
-    ASSERT_TRUE(maps_have_same_tiles(&base_map, &shaped_map));
-
-    dg_map_destroy(&base_map);
-    dg_map_destroy(&shaped_map);
-    return 0;
-}
-
 static int test_post_process_path_smoothing_changes_layout(void)
 {
     uint64_t seed;
@@ -2803,7 +2665,7 @@ static int test_generation_request_snapshot_populated(void)
     dg_generate_request_t request;
     dg_map_t map = {0};
     dg_room_type_definition_t definitions[2];
-    dg_process_method_t process_methods[4];
+    dg_process_method_t process_methods[3];
     const dg_generation_request_snapshot_t *snapshot;
 
     dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 88, 48, 515151u);
@@ -2816,21 +2678,18 @@ static int test_generation_request_snapshot_populated(void)
     request.params.rooms_and_mazes.max_room_connections = 2;
     request.params.rooms_and_mazes.ensure_full_connectivity = 0;
     request.params.rooms_and_mazes.dead_end_prune_steps = 8;
-    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    process_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-    process_methods[0].params.room_shape.organicity = 60;
-    dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_SCALE);
-    process_methods[1].params.scale.factor = 2;
-    dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_PATH_SMOOTH);
-    process_methods[2].params.path_smooth.strength = 3;
-    process_methods[2].params.path_smooth.inner_enabled = 1;
-    process_methods[2].params.path_smooth.outer_enabled = 1;
-    dg_default_process_method(&process_methods[3], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
-    process_methods[3].params.corridor_roughen.strength = 42;
-    process_methods[3].params.corridor_roughen.max_depth = 3;
-    process_methods[3].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_SCALE);
+    process_methods[0].params.scale.factor = 2;
+    dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_PATH_SMOOTH);
+    process_methods[1].params.path_smooth.strength = 3;
+    process_methods[1].params.path_smooth.inner_enabled = 1;
+    process_methods[1].params.path_smooth.outer_enabled = 1;
+    dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    process_methods[2].params.corridor_roughen.strength = 42;
+    process_methods[2].params.corridor_roughen.max_depth = 3;
+    process_methods[2].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
     request.process.methods = process_methods;
-    request.process.method_count = 4;
+    request.process.method_count = 3;
 
     dg_default_room_type_definition(&definitions[0], 701u);
     definitions[0].min_count = 2;
@@ -2856,19 +2715,16 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->process.enabled == request.process.enabled);
     ASSERT_TRUE(snapshot->process.method_count == request.process.method_count);
     ASSERT_TRUE(snapshot->process.methods != NULL);
-    ASSERT_TRUE(snapshot->process.methods[0].type == (int)DG_PROCESS_METHOD_ROOM_SHAPE);
-    ASSERT_TRUE(snapshot->process.methods[0].params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC);
-    ASSERT_TRUE(snapshot->process.methods[0].params.room_shape.organicity == 60);
-    ASSERT_TRUE(snapshot->process.methods[1].type == (int)DG_PROCESS_METHOD_SCALE);
-    ASSERT_TRUE(snapshot->process.methods[1].params.scale.factor == 2);
-    ASSERT_TRUE(snapshot->process.methods[2].type == (int)DG_PROCESS_METHOD_PATH_SMOOTH);
-    ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.strength == 3);
-    ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.inner_enabled == 1);
-    ASSERT_TRUE(snapshot->process.methods[2].params.path_smooth.outer_enabled == 1);
-    ASSERT_TRUE(snapshot->process.methods[3].type == (int)DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
-    ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.strength == 42);
-    ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.max_depth == 3);
-    ASSERT_TRUE(snapshot->process.methods[3].params.corridor_roughen.mode ==
+    ASSERT_TRUE(snapshot->process.methods[0].type == (int)DG_PROCESS_METHOD_SCALE);
+    ASSERT_TRUE(snapshot->process.methods[0].params.scale.factor == 2);
+    ASSERT_TRUE(snapshot->process.methods[1].type == (int)DG_PROCESS_METHOD_PATH_SMOOTH);
+    ASSERT_TRUE(snapshot->process.methods[1].params.path_smooth.strength == 3);
+    ASSERT_TRUE(snapshot->process.methods[1].params.path_smooth.inner_enabled == 1);
+    ASSERT_TRUE(snapshot->process.methods[1].params.path_smooth.outer_enabled == 1);
+    ASSERT_TRUE(snapshot->process.methods[2].type == (int)DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    ASSERT_TRUE(snapshot->process.methods[2].params.corridor_roughen.strength == 42);
+    ASSERT_TRUE(snapshot->process.methods[2].params.corridor_roughen.max_depth == 3);
+    ASSERT_TRUE(snapshot->process.methods[2].params.corridor_roughen.mode ==
                 (int)DG_CORRIDOR_ROUGHEN_ORGANIC);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_rooms == request.params.rooms_and_mazes.max_rooms);
@@ -2939,28 +2795,25 @@ static int test_map_serialization_roundtrip(void)
     dg_map_t original = {0};
     dg_map_t loaded = {0};
     dg_room_type_definition_t definitions[2];
-    dg_process_method_t process_methods[4];
+    dg_process_method_t process_methods[3];
 
     path = "dungeoneer_test_roundtrip.dgmap";
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 6060u);
     request.params.bsp.min_rooms = 9;
     request.params.bsp.max_rooms = 12;
-    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    process_methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
-    process_methods[0].params.room_shape.organicity = 55;
-    dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_SCALE);
-    process_methods[1].params.scale.factor = 2;
-    dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_PATH_SMOOTH);
-    process_methods[2].params.path_smooth.strength = 2;
-    process_methods[2].params.path_smooth.inner_enabled = 1;
-    process_methods[2].params.path_smooth.outer_enabled = 1;
-    dg_default_process_method(&process_methods[3], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
-    process_methods[3].params.corridor_roughen.strength = 38;
-    process_methods[3].params.corridor_roughen.max_depth = 3;
-    process_methods[3].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
+    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_SCALE);
+    process_methods[0].params.scale.factor = 2;
+    dg_default_process_method(&process_methods[1], DG_PROCESS_METHOD_PATH_SMOOTH);
+    process_methods[1].params.path_smooth.strength = 2;
+    process_methods[1].params.path_smooth.inner_enabled = 1;
+    process_methods[1].params.path_smooth.outer_enabled = 1;
+    dg_default_process_method(&process_methods[2], DG_PROCESS_METHOD_CORRIDOR_ROUGHEN);
+    process_methods[2].params.corridor_roughen.strength = 38;
+    process_methods[2].params.corridor_roughen.max_depth = 3;
+    process_methods[2].params.corridor_roughen.mode = DG_CORRIDOR_ROUGHEN_ORGANIC;
     request.process.methods = process_methods;
-    request.process.method_count = 4;
+    request.process.method_count = 3;
     dg_default_room_type_definition(&definitions[0], 51u);
     definitions[0].min_count = 2;
     dg_default_room_type_definition(&definitions[1], 52u);
@@ -3655,20 +3508,6 @@ static int test_invalid_generate_request(void)
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
     dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    process_methods[0].params.room_shape.mode = (dg_room_shape_mode_t)99;
-    request.process.methods = process_methods;
-    request.process.method_count = 1;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
-    dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
-    process_methods[0].params.room_shape.organicity = -1;
-    request.process.methods = process_methods;
-    request.process.method_count = 1;
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
-
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
     dg_default_process_method(&process_methods[0], DG_PROCESS_METHOD_PATH_SMOOTH);
     process_methods[0].params.path_smooth.strength = -1;
     request.process.methods = process_methods;
@@ -3841,10 +3680,6 @@ int main(void)
          test_rooms_and_mazes_pruned_has_no_room_nub_dead_ends},
         {"post_process_scaling", test_post_process_scaling},
         {"post_process_disabled_bypasses_pipeline", test_post_process_disabled_bypasses_pipeline},
-        {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
-        {"room_entrances_preserved_with_room_shape", test_room_entrances_preserved_with_room_shape},
-        {"post_process_room_shape_no_effect_on_cave_layout",
-         test_post_process_room_shape_no_effect_on_cave_layout},
         {"post_process_path_smoothing_changes_layout", test_post_process_path_smoothing_changes_layout},
         {"post_process_path_smoothing_outer_trim_effect",
          test_post_process_path_smoothing_outer_trim_effect},

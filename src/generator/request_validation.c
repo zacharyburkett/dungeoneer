@@ -404,18 +404,6 @@ static dg_status_t dg_validate_process_config(const dg_process_config_t *config)
                 return DG_STATUS_INVALID_ARGUMENT;
             }
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            if (method->params.room_shape.mode != DG_ROOM_SHAPE_RECTANGULAR &&
-                method->params.room_shape.mode != DG_ROOM_SHAPE_ORGANIC &&
-                method->params.room_shape.mode != DG_ROOM_SHAPE_CELLULAR &&
-                method->params.room_shape.mode != DG_ROOM_SHAPE_CHAMFERED) {
-                return DG_STATUS_INVALID_ARGUMENT;
-            }
-            if (method->params.room_shape.organicity < 0 ||
-                method->params.room_shape.organicity > 100) {
-                return DG_STATUS_INVALID_ARGUMENT;
-            }
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             if (method->params.path_smooth.strength < 0 ||
                 method->params.path_smooth.strength > 12) {

@@ -267,13 +267,6 @@ static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method
     switch ((dg_process_method_type_t)method->type) {
     case DG_PROCESS_METHOD_SCALE:
         return method->params.scale.factor >= 1;
-    case DG_PROCESS_METHOD_ROOM_SHAPE:
-        return (method->params.room_shape.mode == (int)DG_ROOM_SHAPE_RECTANGULAR ||
-                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_ORGANIC ||
-                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_CELLULAR ||
-                method->params.room_shape.mode == (int)DG_ROOM_SHAPE_CHAMFERED) &&
-               method->params.room_shape.organicity >= 0 &&
-               method->params.room_shape.organicity <= 100;
     case DG_PROCESS_METHOD_PATH_SMOOTH:
         return method->params.path_smooth.strength >= 0 &&
                method->params.path_smooth.strength <= 12 &&
@@ -800,13 +793,6 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
         case DG_PROCESS_METHOD_SCALE:
             status = dg_write_i32(file, (int32_t)method->params.scale.factor);
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            status = dg_write_i32(file, (int32_t)method->params.room_shape.mode);
-            if (status != DG_STATUS_OK) {
-                return status;
-            }
-            status = dg_write_i32(file, (int32_t)method->params.room_shape.organicity);
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             status = dg_write_i32(file, (int32_t)method->params.path_smooth.strength);
             if (status != DG_STATUS_OK) {
@@ -1289,18 +1275,6 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
                 return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
             }
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            status = dg_read_i32(file, &value_i32);
-            if (status != DG_STATUS_OK ||
-                !dg_i32_to_int_checked(value_i32, &method->params.room_shape.mode)) {
-                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
-            }
-            status = dg_read_i32(file, &value_i32);
-            if (status != DG_STATUS_OK ||
-                !dg_i32_to_int_checked(value_i32, &method->params.room_shape.organicity)) {
-                return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
-            }
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             status = dg_read_i32(file, &value_i32);
             if (status != DG_STATUS_OK ||
@@ -1640,12 +1614,6 @@ static dg_status_t dg_build_request_from_snapshot(
         switch (process_methods[i].type) {
         case DG_PROCESS_METHOD_SCALE:
             process_methods[i].params.scale.factor = snapshot->process.methods[i].params.scale.factor;
-            break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            process_methods[i].params.room_shape.mode =
-                (dg_room_shape_mode_t)snapshot->process.methods[i].params.room_shape.mode;
-            process_methods[i].params.room_shape.organicity =
-                snapshot->process.methods[i].params.room_shape.organicity;
             break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             process_methods[i].params.path_smooth.strength =

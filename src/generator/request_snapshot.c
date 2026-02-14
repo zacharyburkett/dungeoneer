@@ -39,10 +39,6 @@ static dg_status_t dg_copy_process_methods_to_snapshot(
         case DG_PROCESS_METHOD_SCALE:
             methods[i].params.scale.factor = source_methods[i].params.scale.factor;
             break;
-        case DG_PROCESS_METHOD_ROOM_SHAPE:
-            methods[i].params.room_shape.mode = (int)source_methods[i].params.room_shape.mode;
-            methods[i].params.room_shape.organicity = source_methods[i].params.room_shape.organicity;
-            break;
         case DG_PROCESS_METHOD_PATH_SMOOTH:
             methods[i].params.path_smooth.strength = source_methods[i].params.path_smooth.strength;
             methods[i].params.path_smooth.inner_enabled =
