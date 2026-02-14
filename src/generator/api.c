@@ -1,6 +1,10 @@
 #include "internal.h"
 
-dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
+static dg_status_t dg_generate_impl(
+    const dg_generate_request_t *request,
+    dg_map_t *out_map,
+    int enforce_public_min_dimensions
+)
 {
     dg_status_t status;
     dg_map_t generated;
@@ -11,7 +15,8 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (request->width < 8 || request->height < 8) {
+    if (enforce_public_min_dimensions != 0 &&
+        (request->width < 8 || request->height < 8)) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
@@ -103,6 +108,12 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         return status;
     }
 
+    status = dg_apply_room_type_templates(request, &generated);
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
+
     status = dg_apply_post_processes(request, &generated, &rng);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
@@ -110,6 +121,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
     }
 
     dg_paint_outer_walls(&generated);
+    status = dg_apply_explicit_edge_openings(request, &generated);
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
 
     if (dg_count_walkable_tiles(&generated) == 0) {
         dg_map_destroy(&generated);
@@ -128,6 +144,11 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         dg_map_destroy(&generated);
         return status;
     }
+    status = dg_apply_explicit_edge_opening_roles(request, &generated);
+    if (status != DG_STATUS_OK) {
+        dg_map_destroy(&generated);
+        return status;
+    }
 
     status = dg_snapshot_generation_request(request, &generated);
     if (status != DG_STATUS_OK) {
@@ -137,4 +158,17 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
 
     *out_map = generated;
     return DG_STATUS_OK;
+}
+
+dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
+{
+    return dg_generate_impl(request, out_map, 1);
+}
+
+dg_status_t dg_generate_internal_allow_small(
+    const dg_generate_request_t *request,
+    dg_map_t *out_map
+)
+{
+    return dg_generate_impl(request, out_map, 0);
 }

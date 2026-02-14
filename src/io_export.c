@@ -832,6 +832,37 @@ static dg_status_t dg_export_write_json_generation_request(
     }
 
     if (fprintf(file, "    },\n") < 0 ||
+        fprintf(file, "    \"edge_openings\": [\n") < 0) {
+        return DG_STATUS_IO_ERROR;
+    }
+
+    for (i = 0; i < snapshot->edge_openings.opening_count; ++i) {
+        const dg_snapshot_edge_opening_spec_t *opening = &snapshot->edge_openings.openings[i];
+        const char *comma = (i + 1u < snapshot->edge_openings.opening_count) ? "," : "";
+
+        if (fprintf(
+                file,
+                "      {\n"
+                "        \"side\": %d,\n"
+                "        \"side_name\": \"%s\",\n"
+                "        \"start\": %d,\n"
+                "        \"end\": %d,\n"
+                "        \"role\": %d,\n"
+                "        \"role_name\": \"%s\"\n"
+                "      }%s\n",
+                opening->side,
+                dg_export_edge_side_name((dg_map_edge_side_t)opening->side),
+                opening->start,
+                opening->end,
+                opening->role,
+                dg_export_edge_opening_role_name((dg_map_edge_opening_role_t)opening->role),
+                comma
+            ) < 0) {
+            return DG_STATUS_IO_ERROR;
+        }
+    }
+
+    if (fprintf(file, "    ],\n") < 0 ||
         fprintf(file, "    \"post_process_enabled\": %d,\n", snapshot->process.enabled) < 0 ||
         fprintf(file, "    \"process\": [\n") < 0) {
         return DG_STATUS_IO_ERROR;
@@ -927,6 +958,31 @@ static dg_status_t dg_export_write_json_generation_request(
                 "          \"min_count\": %d,\n"
                 "          \"max_count\": %d,\n"
                 "          \"target_count\": %d,\n"
+                "          \"template_map_path\": ",
+                (unsigned int)definition->type_id,
+                definition->enabled,
+                definition->min_count,
+                definition->max_count,
+                definition->target_count
+            ) < 0) {
+            return DG_STATUS_IO_ERROR;
+        }
+        if (dg_export_json_write_escaped(file, definition->template_map_path) != DG_STATUS_OK) {
+            return DG_STATUS_IO_ERROR;
+        }
+        if (fprintf(
+                file,
+                ",\n"
+                "          \"template_opening_query\": {\n"
+                "            \"side_mask\": %u,\n"
+                "            \"role_mask\": %u,\n"
+                "            \"edge_coord_min\": %d,\n"
+                "            \"edge_coord_max\": %d,\n"
+                "            \"min_length\": %d,\n"
+                "            \"max_length\": %d,\n"
+                "            \"require_component\": %d\n"
+                "          },\n"
+                "          \"template_required_opening_matches\": %d,\n"
                 "          \"constraints\": {\n"
                 "            \"area_min\": %d,\n"
                 "            \"area_max\": %d,\n"
@@ -944,11 +1000,14 @@ static dg_status_t dg_export_write_json_generation_request(
                 "            \"border_distance_bias\": %d\n"
                 "          }\n"
                 "        }%s\n",
-                (unsigned int)definition->type_id,
-                definition->enabled,
-                definition->min_count,
-                definition->max_count,
-                definition->target_count,
+                definition->template_opening_query.side_mask,
+                definition->template_opening_query.role_mask,
+                definition->template_opening_query.edge_coord_min,
+                definition->template_opening_query.edge_coord_max,
+                definition->template_opening_query.min_length,
+                definition->template_opening_query.max_length,
+                definition->template_opening_query.require_component,
+                definition->template_required_opening_matches,
                 definition->constraints.area_min,
                 definition->constraints.area_max,
                 definition->constraints.degree_min,
@@ -1120,13 +1179,27 @@ static dg_status_t dg_export_write_json_file(
                 "      \"min_count\": %d,\n"
                 "      \"max_count\": %d,\n"
                 "      \"target_count\": %d,\n"
-                "      \"rgba\": [%u, %u, %u, %u]\n"
-                "    }%s\n",
+                "      \"template_map_path\": ",
                 (unsigned int)definition->type_id,
                 definition->enabled,
                 definition->min_count,
                 definition->max_count,
-                definition->target_count,
+                definition->target_count
+            ) < 0) {
+            (void)fclose(file);
+            return DG_STATUS_IO_ERROR;
+        }
+        if (dg_export_json_write_escaped(file, definition->template_map_path) != DG_STATUS_OK) {
+            (void)fclose(file);
+            return DG_STATUS_IO_ERROR;
+        }
+        if (fprintf(
+                file,
+                ",\n"
+                "      \"template_required_opening_matches\": %d,\n"
+                "      \"rgba\": [%u, %u, %u, %u]\n"
+                "    }%s\n",
+                definition->template_required_opening_matches,
                 (unsigned int)rgba[0],
                 (unsigned int)rgba[1],
                 (unsigned int)rgba[2],

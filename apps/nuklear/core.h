@@ -12,6 +12,7 @@ struct nk_image;
 
 #define DG_NUKLEAR_MAX_ROOM_TYPES 8
 #define DG_NUKLEAR_MAX_PROCESS_METHODS 16
+#define DG_NUKLEAR_MAX_EDGE_OPENINGS 16
 #define DG_NUKLEAR_LAYOUT_SPLITTER_NONE 0
 #define DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_VERTICAL 1
 #define DG_NUKLEAR_LAYOUT_SPLITTER_SIDE_HORIZONTAL 2
@@ -28,6 +29,9 @@ typedef struct dg_nuklear_room_type_ui {
     int min_count;
     int max_count;
     int target_count;
+    char template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
+    dg_map_edge_opening_query_t template_opening_query;
+    int template_required_opening_matches;
     int area_min;
     int area_max;
     int degree_min;
@@ -41,6 +45,13 @@ typedef struct dg_nuklear_room_type_ui {
     int higher_degree_bias;
     int border_distance_bias;
 } dg_nuklear_room_type_ui_t;
+
+typedef struct dg_nuklear_edge_opening_ui {
+    int side;
+    int start;
+    int end;
+    int role;
+} dg_nuklear_edge_opening_ui_t;
 
 typedef struct dg_nuklear_app {
     dg_map_t map;
@@ -91,6 +102,8 @@ typedef struct dg_nuklear_app {
     int room_type_allow_untyped;
     int room_type_default_type_id;
     dg_nuklear_room_type_ui_t room_type_slots[DG_NUKLEAR_MAX_ROOM_TYPES];
+    int edge_opening_count;
+    dg_nuklear_edge_opening_ui_t edge_openings[DG_NUKLEAR_MAX_EDGE_OPENINGS];
     char file_path[256];
     char status_text[256];
 } dg_nuklear_app_t;

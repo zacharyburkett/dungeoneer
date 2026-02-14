@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <string.h>
+
 static bool dg_nonnegative_range_is_valid(int min_value, int max_value)
 {
     if (min_value < 0) {
@@ -16,6 +18,143 @@ static bool dg_nonnegative_range_is_valid(int min_value, int max_value)
 static bool dg_bias_is_valid(int value)
 {
     return value >= -100 && value <= 100;
+}
+
+static bool dg_is_nul_terminated(const char *text, size_t capacity)
+{
+    if (text == NULL || capacity == 0u) {
+        return false;
+    }
+
+    return memchr(text, '\0', capacity) != NULL;
+}
+
+static bool dg_edge_opening_side_is_valid(dg_map_edge_side_t side)
+{
+    return side == DG_MAP_EDGE_TOP ||
+           side == DG_MAP_EDGE_RIGHT ||
+           side == DG_MAP_EDGE_BOTTOM ||
+           side == DG_MAP_EDGE_LEFT;
+}
+
+static bool dg_edge_opening_role_is_valid(dg_map_edge_opening_role_t role)
+{
+    return role == DG_MAP_EDGE_OPENING_ROLE_NONE ||
+           role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE ||
+           role == DG_MAP_EDGE_OPENING_ROLE_EXIT;
+}
+
+static bool dg_edge_opening_query_is_valid(const dg_map_edge_opening_query_t *query)
+{
+    if (query == NULL) {
+        return false;
+    }
+
+    if ((query->side_mask & ~DG_MAP_EDGE_MASK_ALL) != 0u) {
+        return false;
+    }
+
+    if ((query->role_mask & ~DG_MAP_EDGE_OPENING_ROLE_MASK_ANY) != 0u) {
+        return false;
+    }
+
+    if (query->edge_coord_min > query->edge_coord_max) {
+        return false;
+    }
+
+    if (query->min_length < 0) {
+        return false;
+    }
+
+    if (query->max_length < -1) {
+        return false;
+    }
+
+    if (query->max_length != -1 && query->max_length < query->min_length) {
+        return false;
+    }
+
+    if (query->require_component < -1) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool dg_edge_opening_spec_coord_is_valid(
+    int width,
+    int height,
+    dg_map_edge_side_t side,
+    int start,
+    int end
+)
+{
+    int max_coord;
+
+    if (start < 0 || end < start) {
+        return false;
+    }
+
+    switch (side) {
+    case DG_MAP_EDGE_TOP:
+    case DG_MAP_EDGE_BOTTOM:
+        max_coord = width - 1;
+        break;
+    case DG_MAP_EDGE_LEFT:
+    case DG_MAP_EDGE_RIGHT:
+        max_coord = height - 1;
+        break;
+    default:
+        return false;
+    }
+
+    if (max_coord < 0) {
+        return false;
+    }
+
+    if (start > max_coord || end > max_coord) {
+        return false;
+    }
+
+    return true;
+}
+
+static dg_status_t dg_validate_edge_opening_config(
+    const dg_edge_opening_config_t *config,
+    int width,
+    int height
+)
+{
+    size_t i;
+
+    if (config == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (config->opening_count > 0u && config->openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < config->opening_count; ++i) {
+        const dg_edge_opening_spec_t *opening = &config->openings[i];
+
+        if (!dg_edge_opening_side_is_valid(opening->side) ||
+            !dg_edge_opening_role_is_valid(opening->role)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        if (!dg_edge_opening_spec_coord_is_valid(
+                width,
+                height,
+                opening->side,
+                opening->start,
+                opening->end
+            )) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    return DG_STATUS_OK;
 }
 
 static dg_status_t dg_validate_room_type_definition(const dg_room_type_definition_t *definition)
@@ -43,6 +182,21 @@ static dg_status_t dg_validate_room_type_definition(const dg_room_type_definitio
         if (definition->max_count != -1 && definition->target_count > definition->max_count) {
             return DG_STATUS_INVALID_ARGUMENT;
         }
+    }
+
+    if (!dg_is_nul_terminated(
+            definition->template_map_path,
+            sizeof(definition->template_map_path)
+        )) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (!dg_edge_opening_query_is_valid(&definition->template_opening_query)) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (definition->template_required_opening_matches < 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
     if (!dg_nonnegative_range_is_valid(
@@ -444,6 +598,19 @@ dg_status_t dg_validate_generate_request(const dg_generate_request_t *request)
 
     if (request == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (request->width <= 0 || request->height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = dg_validate_edge_opening_config(
+        &request->edge_openings,
+        request->width,
+        request->height
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
     }
 
     status = dg_validate_room_type_assignment_config(&request->room_types);

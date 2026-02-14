@@ -215,6 +215,34 @@ static const char *dg_nuklear_algorithm_display_name(dg_algorithm_t algorithm)
     }
 }
 
+static const char *dg_nuklear_edge_side_label(int side)
+{
+    switch ((dg_map_edge_side_t)side) {
+    case DG_MAP_EDGE_RIGHT:
+        return "Right";
+    case DG_MAP_EDGE_BOTTOM:
+        return "Bottom";
+    case DG_MAP_EDGE_LEFT:
+        return "Left";
+    case DG_MAP_EDGE_TOP:
+    default:
+        return "Top";
+    }
+}
+
+static const char *dg_nuklear_edge_role_label(int role)
+{
+    switch ((dg_map_edge_opening_role_t)role) {
+    case DG_MAP_EDGE_OPENING_ROLE_ENTRANCE:
+        return "Entrance";
+    case DG_MAP_EDGE_OPENING_ROLE_EXIT:
+        return "Exit";
+    case DG_MAP_EDGE_OPENING_ROLE_NONE:
+    default:
+        return "None";
+    }
+}
+
 static int dg_nuklear_first_algorithm_index_for_class(dg_map_generation_class_t generation_class)
 {
     int i;
@@ -740,6 +768,8 @@ static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, i
     slot->min_count = 0;
     slot->max_count = -1;
     slot->target_count = -1;
+    dg_default_map_edge_opening_query(&slot->template_opening_query);
+    slot->template_required_opening_matches = 0;
     slot->area_min = 0;
     slot->area_max = -1;
     slot->degree_min = 0;
@@ -770,6 +800,87 @@ static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, i
         slot->border_distance_bias = 45;
     } else {
         (void)snprintf(slot->label, sizeof(slot->label), "Type %d", index + 1);
+    }
+}
+
+static void dg_nuklear_default_edge_opening_slot(dg_nuklear_edge_opening_ui_t *slot, int index)
+{
+    if (slot == NULL) {
+        return;
+    }
+
+    slot->side = (int)DG_MAP_EDGE_TOP;
+    slot->start = dg_nuklear_clamp_int(index * 2, 0, INT_MAX);
+    slot->end = slot->start;
+    slot->role = (int)DG_MAP_EDGE_OPENING_ROLE_NONE;
+}
+
+static void dg_nuklear_sanitize_edge_opening_slot(
+    dg_nuklear_edge_opening_ui_t *slot,
+    int map_width,
+    int map_height
+)
+{
+    int max_coord;
+
+    if (slot == NULL) {
+        return;
+    }
+
+    if (slot->side < (int)DG_MAP_EDGE_TOP || slot->side > (int)DG_MAP_EDGE_LEFT) {
+        slot->side = (int)DG_MAP_EDGE_TOP;
+    }
+
+    if (slot->role < (int)DG_MAP_EDGE_OPENING_ROLE_NONE ||
+        slot->role > (int)DG_MAP_EDGE_OPENING_ROLE_EXIT) {
+        slot->role = (int)DG_MAP_EDGE_OPENING_ROLE_NONE;
+    }
+
+    if (slot->start < 0) {
+        slot->start = 0;
+    }
+    if (slot->end < slot->start) {
+        slot->end = slot->start;
+    }
+
+    if (slot->side == (int)DG_MAP_EDGE_TOP || slot->side == (int)DG_MAP_EDGE_BOTTOM) {
+        max_coord = map_width - 1;
+    } else {
+        max_coord = map_height - 1;
+    }
+
+    if (max_coord < 0) {
+        max_coord = 0;
+    }
+    if (slot->start > max_coord) {
+        slot->start = max_coord;
+    }
+    if (slot->end > max_coord) {
+        slot->end = max_coord;
+    }
+    if (slot->end < slot->start) {
+        slot->end = slot->start;
+    }
+}
+
+static void dg_nuklear_sanitize_edge_opening_settings(dg_nuklear_app_t *app)
+{
+    int i;
+
+    if (app == NULL) {
+        return;
+    }
+
+    app->edge_opening_count = dg_nuklear_clamp_int(
+        app->edge_opening_count,
+        0,
+        DG_NUKLEAR_MAX_EDGE_OPENINGS
+    );
+    for (i = 0; i < app->edge_opening_count; ++i) {
+        dg_nuklear_sanitize_edge_opening_slot(&app->edge_openings[i], app->width, app->height);
+    }
+    for (; i < DG_NUKLEAR_MAX_EDGE_OPENINGS; ++i) {
+        dg_nuklear_default_edge_opening_slot(&app->edge_openings[i], i);
     }
 }
 
@@ -815,6 +926,29 @@ static void dg_nuklear_sanitize_room_type_slot(dg_nuklear_room_type_ui_t *slot)
         if (slot->max_count != -1 && slot->target_count > slot->max_count) {
             slot->target_count = slot->max_count;
         }
+    }
+
+    slot->template_map_path[sizeof(slot->template_map_path) - 1u] = '\0';
+    slot->template_required_opening_matches =
+        dg_nuklear_clamp_int(slot->template_required_opening_matches, 0, INT_MAX);
+
+    slot->template_opening_query.side_mask &= DG_MAP_EDGE_MASK_ALL;
+    slot->template_opening_query.role_mask &= DG_MAP_EDGE_OPENING_ROLE_MASK_ANY;
+    if (slot->template_opening_query.edge_coord_min > slot->template_opening_query.edge_coord_max) {
+        slot->template_opening_query.edge_coord_max = slot->template_opening_query.edge_coord_min;
+    }
+    if (slot->template_opening_query.min_length < 0) {
+        slot->template_opening_query.min_length = 0;
+    }
+    if (slot->template_opening_query.max_length < -1) {
+        slot->template_opening_query.max_length = -1;
+    }
+    if (slot->template_opening_query.max_length != -1 &&
+        slot->template_opening_query.max_length < slot->template_opening_query.min_length) {
+        slot->template_opening_query.max_length = slot->template_opening_query.min_length;
+    }
+    if (slot->template_opening_query.require_component < -1) {
+        slot->template_opening_query.require_component = -1;
     }
 
     dg_nuklear_clamp_unbounded_range(&slot->area_min, &slot->area_max);
@@ -1476,6 +1610,14 @@ static void dg_nuklear_apply_room_type_slot_snapshot(
     slot->min_count = definition->min_count;
     slot->max_count = definition->max_count;
     slot->target_count = definition->target_count;
+    memcpy(
+        slot->template_map_path,
+        definition->template_map_path,
+        sizeof(slot->template_map_path)
+    );
+    slot->template_map_path[sizeof(slot->template_map_path) - 1u] = '\0';
+    slot->template_opening_query = definition->template_opening_query;
+    slot->template_required_opening_matches = definition->template_required_opening_matches;
     slot->area_min = definition->constraints.area_min;
     slot->area_max = definition->constraints.area_max;
     slot->degree_min = definition->constraints.degree_min;
@@ -1544,6 +1686,25 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     }
     app->process_method_count = (int)copy_count;
     dg_nuklear_sanitize_process_settings(app);
+
+    copy_count = snapshot->edge_openings.opening_count;
+    if (copy_count > 0u && snapshot->edge_openings.openings == NULL) {
+        copy_count = 0u;
+    }
+    if (copy_count > (size_t)DG_NUKLEAR_MAX_EDGE_OPENINGS) {
+        copy_count = (size_t)DG_NUKLEAR_MAX_EDGE_OPENINGS;
+    }
+    app->edge_opening_count = (int)copy_count;
+    for (i = 0; i < copy_count; ++i) {
+        app->edge_openings[i].side = snapshot->edge_openings.openings[i].side;
+        app->edge_openings[i].start = snapshot->edge_openings.openings[i].start;
+        app->edge_openings[i].end = snapshot->edge_openings.openings[i].end;
+        app->edge_openings[i].role = snapshot->edge_openings.openings[i].role;
+    }
+    for (; i < (size_t)DG_NUKLEAR_MAX_EDGE_OPENINGS; ++i) {
+        dg_nuklear_default_edge_opening_slot(&app->edge_openings[i], (int)i);
+    }
+    dg_nuklear_sanitize_edge_opening_settings(app);
 
     switch ((dg_algorithm_t)snapshot->algorithm_id) {
     case DG_ALGORITHM_DRUNKARDS_WALK:
@@ -1753,6 +1914,15 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
         }
     }
 
+    hash = dg_nuklear_hash_i32(hash, app->edge_opening_count);
+    for (i = 0; i < app->edge_opening_count; ++i) {
+        const dg_nuklear_edge_opening_ui_t *opening = &app->edge_openings[i];
+        hash = dg_nuklear_hash_i32(hash, opening->side);
+        hash = dg_nuklear_hash_i32(hash, opening->start);
+        hash = dg_nuklear_hash_i32(hash, opening->end);
+        hash = dg_nuklear_hash_i32(hash, opening->role);
+    }
+
     room_types_active = app->room_types_enabled &&
                         dg_nuklear_algorithm_supports_room_types(
                             dg_nuklear_algorithm_from_index(app->algorithm_index)
@@ -1771,6 +1941,15 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
             hash = dg_nuklear_hash_i32(hash, slot->min_count);
             hash = dg_nuklear_hash_i32(hash, slot->max_count);
             hash = dg_nuklear_hash_i32(hash, slot->target_count);
+            hash = dg_nuklear_hash_cstr(hash, slot->template_map_path);
+            hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.side_mask);
+            hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.role_mask);
+            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_min);
+            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_max);
+            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.min_length);
+            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.max_length);
+            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.require_component);
+            hash = dg_nuklear_hash_i32(hash, slot->template_required_opening_matches);
             hash = dg_nuklear_hash_i32(hash, slot->area_min);
             hash = dg_nuklear_hash_i32(hash, slot->area_max);
             hash = dg_nuklear_hash_i32(hash, slot->degree_min);
@@ -1810,10 +1989,12 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
     dg_room_type_definition_t room_type_definitions[DG_NUKLEAR_MAX_ROOM_TYPES];
+    dg_edge_opening_spec_t edge_opening_specs[DG_NUKLEAR_MAX_EDGE_OPENINGS];
     dg_map_t generated;
     uint64_t seed;
     dg_algorithm_t algorithm;
     dg_status_t status;
+    int i;
 
     if (app == NULL) {
         return;
@@ -1833,6 +2014,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     dg_default_generate_request(&request, algorithm, app->width, app->height, seed);
     dg_nuklear_sanitize_room_type_settings(app);
     dg_nuklear_sanitize_process_settings(app);
+    dg_nuklear_sanitize_edge_opening_settings(app);
 
     if (algorithm == DG_ALGORITHM_DRUNKARDS_WALK) {
         request.params.drunkards_walk = app->drunkards_walk_config;
@@ -1854,10 +2036,16 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     request.process.enabled = app->process_enabled ? 1 : 0;
     request.process.methods = app->process_methods;
     request.process.method_count = (size_t)app->process_method_count;
+    for (i = 0; i < app->edge_opening_count; ++i) {
+        edge_opening_specs[i].side = (dg_map_edge_side_t)app->edge_openings[i].side;
+        edge_opening_specs[i].start = app->edge_openings[i].start;
+        edge_opening_specs[i].end = app->edge_openings[i].end;
+        edge_opening_specs[i].role = (dg_map_edge_opening_role_t)app->edge_openings[i].role;
+    }
+    request.edge_openings.openings = edge_opening_specs;
+    request.edge_openings.opening_count = (size_t)app->edge_opening_count;
 
     if (app->room_types_enabled && dg_nuklear_algorithm_supports_room_types(algorithm)) {
-        int i;
-
         for (i = 0; i < app->room_type_count; ++i) {
             const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
             dg_room_type_definition_t *definition = &room_type_definitions[i];
@@ -1867,6 +2055,14 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
             definition->min_count = slot->min_count;
             definition->max_count = slot->max_count;
             definition->target_count = slot->target_count;
+            memcpy(
+                definition->template_map_path,
+                slot->template_map_path,
+                sizeof(definition->template_map_path)
+            );
+            definition->template_map_path[sizeof(definition->template_map_path) - 1u] = '\0';
+            definition->template_opening_query = slot->template_opening_query;
+            definition->template_required_opening_matches = slot->template_required_opening_matches;
             definition->constraints.area_min = slot->area_min;
             definition->constraints.area_max = slot->area_max;
             definition->constraints.degree_min = slot->degree_min;
@@ -1956,6 +2152,7 @@ static void dg_nuklear_maybe_auto_generate(dg_nuklear_app_t *app)
     }
 
     dg_nuklear_sanitize_process_settings(app);
+    dg_nuklear_sanitize_edge_opening_settings(app);
     dg_nuklear_sanitize_room_type_settings(app);
 
     if (app->width < 8 || app->height < 8 || !dg_nuklear_parse_u64(app->seed_text, &seed)) {
@@ -2867,6 +3064,149 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     }
 }
 
+static void dg_nuklear_draw_edge_opening_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
+{
+    static const char *side_labels[] = {"Top", "Right", "Bottom", "Left"};
+    static const char *role_labels[] = {"None", "Entrance", "Exit"};
+    int i;
+    int remove_index;
+
+    if (ctx == NULL || app == NULL) {
+        return;
+    }
+
+    dg_nuklear_sanitize_edge_opening_settings(app);
+    remove_index = -1;
+
+    if (!nk_tree_push(ctx, NK_TREE_TAB, "Explicit Edge Openings", NK_MINIMIZED)) {
+        return;
+    }
+
+    nk_layout_row_dynamic(ctx, 18.0f, 1);
+    nk_label(
+        ctx,
+        "Carve explicit edge ranges (after layout + post-process) and assign optional roles.",
+        NK_TEXT_LEFT
+    );
+
+    nk_layout_row_dynamic(ctx, 30.0f, 3);
+    if (nk_button_label(ctx, "Add Opening")) {
+        if (app->edge_opening_count < DG_NUKLEAR_MAX_EDGE_OPENINGS) {
+            dg_nuklear_default_edge_opening_slot(
+                &app->edge_openings[app->edge_opening_count],
+                app->edge_opening_count
+            );
+            app->edge_opening_count += 1;
+            dg_nuklear_set_status(app, "Added edge opening %d.", app->edge_opening_count);
+        } else {
+            dg_nuklear_set_status(app, "Maximum edge opening count reached.");
+        }
+    }
+    if (nk_button_label(ctx, "Remove Last")) {
+        if (app->edge_opening_count > 0) {
+            app->edge_opening_count -= 1;
+            dg_nuklear_default_edge_opening_slot(
+                &app->edge_openings[app->edge_opening_count],
+                app->edge_opening_count
+            );
+            dg_nuklear_set_status(app, "Removed last edge opening.");
+        } else {
+            dg_nuklear_set_status(app, "No edge openings to remove.");
+        }
+    }
+    if (nk_button_label(ctx, "Clear")) {
+        app->edge_opening_count = 0;
+        dg_nuklear_sanitize_edge_opening_settings(app);
+        dg_nuklear_set_status(app, "Cleared explicit edge openings.");
+    }
+
+    if (app->edge_opening_count == 0) {
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_label(ctx, "No explicit openings configured.", NK_TEXT_LEFT);
+    }
+
+    for (i = 0; i < app->edge_opening_count; ++i) {
+        dg_nuklear_edge_opening_ui_t *slot = &app->edge_openings[i];
+        int max_coord;
+        char title[64];
+
+        dg_nuklear_sanitize_edge_opening_slot(slot, app->width, app->height);
+        max_coord = (slot->side == (int)DG_MAP_EDGE_TOP || slot->side == (int)DG_MAP_EDGE_BOTTOM) ?
+            (app->width - 1) :
+            (app->height - 1);
+        if (max_coord < 0) {
+            max_coord = 0;
+        }
+
+        (void)snprintf(
+            title,
+            sizeof(title),
+            "Opening %d (%s)",
+            i + 1,
+            dg_nuklear_edge_side_label(slot->side)
+        );
+        if (!nk_tree_push_id(ctx, NK_TREE_TAB, title, NK_MINIMIZED, 6000 + i)) {
+            continue;
+        }
+
+        nk_layout_row_dynamic(ctx, 26.0f, 2);
+        nk_label(ctx, "Side", NK_TEXT_LEFT);
+        slot->side = nk_combo(
+            ctx,
+            side_labels,
+            4,
+            dg_nuklear_clamp_int(slot->side, 0, 3),
+            24,
+            nk_vec2(200.0f, 140.0f)
+        );
+
+        nk_layout_row_dynamic(ctx, 26.0f, 2);
+        nk_property_int(ctx, "Start", 0, &slot->start, max_coord, 1, 0.25f);
+        nk_property_int(ctx, "End", 0, &slot->end, max_coord, 1, 0.25f);
+
+        nk_layout_row_dynamic(ctx, 26.0f, 2);
+        nk_label(ctx, "Role", NK_TEXT_LEFT);
+        slot->role = nk_combo(
+            ctx,
+            role_labels,
+            3,
+            dg_nuklear_clamp_int(slot->role, 0, 2),
+            24,
+            nk_vec2(200.0f, 120.0f)
+        );
+
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_label(
+            ctx,
+            dg_nuklear_edge_role_label(slot->role),
+            NK_TEXT_LEFT
+        );
+
+        nk_layout_row_dynamic(ctx, 26.0f, 1);
+        if (nk_button_label(ctx, "Remove This")) {
+            remove_index = i;
+        }
+
+        dg_nuklear_sanitize_edge_opening_slot(slot, app->width, app->height);
+        nk_tree_pop(ctx);
+    }
+
+    if (remove_index >= 0 && remove_index < app->edge_opening_count) {
+        for (i = remove_index; i < app->edge_opening_count - 1; ++i) {
+            app->edge_openings[i] = app->edge_openings[i + 1];
+        }
+        app->edge_opening_count -= 1;
+        dg_nuklear_default_edge_opening_slot(
+            &app->edge_openings[app->edge_opening_count],
+            app->edge_opening_count
+        );
+        dg_nuklear_set_status(app, "Removed edge opening %d.", remove_index + 1);
+    }
+
+    dg_nuklear_sanitize_edge_opening_settings(app);
+    nk_tree_pop(ctx);
+}
+
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     static const char *generation_classes[] = {"Room-like", "Cave-like"};
@@ -2881,6 +3221,7 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
 
     previous_algorithm_index = app->algorithm_index;
     previous_class_index = app->generation_class_index;
+    dg_nuklear_sanitize_edge_opening_settings(app);
 
     app->generation_class_index = dg_nuklear_clamp_int(app->generation_class_index, 0, 1);
     app->algorithm_index = dg_nuklear_clamp_int(
@@ -2975,6 +3316,10 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
     nk_layout_row_dynamic(ctx, 30.0f, 2);
     nk_property_int(ctx, "Map Width", 8, &app->width, 512, 1, 0.25f);
     nk_property_int(ctx, "Map Height", 8, &app->height, 512, 1, 0.25f);
+
+    nk_layout_row_dynamic(ctx, 6.0f, 1);
+    nk_label(ctx, "", NK_TEXT_LEFT);
+    dg_nuklear_draw_edge_opening_settings(ctx, app);
 }
 
 static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
@@ -3942,9 +4287,154 @@ static void dg_nuklear_draw_room_type_slot(
     if (nk_tree_push_id(
             ctx,
             NK_TREE_TAB,
-            "Constraints",
+            "Template Map",
             NK_MINIMIZED,
             1000 + slot_index * 10 + 2
+        )) {
+        uint32_t *side_mask;
+        uint32_t *role_mask;
+        int enabled;
+
+        side_mask = &slot->template_opening_query.side_mask;
+        role_mask = &slot->template_opening_query.role_mask;
+
+        nk_layout_row_dynamic(ctx, 20.0f, 1);
+        nk_label(ctx, "Map Path (optional)", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 26.0f, 1);
+        (void)nk_edit_string_zero_terminated(
+            ctx,
+            NK_EDIT_FIELD,
+            slot->template_map_path,
+            (int)sizeof(slot->template_map_path),
+            nk_filter_default
+        );
+
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(
+            ctx,
+            "Required Opening Matches",
+            0,
+            &slot->template_required_opening_matches,
+            INT_MAX,
+            1,
+            0.25f
+        );
+
+        nk_layout_row_dynamic(ctx, 19.0f, 1);
+        nk_label(ctx, "Opening Side Mask (none = any)", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 22.0f, 2);
+        enabled = ((*side_mask & DG_MAP_EDGE_MASK_TOP) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Top", enabled);
+        if (enabled) {
+            *side_mask |= DG_MAP_EDGE_MASK_TOP;
+        } else {
+            *side_mask &= ~DG_MAP_EDGE_MASK_TOP;
+        }
+        enabled = ((*side_mask & DG_MAP_EDGE_MASK_RIGHT) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Right", enabled);
+        if (enabled) {
+            *side_mask |= DG_MAP_EDGE_MASK_RIGHT;
+        } else {
+            *side_mask &= ~DG_MAP_EDGE_MASK_RIGHT;
+        }
+        nk_layout_row_dynamic(ctx, 22.0f, 2);
+        enabled = ((*side_mask & DG_MAP_EDGE_MASK_BOTTOM) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Bottom", enabled);
+        if (enabled) {
+            *side_mask |= DG_MAP_EDGE_MASK_BOTTOM;
+        } else {
+            *side_mask &= ~DG_MAP_EDGE_MASK_BOTTOM;
+        }
+        enabled = ((*side_mask & DG_MAP_EDGE_MASK_LEFT) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Left", enabled);
+        if (enabled) {
+            *side_mask |= DG_MAP_EDGE_MASK_LEFT;
+        } else {
+            *side_mask &= ~DG_MAP_EDGE_MASK_LEFT;
+        }
+
+        nk_layout_row_dynamic(ctx, 19.0f, 1);
+        nk_label(ctx, "Opening Role Mask (none = any)", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 22.0f, 3);
+        enabled = ((*role_mask & DG_MAP_EDGE_OPENING_ROLE_MASK_NONE) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "None", enabled);
+        if (enabled) {
+            *role_mask |= DG_MAP_EDGE_OPENING_ROLE_MASK_NONE;
+        } else {
+            *role_mask &= ~DG_MAP_EDGE_OPENING_ROLE_MASK_NONE;
+        }
+        enabled = ((*role_mask & DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Entrance", enabled);
+        if (enabled) {
+            *role_mask |= DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE;
+        } else {
+            *role_mask &= ~DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE;
+        }
+        enabled = ((*role_mask & DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT) != 0u) ? 1 : 0;
+        enabled = nk_check_label(ctx, "Exit", enabled);
+        if (enabled) {
+            *role_mask |= DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT;
+        } else {
+            *role_mask &= ~DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT;
+        }
+
+        nk_layout_row_dynamic(ctx, 24.0f, 2);
+        nk_property_int(
+            ctx,
+            "Edge Coord Min",
+            0,
+            &slot->template_opening_query.edge_coord_min,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_property_int(
+            ctx,
+            "Edge Coord Max",
+            0,
+            &slot->template_opening_query.edge_coord_max,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_layout_row_dynamic(ctx, 24.0f, 2);
+        nk_property_int(
+            ctx,
+            "Min Length",
+            0,
+            &slot->template_opening_query.min_length,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_property_int(
+            ctx,
+            "Max Length (-1=Any)",
+            -1,
+            &slot->template_opening_query.max_length,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        nk_property_int(
+            ctx,
+            "Require Component (-1=Any)",
+            -1,
+            &slot->template_opening_query.require_component,
+            INT_MAX,
+            1,
+            0.25f
+        );
+        nk_tree_pop(ctx);
+    }
+
+    if (nk_tree_push_id(
+            ctx,
+            NK_TREE_TAB,
+            "Constraints",
+            NK_MINIMIZED,
+            1000 + slot_index * 10 + 3
         )) {
         nk_layout_row_dynamic(ctx, 24.0f, 1);
         nk_property_int(ctx, "Area Min", 0, &slot->area_min, INT_MAX, 1, 0.25f);
@@ -3986,7 +4476,7 @@ static void dg_nuklear_draw_room_type_slot(
             NK_TREE_TAB,
             "Preferences",
             NK_MINIMIZED,
-            1000 + slot_index * 10 + 3
+            1000 + slot_index * 10 + 4
         )) {
         nk_layout_row_dynamic(ctx, 24.0f, 1);
         nk_property_int(ctx, "Weight", 0, &slot->weight, INT_MAX, 1, 0.25f);
@@ -4369,6 +4859,8 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
 
 void dg_nuklear_app_init(dg_nuklear_app_t *app)
 {
+    int i;
+
     if (app == NULL) {
         return;
     }
@@ -4389,6 +4881,10 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_reset_algorithm_defaults(app, DG_ALGORITHM_ROOMS_AND_MAZES);
     dg_nuklear_reset_process_defaults(app);
     dg_nuklear_reset_room_type_defaults(app);
+    app->edge_opening_count = 0;
+    for (i = 0; i < DG_NUKLEAR_MAX_EDGE_OPENINGS; ++i) {
+        dg_nuklear_default_edge_opening_slot(&app->edge_openings[i], i);
+    }
     app->controls_workflow_tab = DG_NUKLEAR_WORKFLOW_LAYOUT;
     dg_nuklear_reset_preview_camera(app);
     dg_nuklear_sync_generation_class_with_algorithm(app);

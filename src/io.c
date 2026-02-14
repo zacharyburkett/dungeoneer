@@ -70,6 +70,7 @@ static bool dg_map_is_empty(const dg_map_t *map)
            map->metadata.room_neighbors == NULL &&
            map->metadata.diagnostics.process_steps == NULL &&
            map->metadata.diagnostics.room_type_quotas == NULL &&
+           map->metadata.generation_request.edge_openings.openings == NULL &&
            map->metadata.generation_request.process.methods == NULL &&
            map->metadata.generation_request.room_types.definitions == NULL;
 }
@@ -259,6 +260,90 @@ static bool dg_bias_is_valid(int value)
     return value >= -100 && value <= 100;
 }
 
+static bool dg_is_nul_terminated(const char *text, size_t capacity)
+{
+    if (text == NULL || capacity == 0u) {
+        return false;
+    }
+
+    return memchr(text, '\0', capacity) != NULL;
+}
+
+static bool dg_snapshot_edge_opening_query_is_valid(const dg_map_edge_opening_query_t *query)
+{
+    if (query == NULL) {
+        return false;
+    }
+
+    if ((query->side_mask & ~DG_MAP_EDGE_MASK_ALL) != 0u) {
+        return false;
+    }
+    if ((query->role_mask & ~DG_MAP_EDGE_OPENING_ROLE_MASK_ANY) != 0u) {
+        return false;
+    }
+    if (query->edge_coord_min > query->edge_coord_max) {
+        return false;
+    }
+    if (query->min_length < 0) {
+        return false;
+    }
+    if (query->max_length < -1) {
+        return false;
+    }
+    if (query->max_length != -1 && query->max_length < query->min_length) {
+        return false;
+    }
+    if (query->require_component < -1) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool dg_snapshot_edge_opening_side_is_valid(int side)
+{
+    return side == (int)DG_MAP_EDGE_TOP ||
+           side == (int)DG_MAP_EDGE_RIGHT ||
+           side == (int)DG_MAP_EDGE_BOTTOM ||
+           side == (int)DG_MAP_EDGE_LEFT;
+}
+
+static bool dg_snapshot_edge_opening_role_is_valid(int role)
+{
+    return role == (int)DG_MAP_EDGE_OPENING_ROLE_NONE ||
+           role == (int)DG_MAP_EDGE_OPENING_ROLE_ENTRANCE ||
+           role == (int)DG_MAP_EDGE_OPENING_ROLE_EXIT;
+}
+
+static bool dg_snapshot_edge_opening_spec_coord_is_valid(
+    int width,
+    int height,
+    int side,
+    int start,
+    int end
+)
+{
+    int max_coord;
+
+    if (start < 0 || end < start) {
+        return false;
+    }
+
+    if (side == (int)DG_MAP_EDGE_TOP || side == (int)DG_MAP_EDGE_BOTTOM) {
+        max_coord = width - 1;
+    } else if (side == (int)DG_MAP_EDGE_LEFT || side == (int)DG_MAP_EDGE_RIGHT) {
+        max_coord = height - 1;
+    } else {
+        return false;
+    }
+
+    if (max_coord < 0 || start > max_coord || end > max_coord) {
+        return false;
+    }
+
+    return true;
+}
+
 static bool dg_snapshot_process_method_is_valid(const dg_snapshot_process_method_t *method)
 {
     if (method == NULL) {
@@ -356,6 +441,19 @@ static bool dg_snapshot_room_type_config_is_valid(
             }
         }
 
+        if (!dg_is_nul_terminated(
+                definition->template_map_path,
+                sizeof(definition->template_map_path)
+            )) {
+            return false;
+        }
+        if (!dg_snapshot_edge_opening_query_is_valid(&definition->template_opening_query)) {
+            return false;
+        }
+        if (definition->template_required_opening_matches < 0) {
+            return false;
+        }
+
         if (!dg_nonnegative_range_is_valid(
                 definition->constraints.area_min,
                 definition->constraints.area_max
@@ -379,6 +477,44 @@ static bool dg_snapshot_room_type_config_is_valid(
             !dg_bias_is_valid(definition->preferences.larger_room_bias) ||
             !dg_bias_is_valid(definition->preferences.higher_degree_bias) ||
             !dg_bias_is_valid(definition->preferences.border_distance_bias)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool dg_snapshot_edge_opening_config_is_valid(
+    const dg_generation_request_snapshot_t *snapshot
+)
+{
+    size_t i;
+    const dg_snapshot_edge_opening_config_t *edge_openings;
+
+    if (snapshot == NULL) {
+        return false;
+    }
+
+    edge_openings = &snapshot->edge_openings;
+    if (edge_openings->opening_count > 0u && edge_openings->openings == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < edge_openings->opening_count; ++i) {
+        const dg_snapshot_edge_opening_spec_t *opening = &edge_openings->openings[i];
+
+        if (!dg_snapshot_edge_opening_side_is_valid(opening->side) ||
+            !dg_snapshot_edge_opening_role_is_valid(opening->role)) {
+            return false;
+        }
+
+        if (!dg_snapshot_edge_opening_spec_coord_is_valid(
+                snapshot->width,
+                snapshot->height,
+                opening->side,
+                opening->start,
+                opening->end
+            )) {
             return false;
         }
     }
@@ -492,6 +628,7 @@ static bool dg_snapshot_is_valid(const dg_generation_request_snapshot_t *snapsho
     }
 
     return dg_snapshot_algorithm_params_are_valid(snapshot) &&
+           dg_snapshot_edge_opening_config_is_valid(snapshot) &&
            dg_snapshot_process_config_is_valid(&snapshot->process) &&
            dg_snapshot_room_type_config_is_valid(&snapshot->room_types);
 }
@@ -529,6 +666,7 @@ static void dg_snapshot_clear(dg_generation_request_snapshot_t *snapshot)
         return;
     }
 
+    free(snapshot->edge_openings.openings);
     free(snapshot->process.methods);
     free(snapshot->room_types.definitions);
     *snapshot = (dg_generation_request_snapshot_t){0};
@@ -772,6 +910,32 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
         return status;
     }
 
+    status = dg_write_size(file, snapshot->edge_openings.opening_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < snapshot->edge_openings.opening_count; ++i) {
+        const dg_snapshot_edge_opening_spec_t *opening = &snapshot->edge_openings.openings[i];
+
+        status = dg_write_i32(file, (int32_t)opening->side);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)opening->start);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)opening->end);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)opening->role);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+    }
+
     status = dg_write_i32(file, (int32_t)snapshot->process.enabled);
     if (status != DG_STATUS_OK) {
         return status;
@@ -865,6 +1029,46 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
             return status;
         }
         status = dg_write_i32(file, (int32_t)definition->target_count);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_exact(
+            file,
+            definition->template_map_path,
+            sizeof(definition->template_map_path)
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_u32(file, definition->template_opening_query.side_mask);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_u32(file, definition->template_opening_query.role_mask);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_opening_query.edge_coord_min);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_opening_query.edge_coord_max);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_opening_query.min_length);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_opening_query.max_length);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_opening_query.require_component);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_write_i32(file, (int32_t)definition->template_required_opening_matches);
         if (status != DG_STATUS_OK) {
             return status;
         }
@@ -1240,6 +1444,41 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
         return status;
     }
 
+    status = dg_read_size(file, &snapshot->edge_openings.opening_count);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    status = dg_allocate_array(
+        (void **)&snapshot->edge_openings.openings,
+        snapshot->edge_openings.opening_count,
+        sizeof(dg_snapshot_edge_opening_spec_t)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    for (i = 0; i < snapshot->edge_openings.opening_count; ++i) {
+        dg_snapshot_edge_opening_spec_t *opening = &snapshot->edge_openings.openings[i];
+
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &opening->side)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &opening->start)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &opening->end)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &opening->role)) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+    }
+
     status = dg_read_i32(file, &value_i32);
     if (status != DG_STATUS_OK ||
         !dg_i32_to_int_checked(value_i32, &snapshot->process.enabled)) {
@@ -1381,6 +1620,64 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
         if (status != DG_STATUS_OK || !dg_i32_to_int_checked(value_i32, &definition->target_count)) {
             return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
         }
+        status = dg_read_exact(
+            file,
+            definition->template_map_path,
+            sizeof(definition->template_map_path)
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_read_u32(file, &definition->template_opening_query.side_mask);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_read_u32(file, &definition->template_opening_query.role_mask);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_opening_query.edge_coord_min
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_opening_query.edge_coord_max
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_opening_query.min_length
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_opening_query.max_length
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_opening_query.require_component
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
+                &definition->template_required_opening_matches
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
         status = dg_read_i32(file, &value_i32);
         if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
                 value_i32,
@@ -1493,22 +1790,26 @@ static dg_status_t dg_build_request_from_snapshot(
     const dg_generation_request_snapshot_t *snapshot,
     dg_generate_request_t *out_request,
     dg_process_method_t **out_process_methods,
-    dg_room_type_definition_t **out_room_type_definitions
+    dg_room_type_definition_t **out_room_type_definitions,
+    dg_edge_opening_spec_t **out_edge_openings
 )
 {
     dg_generate_request_t request;
     dg_process_method_t *process_methods;
     dg_room_type_definition_t *room_type_definitions;
+    dg_edge_opening_spec_t *edge_openings;
     dg_status_t status;
     size_t i;
 
     if (snapshot == NULL || out_request == NULL ||
-        out_process_methods == NULL || out_room_type_definitions == NULL) {
+        out_process_methods == NULL || out_room_type_definitions == NULL ||
+        out_edge_openings == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
     *out_process_methods = NULL;
     *out_room_type_definitions = NULL;
+    *out_edge_openings = NULL;
 
     if (!dg_snapshot_is_valid(snapshot)) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -1642,6 +1943,27 @@ static dg_status_t dg_build_request_from_snapshot(
     request.process.enabled = snapshot->process.enabled;
     request.process.method_count = snapshot->process.method_count;
 
+    edge_openings = NULL;
+    status = dg_allocate_array(
+        (void **)&edge_openings,
+        snapshot->edge_openings.opening_count,
+        sizeof(dg_edge_opening_spec_t)
+    );
+    if (status != DG_STATUS_OK) {
+        free(process_methods);
+        return status;
+    }
+
+    for (i = 0; i < snapshot->edge_openings.opening_count; ++i) {
+        edge_openings[i].side = (dg_map_edge_side_t)snapshot->edge_openings.openings[i].side;
+        edge_openings[i].start = snapshot->edge_openings.openings[i].start;
+        edge_openings[i].end = snapshot->edge_openings.openings[i].end;
+        edge_openings[i].role = (dg_map_edge_opening_role_t)snapshot->edge_openings.openings[i].role;
+    }
+
+    request.edge_openings.openings = edge_openings;
+    request.edge_openings.opening_count = snapshot->edge_openings.opening_count;
+
     room_type_definitions = NULL;
     status = dg_allocate_array(
         (void **)&room_type_definitions,
@@ -1649,6 +1971,7 @@ static dg_status_t dg_build_request_from_snapshot(
         sizeof(dg_room_type_definition_t)
     );
     if (status != DG_STATUS_OK) {
+        free(edge_openings);
         free(process_methods);
         return status;
     }
@@ -1659,6 +1982,17 @@ static dg_status_t dg_build_request_from_snapshot(
         room_type_definitions[i].min_count = snapshot->room_types.definitions[i].min_count;
         room_type_definitions[i].max_count = snapshot->room_types.definitions[i].max_count;
         room_type_definitions[i].target_count = snapshot->room_types.definitions[i].target_count;
+        memcpy(
+            room_type_definitions[i].template_map_path,
+            snapshot->room_types.definitions[i].template_map_path,
+            sizeof(room_type_definitions[i].template_map_path)
+        );
+        room_type_definitions[i]
+            .template_map_path[sizeof(room_type_definitions[i].template_map_path) - 1u] = '\0';
+        room_type_definitions[i].template_opening_query =
+            snapshot->room_types.definitions[i].template_opening_query;
+        room_type_definitions[i].template_required_opening_matches =
+            snapshot->room_types.definitions[i].template_required_opening_matches;
 
         room_type_definitions[i].constraints.area_min =
             snapshot->room_types.definitions[i].constraints.area_min;
@@ -1696,6 +2030,7 @@ static dg_status_t dg_build_request_from_snapshot(
     *out_request = request;
     *out_process_methods = process_methods;
     *out_room_type_definitions = room_type_definitions;
+    *out_edge_openings = edge_openings;
     return DG_STATUS_OK;
 }
 
@@ -1738,6 +2073,7 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
     dg_generate_request_t request;
     dg_process_method_t *process_methods;
     dg_room_type_definition_t *room_type_definitions;
+    dg_edge_opening_spec_t *edge_openings;
     dg_status_t status;
 
     if (path == NULL || out_map == NULL || !dg_map_is_empty(out_map)) {
@@ -1762,21 +2098,25 @@ dg_status_t dg_map_load_file(const char *path, dg_map_t *out_map)
 
     process_methods = NULL;
     room_type_definitions = NULL;
+    edge_openings = NULL;
     status = dg_build_request_from_snapshot(
         &snapshot,
         &request,
         &process_methods,
-        &room_type_definitions
+        &room_type_definitions,
+        &edge_openings
     );
     dg_snapshot_clear(&snapshot);
     if (status != DG_STATUS_OK) {
         free(process_methods);
         free(room_type_definitions);
+        free(edge_openings);
         return status;
     }
 
     status = dg_generate(&request, out_map);
     free(process_methods);
     free(room_type_definitions);
+    free(edge_openings);
     return status;
 }

@@ -167,6 +167,7 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
         sa->height != sb->height ||
         sa->seed != sb->seed ||
         sa->algorithm_id != sb->algorithm_id ||
+        sa->edge_openings.opening_count != sb->edge_openings.opening_count ||
         sa->process.enabled != sb->process.enabled ||
         sa->process.method_count != sb->process.method_count ||
         sa->room_types.definition_count != sb->room_types.definition_count ||
@@ -277,6 +278,22 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
         return false;
     }
 
+    if ((sa->edge_openings.opening_count > 0u &&
+         (sa->edge_openings.openings == NULL || sb->edge_openings.openings == NULL))) {
+        return false;
+    }
+
+    for (i = 0; i < sa->edge_openings.opening_count; ++i) {
+        const dg_snapshot_edge_opening_spec_t *oa = &sa->edge_openings.openings[i];
+        const dg_snapshot_edge_opening_spec_t *ob = &sb->edge_openings.openings[i];
+        if (oa->side != ob->side ||
+            oa->start != ob->start ||
+            oa->end != ob->end ||
+            oa->role != ob->role) {
+            return false;
+        }
+    }
+
     for (i = 0; i < sa->process.method_count; ++i) {
         const dg_snapshot_process_method_t *ma = &sa->process.methods[i];
         const dg_snapshot_process_method_t *mb = &sb->process.methods[i];
@@ -324,6 +341,18 @@ static bool maps_have_same_generation_request_snapshot(const dg_map_t *a, const 
             da->min_count != db->min_count ||
             da->max_count != db->max_count ||
             da->target_count != db->target_count ||
+            strcmp(da->template_map_path, db->template_map_path) != 0 ||
+            da->template_opening_query.side_mask != db->template_opening_query.side_mask ||
+            da->template_opening_query.role_mask != db->template_opening_query.role_mask ||
+            da->template_opening_query.edge_coord_min !=
+                db->template_opening_query.edge_coord_min ||
+            da->template_opening_query.edge_coord_max !=
+                db->template_opening_query.edge_coord_max ||
+            da->template_opening_query.min_length != db->template_opening_query.min_length ||
+            da->template_opening_query.max_length != db->template_opening_query.max_length ||
+            da->template_opening_query.require_component !=
+                db->template_opening_query.require_component ||
+            da->template_required_opening_matches != db->template_required_opening_matches ||
             da->constraints.area_min != db->constraints.area_min ||
             da->constraints.area_max != db->constraints.area_max ||
             da->constraints.degree_min != db->constraints.degree_min ||
@@ -552,6 +581,30 @@ static size_t count_rooms_with_assigned_type(const dg_map_t *map)
     count = 0;
     for (i = 0; i < map->metadata.room_count; ++i) {
         if (map->metadata.rooms[i].type_id != DG_ROOM_TYPE_UNASSIGNED) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
+static size_t count_wall_tiles_inside_rooms(const dg_map_t *map)
+{
+    size_t i;
+    size_t count;
+    size_t cell_count;
+
+    if (map == NULL || map->tiles == NULL) {
+        return 0;
+    }
+
+    count = 0;
+    cell_count = (size_t)map->width * (size_t)map->height;
+    for (i = 0; i < cell_count; ++i) {
+        int x = (int)(i % (size_t)map->width);
+        int y = (int)(i / (size_t)map->width);
+
+        if (map->tiles[i] == DG_TILE_WALL && point_in_any_room(map, x, y)) {
             count += 1;
         }
     }
@@ -1242,6 +1295,49 @@ static int test_bsp_generation(void)
         ASSERT_TRUE(room->type_id == DG_ROOM_TYPE_UNASSIGNED);
         ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
     }
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_explicit_edge_openings_are_applied(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_edge_opening_spec_t openings[2];
+    const dg_map_edge_opening_t *entrance_opening;
+    dg_tile_t edge_tile;
+    dg_tile_t inward_tile;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 42424u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 12;
+
+    openings[0].side = DG_MAP_EDGE_TOP;
+    openings[0].start = 8;
+    openings[0].end = 10;
+    openings[0].role = DG_MAP_EDGE_OPENING_ROLE_ENTRANCE;
+    openings[1].side = DG_MAP_EDGE_BOTTOM;
+    openings[1].start = 28;
+    openings[1].end = 30;
+    openings[1].role = DG_MAP_EDGE_OPENING_ROLE_EXIT;
+    request.edge_openings.openings = openings;
+    request.edge_openings.opening_count = 2u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    edge_tile = dg_map_get_tile(&map, 8, 0);
+    inward_tile = dg_map_get_tile(&map, 8, 1);
+    ASSERT_TRUE(is_walkable(edge_tile));
+    ASSERT_TRUE(is_walkable(inward_tile));
+    ASSERT_TRUE(map.metadata.edge_opening_count >= 2u);
+
+    entrance_opening = dg_map_find_edge_opening_by_id(
+        &map,
+        map.metadata.primary_entrance_opening_id
+    );
+    ASSERT_TRUE(entrance_opening != NULL);
+    ASSERT_TRUE(entrance_opening->role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE);
 
     dg_map_destroy(&map);
     return 0;
@@ -2770,6 +2866,7 @@ static int test_generation_request_snapshot_populated(void)
     dg_generate_request_t request;
     dg_map_t map = {0};
     dg_room_type_definition_t definitions[2];
+    dg_edge_opening_spec_t edge_openings[2];
     dg_process_method_t process_methods[3];
     const dg_generation_request_snapshot_t *snapshot;
 
@@ -2799,15 +2896,43 @@ static int test_generation_request_snapshot_populated(void)
     dg_default_room_type_definition(&definitions[0], 701u);
     definitions[0].min_count = 2;
     definitions[0].preferences.higher_degree_bias = 20;
+    definitions[0].template_map_path[0] = '\0';
+    definitions[0].template_opening_query.side_mask = DG_MAP_EDGE_MASK_TOP | DG_MAP_EDGE_MASK_BOTTOM;
+    definitions[0].template_opening_query.role_mask = DG_MAP_EDGE_OPENING_ROLE_MASK_ENTRANCE;
+    definitions[0].template_opening_query.edge_coord_min = 0;
+    definitions[0].template_opening_query.edge_coord_max = 32;
+    definitions[0].template_opening_query.min_length = 1;
+    definitions[0].template_opening_query.max_length = -1;
+    definitions[0].template_opening_query.require_component = -1;
+    definitions[0].template_required_opening_matches = 1;
     dg_default_room_type_definition(&definitions[1], 702u);
     definitions[1].min_count = 1;
     definitions[1].preferences.border_distance_bias = 35;
+    definitions[1].template_map_path[0] = '\0';
+    definitions[1].template_opening_query.side_mask = DG_MAP_EDGE_MASK_ALL;
+    definitions[1].template_opening_query.role_mask = DG_MAP_EDGE_OPENING_ROLE_MASK_ANY;
+    definitions[1].template_opening_query.edge_coord_min = 0;
+    definitions[1].template_opening_query.edge_coord_max = 999;
+    definitions[1].template_opening_query.min_length = 1;
+    definitions[1].template_opening_query.max_length = -1;
+    definitions[1].template_opening_query.require_component = -1;
+    definitions[1].template_required_opening_matches = 2;
 
     request.room_types.definitions = definitions;
     request.room_types.definition_count = 2;
     request.room_types.policy.strict_mode = 1;
     request.room_types.policy.allow_untyped_rooms = 0;
     request.room_types.policy.default_type_id = 701u;
+    edge_openings[0].side = DG_MAP_EDGE_TOP;
+    edge_openings[0].start = 4;
+    edge_openings[0].end = 8;
+    edge_openings[0].role = DG_MAP_EDGE_OPENING_ROLE_ENTRANCE;
+    edge_openings[1].side = DG_MAP_EDGE_BOTTOM;
+    edge_openings[1].start = 12;
+    edge_openings[1].end = 14;
+    edge_openings[1].role = DG_MAP_EDGE_OPENING_ROLE_EXIT;
+    request.edge_openings.openings = edge_openings;
+    request.edge_openings.opening_count = 2;
 
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
 
@@ -2831,6 +2956,16 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->process.methods[2].params.corridor_roughen.max_depth == 3);
     ASSERT_TRUE(snapshot->process.methods[2].params.corridor_roughen.mode ==
                 (int)DG_CORRIDOR_ROUGHEN_ORGANIC);
+    ASSERT_TRUE(snapshot->edge_openings.opening_count == 2u);
+    ASSERT_TRUE(snapshot->edge_openings.openings != NULL);
+    ASSERT_TRUE(snapshot->edge_openings.openings[0].side == (int)DG_MAP_EDGE_TOP);
+    ASSERT_TRUE(snapshot->edge_openings.openings[0].start == 4);
+    ASSERT_TRUE(snapshot->edge_openings.openings[0].end == 8);
+    ASSERT_TRUE(snapshot->edge_openings.openings[0].role == (int)DG_MAP_EDGE_OPENING_ROLE_ENTRANCE);
+    ASSERT_TRUE(snapshot->edge_openings.openings[1].side == (int)DG_MAP_EDGE_BOTTOM);
+    ASSERT_TRUE(snapshot->edge_openings.openings[1].start == 12);
+    ASSERT_TRUE(snapshot->edge_openings.openings[1].end == 14);
+    ASSERT_TRUE(snapshot->edge_openings.openings[1].role == (int)DG_MAP_EDGE_OPENING_ROLE_EXIT);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.min_rooms == request.params.rooms_and_mazes.min_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.max_rooms == request.params.rooms_and_mazes.max_rooms);
     ASSERT_TRUE(snapshot->params.rooms_and_mazes.room_min_size ==
@@ -2857,8 +2992,20 @@ static int test_generation_request_snapshot_populated(void)
     ASSERT_TRUE(snapshot->room_types.definitions != NULL);
     ASSERT_TRUE(snapshot->room_types.definitions[0].type_id == definitions[0].type_id);
     ASSERT_TRUE(snapshot->room_types.definitions[0].min_count == definitions[0].min_count);
+    ASSERT_TRUE(strcmp(
+        snapshot->room_types.definitions[0].template_map_path,
+        definitions[0].template_map_path
+    ) == 0);
+    ASSERT_TRUE(
+        snapshot->room_types.definitions[0].template_required_opening_matches ==
+        definitions[0].template_required_opening_matches
+    );
     ASSERT_TRUE(snapshot->room_types.definitions[1].type_id == definitions[1].type_id);
     ASSERT_TRUE(snapshot->room_types.definitions[1].min_count == definitions[1].min_count);
+    ASSERT_TRUE(strcmp(
+        snapshot->room_types.definitions[1].template_map_path,
+        definitions[1].template_map_path
+    ) == 0);
 
     dg_map_destroy(&map);
     return 0;
@@ -2900,6 +3047,7 @@ static int test_map_serialization_roundtrip(void)
     dg_map_t original = {0};
     dg_map_t loaded = {0};
     dg_room_type_definition_t definitions[2];
+    dg_edge_opening_spec_t edge_openings[2];
     dg_process_method_t process_methods[3];
 
     path = "dungeoneer_test_roundtrip.dgmap";
@@ -2921,11 +3069,25 @@ static int test_map_serialization_roundtrip(void)
     request.process.method_count = 3;
     dg_default_room_type_definition(&definitions[0], 51u);
     definitions[0].min_count = 2;
+    definitions[0].template_map_path[0] = '\0';
+    definitions[0].template_required_opening_matches = 1;
     dg_default_room_type_definition(&definitions[1], 52u);
     definitions[1].min_count = 2;
+    definitions[1].template_map_path[0] = '\0';
+    definitions[1].template_required_opening_matches = 2;
     request.room_types.definitions = definitions;
     request.room_types.definition_count = 2;
     request.room_types.policy.strict_mode = 1;
+    edge_openings[0].side = DG_MAP_EDGE_TOP;
+    edge_openings[0].start = 6;
+    edge_openings[0].end = 8;
+    edge_openings[0].role = DG_MAP_EDGE_OPENING_ROLE_ENTRANCE;
+    edge_openings[1].side = DG_MAP_EDGE_BOTTOM;
+    edge_openings[1].start = 20;
+    edge_openings[1].end = 22;
+    edge_openings[1].role = DG_MAP_EDGE_OPENING_ROLE_EXIT;
+    request.edge_openings.openings = edge_openings;
+    request.edge_openings.opening_count = 2u;
 
     ASSERT_STATUS(dg_generate(&request, &original), DG_STATUS_OK);
     ASSERT_STATUS(dg_map_save_file(&original, path), DG_STATUS_OK);
@@ -3261,6 +3423,57 @@ static int test_room_type_assignment_stable_across_post_process(void)
 
     dg_map_destroy(&no_roughen_map);
     dg_map_destroy(&roughen_map);
+    return 0;
+}
+
+static int test_room_type_template_map_application(void)
+{
+    const char *template_path;
+    dg_generate_request_t template_request;
+    dg_generate_request_t request;
+    dg_map_t template_map = {0};
+    dg_map_t map = {0};
+    dg_room_type_definition_t definition;
+
+    template_path = "dungeoneer_test_room_template.dgmap";
+
+    dg_default_generate_request(&template_request, DG_ALGORITHM_VALUE_NOISE, 40, 28, 424201u);
+    template_request.params.value_noise.feature_size = 8;
+    template_request.params.value_noise.octaves = 3;
+    template_request.params.value_noise.persistence_percent = 55;
+    template_request.params.value_noise.floor_threshold_percent = 35;
+    ASSERT_STATUS(dg_generate(&template_request, &template_map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_map_save_file(&template_map, template_path), DG_STATUS_OK);
+    dg_map_destroy(&template_map);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 48, 424202u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 12;
+    request.params.bsp.room_min_size = 4;
+    request.params.bsp.room_max_size = 10;
+
+    dg_default_room_type_definition(&definition, 501u);
+    definition.min_count = 1;
+    (void)snprintf(
+        definition.template_map_path,
+        sizeof(definition.template_map_path),
+        "%s",
+        template_path
+    );
+    definition.template_required_opening_matches = 0;
+
+    request.room_types.definitions = &definition;
+    request.room_types.definition_count = 1u;
+    request.room_types.policy.strict_mode = 0;
+    request.room_types.policy.allow_untyped_rooms = 0;
+    request.room_types.policy.default_type_id = 501u;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(count_rooms_with_type_id(&map, 501u) > 0u);
+    ASSERT_TRUE(count_wall_tiles_inside_rooms(&map) > 0u);
+
+    dg_map_destroy(&map);
+    (void)remove(template_path);
     return 0;
 }
 
@@ -3725,6 +3938,52 @@ static int test_invalid_generate_request(void)
     request.room_types.policy.default_type_id = 42u;
     ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
 
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    request.edge_openings.opening_count = 1u;
+    request.edge_openings.openings = NULL;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    {
+        dg_edge_opening_spec_t opening = {
+            (dg_map_edge_side_t)99,
+            0,
+            0,
+            DG_MAP_EDGE_OPENING_ROLE_NONE
+        };
+        request.edge_openings.openings = &opening;
+        request.edge_openings.opening_count = 1u;
+        ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+    }
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    {
+        dg_edge_opening_spec_t opening = {
+            DG_MAP_EDGE_TOP,
+            0,
+            200,
+            DG_MAP_EDGE_OPENING_ROLE_NONE
+        };
+        request.edge_openings.openings = &opening;
+        request.edge_openings.opening_count = 1u;
+        ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+    }
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 88u);
+    definitions[0].template_required_opening_matches = -1;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 1u;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 1u);
+    dg_default_room_type_definition(&definitions[0], 89u);
+    definitions[0].template_opening_query.edge_coord_min = 10;
+    definitions[0].template_opening_query.edge_coord_max = 2;
+    request.room_types.definitions = definitions;
+    request.room_types.definition_count = 1u;
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_INVALID_ARGUMENT);
+
     return 0;
 }
 
@@ -3758,6 +4017,7 @@ int main(void)
         {"map_edge_opening_query_filters", test_map_edge_opening_query_filters},
         {"rng_reproducibility", test_rng_reproducibility},
         {"bsp_generation", test_bsp_generation},
+        {"explicit_edge_openings_are_applied", test_explicit_edge_openings_are_applied},
         {"bsp_determinism", test_bsp_determinism},
         {"drunkards_walk_generation", test_drunkards_walk_generation},
         {"drunkards_walk_determinism", test_drunkards_walk_determinism},
@@ -3818,6 +4078,7 @@ int main(void)
         {"room_type_assignment_determinism", test_room_type_assignment_determinism},
         {"room_type_assignment_stable_across_post_process",
          test_room_type_assignment_stable_across_post_process},
+        {"room_type_template_map_application", test_room_type_template_map_application},
         {"room_type_assignment_minimums", test_room_type_assignment_minimums},
         {"room_type_strict_minimum_infeasible", test_room_type_strict_minimum_infeasible},
         {"room_type_strict_requires_full_coverage", test_room_type_strict_requires_full_coverage},

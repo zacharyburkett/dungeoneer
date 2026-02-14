@@ -282,6 +282,17 @@ typedef struct dg_room_type_definition {
     int min_count;
     int max_count;
     int target_count;
+    /*
+     * Optional room-template map path for this type.
+     * Empty string means no room template assignment.
+     */
+    char template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
+    /*
+     * Opening query + required match count for validating template maps.
+     * required_matches == 0 disables opening requirements.
+     */
+    dg_map_edge_opening_query_t template_opening_query;
+    int template_required_opening_matches;
     dg_room_type_constraints_t constraints;
     dg_room_type_preferences_t preferences;
 } dg_room_type_definition_t;
@@ -323,6 +334,7 @@ typedef struct dg_generate_request {
         dg_worm_caves_config_t worm_caves;
         dg_simplex_noise_config_t simplex_noise;
     } params;
+    dg_edge_opening_config_t edge_openings;
     dg_process_config_t process;
     dg_room_type_assignment_config_t room_types;
 } dg_generate_request_t;
@@ -340,6 +352,7 @@ void dg_default_process_config(dg_process_config_t *config);
 void dg_default_room_type_constraints(dg_room_type_constraints_t *constraints);
 void dg_default_room_type_preferences(dg_room_type_preferences_t *preferences);
 void dg_default_room_type_definition(dg_room_type_definition_t *definition, uint32_t type_id);
+void dg_default_edge_opening_config(dg_edge_opening_config_t *config);
 void dg_default_room_type_assignment_policy(dg_room_type_assignment_policy_t *policy);
 void dg_default_room_type_assignment_config(dg_room_type_assignment_config_t *config);
 void dg_default_generate_request(

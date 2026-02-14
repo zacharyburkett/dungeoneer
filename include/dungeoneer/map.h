@@ -78,6 +78,19 @@ typedef enum dg_map_edge_opening_role {
      DG_MAP_EDGE_OPENING_ROLE_MASK_EXIT)
 
 #define DG_MAP_EDGE_COMPONENT_UNKNOWN SIZE_MAX
+#define DG_ROOM_TEMPLATE_PATH_MAX 256
+
+typedef struct dg_edge_opening_spec {
+    dg_map_edge_side_t side;
+    int start;
+    int end;
+    dg_map_edge_opening_role_t role;
+} dg_edge_opening_spec_t;
+
+typedef struct dg_edge_opening_config {
+    const dg_edge_opening_spec_t *openings;
+    size_t opening_count;
+} dg_edge_opening_config_t;
 
 typedef struct dg_map_edge_opening {
     int id;
@@ -187,6 +200,18 @@ typedef struct dg_snapshot_simplex_noise_config {
     int ensure_connected;
 } dg_snapshot_simplex_noise_config_t;
 
+typedef struct dg_snapshot_edge_opening_spec {
+    int side;
+    int start;
+    int end;
+    int role;
+} dg_snapshot_edge_opening_spec_t;
+
+typedef struct dg_snapshot_edge_opening_config {
+    dg_snapshot_edge_opening_spec_t *openings;
+    size_t opening_count;
+} dg_snapshot_edge_opening_config_t;
+
 typedef struct dg_snapshot_room_type_constraints {
     int area_min;
     int area_max;
@@ -211,6 +236,9 @@ typedef struct dg_snapshot_room_type_definition {
     int min_count;
     int max_count;
     int target_count;
+    char template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
+    dg_map_edge_opening_query_t template_opening_query;
+    int template_required_opening_matches;
     dg_snapshot_room_type_constraints_t constraints;
     dg_snapshot_room_type_preferences_t preferences;
 } dg_snapshot_room_type_definition_t;
@@ -274,6 +302,7 @@ typedef struct dg_generation_request_snapshot {
         dg_snapshot_worm_caves_config_t worm_caves;
         dg_snapshot_simplex_noise_config_t simplex_noise;
     } params;
+    dg_snapshot_edge_opening_config_t edge_openings;
     dg_snapshot_process_config_t process;
     dg_snapshot_room_type_assignment_config_t room_types;
 } dg_generation_request_snapshot_t;

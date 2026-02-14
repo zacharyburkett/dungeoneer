@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <limits.h>
 #include <stdlib.h>
 
 static bool dg_point_in_rect(const dg_rect_t *rect, int x, int y)
@@ -1030,6 +1031,249 @@ static void dg_clear_room_graph_metadata(dg_map_t *map)
     map->metadata.room_adjacency_count = 0;
     map->metadata.room_neighbors = NULL;
     map->metadata.room_neighbor_count = 0;
+}
+
+static bool dg_edge_side_is_valid(dg_map_edge_side_t side)
+{
+    return side == DG_MAP_EDGE_TOP ||
+           side == DG_MAP_EDGE_RIGHT ||
+           side == DG_MAP_EDGE_BOTTOM ||
+           side == DG_MAP_EDGE_LEFT;
+}
+
+static bool dg_edge_opening_role_is_valid(dg_map_edge_opening_role_t role)
+{
+    return role == DG_MAP_EDGE_OPENING_ROLE_NONE ||
+           role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE ||
+           role == DG_MAP_EDGE_OPENING_ROLE_EXIT;
+}
+
+static bool dg_explicit_edge_opening_spec_is_in_bounds(
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *opening
+)
+{
+    int max_coord;
+
+    if (map == NULL || opening == NULL || map->tiles == NULL || map->width <= 0 || map->height <= 0) {
+        return false;
+    }
+
+    if (!dg_edge_side_is_valid(opening->side) || !dg_edge_opening_role_is_valid(opening->role)) {
+        return false;
+    }
+
+    if (opening->start < 0 || opening->end < opening->start) {
+        return false;
+    }
+
+    switch (opening->side) {
+    case DG_MAP_EDGE_TOP:
+    case DG_MAP_EDGE_BOTTOM:
+        max_coord = map->width - 1;
+        break;
+    case DG_MAP_EDGE_LEFT:
+    case DG_MAP_EDGE_RIGHT:
+        max_coord = map->height - 1;
+        break;
+    default:
+        return false;
+    }
+
+    if (max_coord < 0 || opening->start > max_coord || opening->end > max_coord) {
+        return false;
+    }
+
+    return true;
+}
+
+dg_status_t dg_apply_explicit_edge_openings(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+)
+{
+    size_t i;
+
+    if (request == NULL || map == NULL || map->tiles == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (request->edge_openings.opening_count == 0u) {
+        return DG_STATUS_OK;
+    }
+    if (request->edge_openings.openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < request->edge_openings.opening_count; ++i) {
+        const dg_edge_opening_spec_t *opening = &request->edge_openings.openings[i];
+        int normal_x;
+        int normal_y;
+        int coord;
+
+        if (!dg_explicit_edge_opening_spec_is_in_bounds(map, opening)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        dg_edge_side_normal(opening->side, &normal_x, &normal_y);
+        for (coord = opening->start; coord <= opening->end; ++coord) {
+            int edge_x;
+            int edge_y;
+            int inward_x;
+            int inward_y;
+
+            dg_edge_coord_to_point(map, opening->side, coord, &edge_x, &edge_y);
+            if (!dg_map_in_bounds(map, edge_x, edge_y)) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+
+            map->tiles[dg_tile_index(map, edge_x, edge_y)] = DG_TILE_FLOOR;
+            inward_x = edge_x + normal_x;
+            inward_y = edge_y + normal_y;
+            if (dg_map_in_bounds(map, inward_x, inward_y)) {
+                map->tiles[dg_tile_index(map, inward_x, inward_y)] = DG_TILE_FLOOR;
+            }
+        }
+    }
+
+    return DG_STATUS_OK;
+}
+
+static size_t dg_find_best_matching_edge_opening_index(
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *spec
+)
+{
+    size_t i;
+    size_t best_index;
+    int best_overlap;
+    int best_center_delta;
+
+    if (map == NULL || spec == NULL || map->metadata.edge_openings == NULL) {
+        return SIZE_MAX;
+    }
+
+    best_index = SIZE_MAX;
+    best_overlap = -1;
+    best_center_delta = INT_MAX;
+
+    for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+        const dg_map_edge_opening_t *opening = &map->metadata.edge_openings[i];
+        int overlap_start;
+        int overlap_end;
+        int overlap;
+        int opening_center;
+        int spec_center;
+        int center_delta;
+
+        if (opening->side != spec->side) {
+            continue;
+        }
+
+        overlap_start = dg_max_int(opening->start, spec->start);
+        overlap_end = dg_min_int(opening->end, spec->end);
+        if (overlap_end < overlap_start) {
+            continue;
+        }
+
+        overlap = overlap_end - overlap_start + 1;
+        opening_center = opening->start + ((opening->end - opening->start) / 2);
+        spec_center = spec->start + ((spec->end - spec->start) / 2);
+        center_delta = abs(opening_center - spec_center);
+
+        if (overlap > best_overlap ||
+            (overlap == best_overlap && center_delta < best_center_delta)) {
+            best_overlap = overlap;
+            best_center_delta = center_delta;
+            best_index = i;
+        }
+    }
+
+    if (best_index == SIZE_MAX) {
+        int center_coord;
+        int edge_x;
+        int edge_y;
+
+        center_coord = spec->start + ((spec->end - spec->start) / 2);
+        dg_edge_coord_to_point(map, spec->side, center_coord, &edge_x, &edge_y);
+
+        for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+            const dg_map_edge_opening_t *opening = &map->metadata.edge_openings[i];
+            if (opening->edge_tile.x == edge_x && opening->edge_tile.y == edge_y) {
+                return i;
+            }
+        }
+    }
+
+    return best_index;
+}
+
+dg_status_t dg_apply_explicit_edge_opening_roles(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+)
+{
+    size_t i;
+    bool has_explicit_roles;
+
+    if (request == NULL || map == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (request->edge_openings.opening_count == 0u ||
+        request->edge_openings.openings == NULL ||
+        map->metadata.edge_opening_count == 0u ||
+        map->metadata.edge_openings == NULL) {
+        return DG_STATUS_OK;
+    }
+
+    has_explicit_roles = false;
+    for (i = 0; i < request->edge_openings.opening_count; ++i) {
+        const dg_edge_opening_spec_t *opening = &request->edge_openings.openings[i];
+        if (!dg_edge_opening_role_is_valid(opening->role)) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+        if (opening->role != DG_MAP_EDGE_OPENING_ROLE_NONE) {
+            has_explicit_roles = true;
+        }
+    }
+
+    if (!has_explicit_roles) {
+        return DG_STATUS_OK;
+    }
+
+    map->metadata.primary_entrance_opening_id = -1;
+    map->metadata.primary_exit_opening_id = -1;
+    for (i = 0; i < map->metadata.edge_opening_count; ++i) {
+        map->metadata.edge_openings[i].role = DG_MAP_EDGE_OPENING_ROLE_NONE;
+    }
+
+    for (i = 0; i < request->edge_openings.opening_count; ++i) {
+        const dg_edge_opening_spec_t *spec = &request->edge_openings.openings[i];
+        size_t opening_index;
+        dg_map_edge_opening_t *opening;
+
+        if (spec->role == DG_MAP_EDGE_OPENING_ROLE_NONE) {
+            continue;
+        }
+
+        opening_index = dg_find_best_matching_edge_opening_index(map, spec);
+        if (opening_index == SIZE_MAX || opening_index >= map->metadata.edge_opening_count) {
+            continue;
+        }
+
+        opening = &map->metadata.edge_openings[opening_index];
+        opening->role = spec->role;
+        if (spec->role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE &&
+            map->metadata.primary_entrance_opening_id < 0) {
+            map->metadata.primary_entrance_opening_id = opening->id;
+        } else if (spec->role == DG_MAP_EDGE_OPENING_ROLE_EXIT &&
+                   map->metadata.primary_exit_opening_id < 0) {
+            map->metadata.primary_exit_opening_id = opening->id;
+        }
+    }
+
+    return DG_STATUS_OK;
 }
 
 dg_status_t dg_populate_runtime_metadata(

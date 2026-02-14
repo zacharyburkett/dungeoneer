@@ -11,6 +11,7 @@ static void dg_map_clear_generation_request_snapshot(
     }
 
     free(snapshot->process.methods);
+    free(snapshot->edge_openings.openings);
     free(snapshot->room_types.definitions);
     *snapshot = (dg_generation_request_snapshot_t){0};
 }

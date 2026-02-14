@@ -3,6 +3,9 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "dungeoneer/io.h"
 
 typedef struct dg_room_feature {
     size_t area;
@@ -1010,4 +1013,663 @@ dg_status_t dg_apply_room_type_assignment(
     free(enabled_type_indices);
     free(features);
     return dg_populate_room_type_assignment_diagnostics(request, map);
+}
+
+typedef struct dg_room_template_cache_entry {
+    int has_template;
+    int loaded;
+    dg_map_t map;
+} dg_room_template_cache_entry_t;
+
+static int dg_room_template_application_depth = 0;
+
+static bool dg_room_template_point_in_rect(const dg_rect_t *rect, int x, int y)
+{
+    if (rect == NULL) {
+        return false;
+    }
+
+    return x >= rect->x &&
+           y >= rect->y &&
+           x < rect->x + rect->width &&
+           y < rect->y + rect->height;
+}
+
+static size_t dg_find_room_type_definition_index_by_type_id(
+    const dg_generate_request_t *request,
+    uint32_t type_id
+)
+{
+    size_t i;
+
+    if (request == NULL || request->room_types.definitions == NULL) {
+        return SIZE_MAX;
+    }
+
+    for (i = 0; i < request->room_types.definition_count; ++i) {
+        if (request->room_types.definitions[i].type_id == type_id) {
+            return i;
+        }
+    }
+
+    return SIZE_MAX;
+}
+
+static bool dg_template_map_is_nested(const dg_map_t *template_map)
+{
+    size_t i;
+    const dg_generation_request_snapshot_t *snapshot;
+
+    if (template_map == NULL) {
+        return true;
+    }
+
+    snapshot = &template_map->metadata.generation_request;
+    if (snapshot->present != 1 || snapshot->room_types.definitions == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < snapshot->room_types.definition_count; ++i) {
+        const dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
+        if (definition->template_map_path[0] != '\0') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static dg_status_t dg_validate_loaded_room_template(
+    const dg_room_type_definition_t *definition,
+    const dg_map_t *template_map
+)
+{
+    if (definition == NULL || template_map == NULL || template_map->tiles == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (dg_template_map_is_nested(template_map)) {
+        return DG_STATUS_GENERATION_FAILED;
+    }
+
+    return DG_STATUS_OK;
+}
+
+static void dg_release_template_request_buffers(
+    dg_process_method_t *process_methods,
+    dg_edge_opening_spec_t *edge_openings
+)
+{
+    free(edge_openings);
+    free(process_methods);
+}
+
+static dg_status_t dg_build_template_request_from_snapshot(
+    const dg_generation_request_snapshot_t *snapshot,
+    int width,
+    int height,
+    uint64_t seed,
+    dg_generate_request_t *out_request,
+    dg_process_method_t **out_process_methods,
+    dg_edge_opening_spec_t **out_edge_openings
+)
+{
+    dg_generate_request_t request;
+    dg_process_method_t *process_methods;
+    dg_edge_opening_spec_t *edge_openings;
+    size_t i;
+    int source_span_h;
+    int source_span_v;
+
+    if (snapshot == NULL || out_request == NULL ||
+        out_process_methods == NULL || out_edge_openings == NULL ||
+        snapshot->present != 1 ||
+        width <= 0 || height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_process_methods = NULL;
+    *out_edge_openings = NULL;
+    process_methods = NULL;
+    edge_openings = NULL;
+
+    dg_default_generate_request(&request, (dg_algorithm_t)snapshot->algorithm_id, width, height, seed);
+    switch ((dg_algorithm_t)snapshot->algorithm_id) {
+    case DG_ALGORITHM_BSP_TREE:
+        request.params.bsp = (dg_bsp_config_t){
+            snapshot->params.bsp.min_rooms,
+            snapshot->params.bsp.max_rooms,
+            snapshot->params.bsp.room_min_size,
+            snapshot->params.bsp.room_max_size
+        };
+        break;
+    case DG_ALGORITHM_DRUNKARDS_WALK:
+        request.params.drunkards_walk = (dg_drunkards_walk_config_t){
+            snapshot->params.drunkards_walk.wiggle_percent
+        };
+        break;
+    case DG_ALGORITHM_CELLULAR_AUTOMATA:
+        request.params.cellular_automata = (dg_cellular_automata_config_t){
+            snapshot->params.cellular_automata.initial_wall_percent,
+            snapshot->params.cellular_automata.simulation_steps,
+            snapshot->params.cellular_automata.wall_threshold
+        };
+        break;
+    case DG_ALGORITHM_VALUE_NOISE:
+        request.params.value_noise = (dg_value_noise_config_t){
+            snapshot->params.value_noise.feature_size,
+            snapshot->params.value_noise.octaves,
+            snapshot->params.value_noise.persistence_percent,
+            snapshot->params.value_noise.floor_threshold_percent
+        };
+        break;
+    case DG_ALGORITHM_ROOMS_AND_MAZES:
+        request.params.rooms_and_mazes = (dg_rooms_and_mazes_config_t){
+            snapshot->params.rooms_and_mazes.min_rooms,
+            snapshot->params.rooms_and_mazes.max_rooms,
+            snapshot->params.rooms_and_mazes.room_min_size,
+            snapshot->params.rooms_and_mazes.room_max_size,
+            snapshot->params.rooms_and_mazes.maze_wiggle_percent,
+            snapshot->params.rooms_and_mazes.min_room_connections,
+            snapshot->params.rooms_and_mazes.max_room_connections,
+            snapshot->params.rooms_and_mazes.ensure_full_connectivity,
+            snapshot->params.rooms_and_mazes.dead_end_prune_steps
+        };
+        break;
+    case DG_ALGORITHM_ROOM_GRAPH:
+        request.params.room_graph = (dg_room_graph_config_t){
+            snapshot->params.room_graph.min_rooms,
+            snapshot->params.room_graph.max_rooms,
+            snapshot->params.room_graph.room_min_size,
+            snapshot->params.room_graph.room_max_size,
+            snapshot->params.room_graph.neighbor_candidates,
+            snapshot->params.room_graph.extra_connection_chance_percent
+        };
+        break;
+    case DG_ALGORITHM_WORM_CAVES:
+        request.params.worm_caves = (dg_worm_caves_config_t){
+            snapshot->params.worm_caves.worm_count,
+            snapshot->params.worm_caves.wiggle_percent,
+            snapshot->params.worm_caves.branch_chance_percent,
+            snapshot->params.worm_caves.target_floor_percent,
+            snapshot->params.worm_caves.brush_radius,
+            snapshot->params.worm_caves.max_steps_per_worm,
+            snapshot->params.worm_caves.ensure_connected
+        };
+        break;
+    case DG_ALGORITHM_SIMPLEX_NOISE:
+        request.params.simplex_noise = (dg_simplex_noise_config_t){
+            snapshot->params.simplex_noise.feature_size,
+            snapshot->params.simplex_noise.octaves,
+            snapshot->params.simplex_noise.persistence_percent,
+            snapshot->params.simplex_noise.floor_threshold_percent,
+            snapshot->params.simplex_noise.ensure_connected
+        };
+        break;
+    default:
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (snapshot->process.method_count > 0u) {
+        if (snapshot->process.methods == NULL ||
+            snapshot->process.method_count > (SIZE_MAX / sizeof(*process_methods))) {
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+        process_methods = (dg_process_method_t *)malloc(
+            snapshot->process.method_count * sizeof(*process_methods)
+        );
+        if (process_methods == NULL) {
+            return DG_STATUS_ALLOCATION_FAILED;
+        }
+        for (i = 0; i < snapshot->process.method_count; ++i) {
+            process_methods[i].type = (dg_process_method_type_t)snapshot->process.methods[i].type;
+            switch (process_methods[i].type) {
+            case DG_PROCESS_METHOD_SCALE:
+                process_methods[i].params.scale.factor = snapshot->process.methods[i].params.scale.factor;
+                break;
+            case DG_PROCESS_METHOD_PATH_SMOOTH:
+                process_methods[i].params.path_smooth.strength =
+                    snapshot->process.methods[i].params.path_smooth.strength;
+                process_methods[i].params.path_smooth.inner_enabled =
+                    snapshot->process.methods[i].params.path_smooth.inner_enabled;
+                process_methods[i].params.path_smooth.outer_enabled =
+                    snapshot->process.methods[i].params.path_smooth.outer_enabled;
+                break;
+            case DG_PROCESS_METHOD_CORRIDOR_ROUGHEN:
+                process_methods[i].params.corridor_roughen.strength =
+                    snapshot->process.methods[i].params.corridor_roughen.strength;
+                process_methods[i].params.corridor_roughen.max_depth =
+                    snapshot->process.methods[i].params.corridor_roughen.max_depth;
+                process_methods[i].params.corridor_roughen.mode =
+                    (dg_corridor_roughen_mode_t)snapshot->process.methods[i].params.corridor_roughen.mode;
+                break;
+            default:
+                dg_release_template_request_buffers(process_methods, edge_openings);
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+        }
+    }
+    request.process.enabled = snapshot->process.enabled;
+    request.process.methods = process_methods;
+    request.process.method_count = snapshot->process.method_count;
+
+    source_span_h = snapshot->width > 0 ? snapshot->width : 1;
+    source_span_v = snapshot->height > 0 ? snapshot->height : 1;
+    if (snapshot->edge_openings.opening_count > 0u) {
+        if (snapshot->edge_openings.openings == NULL ||
+            snapshot->edge_openings.opening_count > (SIZE_MAX / sizeof(*edge_openings))) {
+            dg_release_template_request_buffers(process_methods, edge_openings);
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        edge_openings = (dg_edge_opening_spec_t *)malloc(
+            snapshot->edge_openings.opening_count * sizeof(*edge_openings)
+        );
+        if (edge_openings == NULL) {
+            dg_release_template_request_buffers(process_methods, edge_openings);
+            return DG_STATUS_ALLOCATION_FAILED;
+        }
+
+        for (i = 0; i < snapshot->edge_openings.opening_count; ++i) {
+            const dg_snapshot_edge_opening_spec_t *src = &snapshot->edge_openings.openings[i];
+            int target_span;
+            int64_t scaled_start_num;
+            int64_t scaled_end_num;
+            int scaled_start;
+            int scaled_end;
+
+            edge_openings[i].side = (dg_map_edge_side_t)src->side;
+            edge_openings[i].role = (dg_map_edge_opening_role_t)src->role;
+            if (edge_openings[i].side == DG_MAP_EDGE_TOP || edge_openings[i].side == DG_MAP_EDGE_BOTTOM) {
+                target_span = width;
+                scaled_start_num = (int64_t)src->start * (int64_t)target_span;
+                scaled_end_num = (int64_t)(src->end + 1) * (int64_t)target_span - 1;
+                scaled_start = (int)(scaled_start_num / (int64_t)source_span_h);
+                scaled_end = (int)(scaled_end_num / (int64_t)source_span_h);
+                if (scaled_start < 0) {
+                    scaled_start = 0;
+                }
+                if (scaled_end < scaled_start) {
+                    scaled_end = scaled_start;
+                }
+                if (scaled_end >= width) {
+                    scaled_end = width - 1;
+                }
+            } else {
+                target_span = height;
+                scaled_start_num = (int64_t)src->start * (int64_t)target_span;
+                scaled_end_num = (int64_t)(src->end + 1) * (int64_t)target_span - 1;
+                scaled_start = (int)(scaled_start_num / (int64_t)source_span_v);
+                scaled_end = (int)(scaled_end_num / (int64_t)source_span_v);
+                if (scaled_start < 0) {
+                    scaled_start = 0;
+                }
+                if (scaled_end < scaled_start) {
+                    scaled_end = scaled_start;
+                }
+                if (scaled_end >= height) {
+                    scaled_end = height - 1;
+                }
+            }
+            edge_openings[i].start = scaled_start;
+            edge_openings[i].end = scaled_end;
+        }
+    }
+
+    request.edge_openings.openings = edge_openings;
+    request.edge_openings.opening_count = snapshot->edge_openings.opening_count;
+    request.room_types.definitions = NULL;
+    request.room_types.definition_count = 0u;
+    dg_default_room_type_assignment_policy(&request.room_types.policy);
+
+    *out_request = request;
+    *out_process_methods = process_methods;
+    *out_edge_openings = edge_openings;
+    return DG_STATUS_OK;
+}
+
+static bool dg_room_boundary_tile_touches_corridor(
+    const dg_map_t *map,
+    const dg_rect_t *room,
+    int x,
+    int y
+)
+{
+    static const int k_dirs[4][2] = {
+        {0, -1},
+        {1, 0},
+        {0, 1},
+        {-1, 0}
+    };
+    int d;
+
+    if (map == NULL || room == NULL || map->tiles == NULL) {
+        return false;
+    }
+
+    if (!dg_map_in_bounds(map, x, y)) {
+        return false;
+    }
+
+    for (d = 0; d < 4; ++d) {
+        int nx = x + k_dirs[d][0];
+        int ny = y + k_dirs[d][1];
+        dg_tile_t neighbor_tile;
+
+        if (!dg_map_in_bounds(map, nx, ny)) {
+            continue;
+        }
+
+        if (dg_room_template_point_in_rect(room, nx, ny)) {
+            continue;
+        }
+
+        neighbor_tile = dg_map_get_tile(map, nx, ny);
+        if (!dg_is_walkable_tile(neighbor_tile)) {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+static dg_status_t dg_apply_template_to_room(
+    dg_map_t *map,
+    const dg_rect_t *room,
+    const dg_map_t *template_map
+)
+{
+    size_t room_area;
+    unsigned char *required_boundary_mask;
+    int local_x;
+    int local_y;
+
+    if (map == NULL || map->tiles == NULL || room == NULL ||
+        template_map == NULL || template_map->tiles == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (room->width <= 0 || room->height <= 0 ||
+        template_map->width <= 0 || template_map->height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if ((size_t)room->width > (SIZE_MAX / (size_t)room->height)) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+    room_area = (size_t)room->width * (size_t)room->height;
+    required_boundary_mask = (unsigned char *)calloc(room_area, sizeof(unsigned char));
+    if (required_boundary_mask == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    for (local_y = 0; local_y < room->height; ++local_y) {
+        for (local_x = 0; local_x < room->width; ++local_x) {
+            int world_x;
+            int world_y;
+            bool is_boundary;
+            size_t mask_index;
+
+            world_x = room->x + local_x;
+            world_y = room->y + local_y;
+            is_boundary = (local_x == 0 || local_y == 0 ||
+                           local_x == room->width - 1 || local_y == room->height - 1);
+            if (!is_boundary) {
+                continue;
+            }
+
+            if (!dg_room_boundary_tile_touches_corridor(map, room, world_x, world_y)) {
+                continue;
+            }
+
+            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
+            required_boundary_mask[mask_index] = 1u;
+        }
+    }
+
+    for (local_y = 0; local_y < room->height; ++local_y) {
+        for (local_x = 0; local_x < room->width; ++local_x) {
+            int world_x;
+            int world_y;
+            int sample_x;
+            int sample_y;
+            size_t mask_index;
+            dg_tile_t sampled_tile;
+
+            world_x = room->x + local_x;
+            world_y = room->y + local_y;
+            sample_x = (local_x * template_map->width) / room->width;
+            sample_y = (local_y * template_map->height) / room->height;
+            if (sample_x >= template_map->width) {
+                sample_x = template_map->width - 1;
+            }
+            if (sample_y >= template_map->height) {
+                sample_y = template_map->height - 1;
+            }
+
+            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
+            if (required_boundary_mask[mask_index] != 0u) {
+                map->tiles[dg_tile_index(map, world_x, world_y)] = DG_TILE_FLOOR;
+                continue;
+            }
+
+            sampled_tile = dg_map_get_tile(template_map, sample_x, sample_y);
+            map->tiles[dg_tile_index(map, world_x, world_y)] =
+                dg_is_walkable_tile(sampled_tile) ? DG_TILE_FLOOR : DG_TILE_WALL;
+        }
+    }
+
+    for (local_y = 0; local_y < room->height; ++local_y) {
+        for (local_x = 0; local_x < room->width; ++local_x) {
+            int world_x;
+            int world_y;
+            int inward_x;
+            int inward_y;
+            size_t mask_index;
+
+            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
+            if (required_boundary_mask[mask_index] == 0u) {
+                continue;
+            }
+
+            world_x = room->x + local_x;
+            world_y = room->y + local_y;
+            inward_x = world_x;
+            inward_y = world_y;
+            if (local_x == 0) {
+                inward_x = world_x + 1;
+            } else if (local_x == room->width - 1) {
+                inward_x = world_x - 1;
+            } else if (local_y == 0) {
+                inward_y = world_y + 1;
+            } else if (local_y == room->height - 1) {
+                inward_y = world_y - 1;
+            }
+
+            if (dg_map_in_bounds(map, inward_x, inward_y) &&
+                dg_room_template_point_in_rect(room, inward_x, inward_y)) {
+                map->tiles[dg_tile_index(map, inward_x, inward_y)] = DG_TILE_FLOOR;
+            }
+        }
+    }
+
+    if (room->width >= 1 && room->height >= 1) {
+        int center_x = room->x + room->width / 2;
+        int center_y = room->y + room->height / 2;
+        if (dg_map_in_bounds(map, center_x, center_y)) {
+            map->tiles[dg_tile_index(map, center_x, center_y)] = DG_TILE_FLOOR;
+        }
+    }
+
+    free(required_boundary_mask);
+    return DG_STATUS_OK;
+}
+
+dg_status_t dg_apply_room_type_templates(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+)
+{
+    dg_room_template_cache_entry_t *cache_entries;
+    size_t i;
+    dg_status_t status;
+    bool has_any_templates;
+
+    if (request == NULL || map == NULL || map->tiles == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (map->metadata.generation_class != DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
+        map->metadata.rooms == NULL ||
+        map->metadata.room_count == 0 ||
+        request->room_types.definitions == NULL ||
+        request->room_types.definition_count == 0u) {
+        return DG_STATUS_OK;
+    }
+
+    has_any_templates = false;
+    for (i = 0; i < request->room_types.definition_count; ++i) {
+        if (request->room_types.definitions[i].template_map_path[0] != '\0') {
+            has_any_templates = true;
+            break;
+        }
+    }
+    if (!has_any_templates) {
+        return DG_STATUS_OK;
+    }
+
+    if (dg_room_template_application_depth > 0) {
+        return DG_STATUS_GENERATION_FAILED;
+    }
+    dg_room_template_application_depth += 1;
+    cache_entries = NULL;
+    status = DG_STATUS_OK;
+
+    if (request->room_types.definition_count > (SIZE_MAX / sizeof(*cache_entries))) {
+        status = DG_STATUS_ALLOCATION_FAILED;
+        goto cleanup;
+    }
+    cache_entries = (dg_room_template_cache_entry_t *)calloc(
+        request->room_types.definition_count,
+        sizeof(*cache_entries)
+    );
+    if (cache_entries == NULL) {
+        status = DG_STATUS_ALLOCATION_FAILED;
+        goto cleanup;
+    }
+
+    for (i = 0; i < request->room_types.definition_count; ++i) {
+        const dg_room_type_definition_t *definition = &request->room_types.definitions[i];
+        dg_room_template_cache_entry_t *entry = &cache_entries[i];
+
+        if (definition->template_map_path[0] == '\0') {
+            continue;
+        }
+
+        entry->has_template = 1;
+        entry->map = (dg_map_t){0};
+        status = dg_map_load_file(definition->template_map_path, &entry->map);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+        entry->loaded = 1;
+
+        status = dg_validate_loaded_room_template(definition, &entry->map);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        const dg_room_metadata_t *room = &map->metadata.rooms[i];
+        const dg_room_type_definition_t *definition;
+        size_t definition_index;
+        dg_room_template_cache_entry_t *entry;
+        dg_generate_request_t template_request;
+        dg_process_method_t *process_methods;
+        dg_edge_opening_spec_t *edge_openings;
+        dg_map_t generated_template;
+        int generated_width;
+        int generated_height;
+        size_t opening_match_count;
+
+        if (room->type_id == DG_ROOM_TYPE_UNASSIGNED) {
+            continue;
+        }
+
+        definition_index = dg_find_room_type_definition_index_by_type_id(request, room->type_id);
+        if (definition_index == SIZE_MAX) {
+            continue;
+        }
+
+        entry = &cache_entries[definition_index];
+        if (entry->has_template == 0 || entry->loaded == 0) {
+            continue;
+        }
+
+        definition = &request->room_types.definitions[definition_index];
+        generated_width = room->bounds.width;
+        generated_height = room->bounds.height;
+
+        template_request = (dg_generate_request_t){0};
+        process_methods = NULL;
+        edge_openings = NULL;
+        status = dg_build_template_request_from_snapshot(
+            &entry->map.metadata.generation_request,
+            generated_width,
+            generated_height,
+            entry->map.metadata.seed ^
+                ((uint64_t)(room->id + 1) * UINT64_C(11400714819323198485)),
+            &template_request,
+            &process_methods,
+            &edge_openings
+        );
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+
+        generated_template = (dg_map_t){0};
+        status = dg_generate_internal_allow_small(&template_request, &generated_template);
+        dg_release_template_request_buffers(process_methods, edge_openings);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+
+        if (definition->template_required_opening_matches > 0) {
+            opening_match_count = dg_map_query_edge_openings(
+                &generated_template,
+                &definition->template_opening_query,
+                NULL,
+                0u
+            );
+            if (opening_match_count < (size_t)definition->template_required_opening_matches) {
+                dg_map_destroy(&generated_template);
+                status = DG_STATUS_GENERATION_FAILED;
+                goto cleanup;
+            }
+        }
+
+        status = dg_apply_template_to_room(map, &room->bounds, &generated_template);
+        dg_map_destroy(&generated_template);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    if (dg_room_template_application_depth > 0) {
+        dg_room_template_application_depth -= 1;
+    }
+    if (cache_entries != NULL) {
+        for (i = 0; i < request->room_types.definition_count; ++i) {
+            if (cache_entries[i].loaded) {
+                dg_map_destroy(&cache_entries[i].map);
+                cache_entries[i].loaded = 0;
+            }
+        }
+        free(cache_entries);
+    }
+    return status;
 }

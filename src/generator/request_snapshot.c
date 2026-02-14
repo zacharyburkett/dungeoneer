@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 static dg_status_t dg_copy_process_methods_to_snapshot(
     dg_snapshot_process_method_t **out_methods,
@@ -103,6 +104,15 @@ static dg_status_t dg_copy_room_type_definitions_to_snapshot(
         definitions[i].min_count = source_definitions[i].min_count;
         definitions[i].max_count = source_definitions[i].max_count;
         definitions[i].target_count = source_definitions[i].target_count;
+        memcpy(
+            definitions[i].template_map_path,
+            source_definitions[i].template_map_path,
+            sizeof(definitions[i].template_map_path)
+        );
+        definitions[i].template_map_path[sizeof(definitions[i].template_map_path) - 1u] = '\0';
+        definitions[i].template_opening_query = source_definitions[i].template_opening_query;
+        definitions[i].template_required_opening_matches =
+            source_definitions[i].template_required_opening_matches;
         definitions[i].constraints.area_min = source_definitions[i].constraints.area_min;
         definitions[i].constraints.area_max = source_definitions[i].constraints.area_max;
         definitions[i].constraints.degree_min = source_definitions[i].constraints.degree_min;
@@ -123,6 +133,48 @@ static dg_status_t dg_copy_room_type_definitions_to_snapshot(
     }
 
     *out_definitions = definitions;
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_copy_edge_openings_to_snapshot(
+    dg_snapshot_edge_opening_spec_t **out_openings,
+    size_t opening_count,
+    const dg_edge_opening_spec_t *source_openings
+)
+{
+    size_t i;
+    dg_snapshot_edge_opening_spec_t *openings;
+
+    if (out_openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_openings = NULL;
+    if (opening_count == 0u) {
+        return DG_STATUS_OK;
+    }
+
+    if (source_openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (opening_count > (SIZE_MAX / sizeof(*openings))) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    openings = (dg_snapshot_edge_opening_spec_t *)malloc(opening_count * sizeof(*openings));
+    if (openings == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    for (i = 0; i < opening_count; ++i) {
+        openings[i].side = (int)source_openings[i].side;
+        openings[i].start = source_openings[i].start;
+        openings[i].end = source_openings[i].end;
+        openings[i].role = (int)source_openings[i].role;
+    }
+
+    *out_openings = openings;
     return DG_STATUS_OK;
 }
 
@@ -235,21 +287,34 @@ dg_status_t dg_snapshot_generation_request(
         return status;
     }
 
-    status = dg_copy_process_methods_to_snapshot(
-        &snapshot.process.methods,
-        request->process.method_count,
-        request->process.methods
+    status = dg_copy_edge_openings_to_snapshot(
+        &snapshot.edge_openings.openings,
+        request->edge_openings.opening_count,
+        request->edge_openings.openings
     );
     if (status != DG_STATUS_OK) {
         free(snapshot.room_types.definitions);
         return status;
     }
 
+    status = dg_copy_process_methods_to_snapshot(
+        &snapshot.process.methods,
+        request->process.method_count,
+        request->process.methods
+    );
+    if (status != DG_STATUS_OK) {
+        free(snapshot.edge_openings.openings);
+        free(snapshot.room_types.definitions);
+        return status;
+    }
+
     snapshot.process.method_count = request->process.method_count;
+    snapshot.edge_openings.opening_count = request->edge_openings.opening_count;
     snapshot.room_types.definition_count = request->room_types.definition_count;
     snapshot.present = 1;
 
     free(map->metadata.generation_request.process.methods);
+    free(map->metadata.generation_request.edge_openings.openings);
     free(map->metadata.generation_request.room_types.definitions);
     map->metadata.generation_request = snapshot;
     return DG_STATUS_OK;

@@ -145,8 +145,20 @@ void dg_default_room_type_definition(dg_room_type_definition_t *definition, uint
     definition->min_count = 0;
     definition->max_count = -1;
     definition->target_count = -1;
+    dg_default_map_edge_opening_query(&definition->template_opening_query);
+    definition->template_required_opening_matches = 0;
     dg_default_room_type_constraints(&definition->constraints);
     dg_default_room_type_preferences(&definition->preferences);
+}
+
+void dg_default_edge_opening_config(dg_edge_opening_config_t *config)
+{
+    if (config == NULL) {
+        return;
+    }
+
+    config->openings = NULL;
+    config->opening_count = 0;
 }
 
 void dg_default_room_type_assignment_policy(dg_room_type_assignment_policy_t *policy)
@@ -228,6 +240,7 @@ void dg_default_generate_request(
     request->height = height;
     request->seed = seed;
     request->algorithm = algorithm;
+    dg_default_edge_opening_config(&request->edge_openings);
     dg_default_process_config(&request->process);
     dg_default_room_type_assignment_config(&request->room_types);
 

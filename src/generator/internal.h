@@ -43,6 +43,14 @@ dg_status_t dg_populate_runtime_metadata(
     size_t generation_attempts,
     bool reset_room_assignments
 );
+dg_status_t dg_apply_explicit_edge_openings(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+);
+dg_status_t dg_apply_explicit_edge_opening_roles(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+);
 
 void dg_init_empty_map(dg_map_t *map);
 
@@ -96,7 +104,15 @@ dg_status_t dg_apply_room_type_assignment(
     dg_map_t *map,
     dg_rng_t *rng
 );
+dg_status_t dg_apply_room_type_templates(
+    const dg_generate_request_t *request,
+    dg_map_t *map
+);
 dg_status_t dg_validate_generate_request(const dg_generate_request_t *request);
 dg_status_t dg_snapshot_generation_request(const dg_generate_request_t *request, dg_map_t *map);
+dg_status_t dg_generate_internal_allow_small(
+    const dg_generate_request_t *request,
+    dg_map_t *out_map
+);
 
 #endif
