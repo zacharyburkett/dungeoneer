@@ -147,6 +147,7 @@ void dg_default_room_type_definition(dg_room_type_definition_t *definition, uint
     definition->target_count = -1;
     dg_default_map_edge_opening_query(&definition->template_opening_query);
     definition->template_required_opening_matches = 0;
+    definition->prefer_template_entrance_room = 0;
     dg_default_room_type_constraints(&definition->constraints);
     dg_default_room_type_preferences(&definition->preferences);
 }

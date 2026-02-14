@@ -239,6 +239,7 @@ typedef struct dg_snapshot_room_type_definition {
     char template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
     dg_map_edge_opening_query_t template_opening_query;
     int template_required_opening_matches;
+    int prefer_template_entrance_room;
     dg_snapshot_room_type_constraints_t constraints;
     dg_snapshot_room_type_preferences_t preferences;
 } dg_snapshot_room_type_definition_t;

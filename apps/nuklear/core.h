@@ -32,6 +32,7 @@ typedef struct dg_nuklear_room_type_ui {
     char template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
     dg_map_edge_opening_query_t template_opening_query;
     int template_required_opening_matches;
+    int prefer_template_entrance_room;
     int area_min;
     int area_max;
     int degree_min;

@@ -113,6 +113,8 @@ static dg_status_t dg_copy_room_type_definitions_to_snapshot(
         definitions[i].template_opening_query = source_definitions[i].template_opening_query;
         definitions[i].template_required_opening_matches =
             source_definitions[i].template_required_opening_matches;
+        definitions[i].prefer_template_entrance_room =
+            source_definitions[i].prefer_template_entrance_room;
         definitions[i].constraints.area_min = source_definitions[i].constraints.area_min;
         definitions[i].constraints.area_max = source_definitions[i].constraints.area_max;
         definitions[i].constraints.degree_min = source_definitions[i].constraints.degree_min;

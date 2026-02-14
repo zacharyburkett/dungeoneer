@@ -460,6 +460,10 @@ static bool dg_snapshot_room_type_config_is_valid(
         if (definition->template_required_opening_matches < 0) {
             return false;
         }
+        if (definition->prefer_template_entrance_room != 0 &&
+            definition->prefer_template_entrance_room != 1) {
+            return false;
+        }
 
         if (!dg_nonnegative_range_is_valid(
                 definition->constraints.area_min,
@@ -1088,6 +1092,10 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
         if (status != DG_STATUS_OK) {
             return status;
         }
+        status = dg_write_i32(file, (int32_t)definition->prefer_template_entrance_room);
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
         status = dg_write_i32(file, (int32_t)definition->constraints.area_min);
         if (status != DG_STATUS_OK) {
             return status;
@@ -1706,6 +1714,13 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
         status = dg_read_i32(file, &value_i32);
         if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
                 value_i32,
+                &definition->prefer_template_entrance_room
+            )) {
+            return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
+        }
+        status = dg_read_i32(file, &value_i32);
+        if (status != DG_STATUS_OK || !dg_i32_to_int_checked(
+                value_i32,
                 &definition->constraints.area_min
             )) {
             return (status != DG_STATUS_OK) ? status : DG_STATUS_UNSUPPORTED_FORMAT;
@@ -2018,6 +2033,8 @@ static dg_status_t dg_build_request_from_snapshot(
             snapshot->room_types.definitions[i].template_opening_query;
         room_type_definitions[i].template_required_opening_matches =
             snapshot->room_types.definitions[i].template_required_opening_matches;
+        room_type_definitions[i].prefer_template_entrance_room =
+            snapshot->room_types.definitions[i].prefer_template_entrance_room;
 
         room_type_definitions[i].constraints.area_min =
             snapshot->room_types.definitions[i].constraints.area_min;

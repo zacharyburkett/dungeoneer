@@ -770,6 +770,7 @@ static void dg_nuklear_default_room_type_slot(dg_nuklear_room_type_ui_t *slot, i
     slot->target_count = -1;
     dg_default_map_edge_opening_query(&slot->template_opening_query);
     slot->template_required_opening_matches = 0;
+    slot->prefer_template_entrance_room = 0;
     slot->area_min = 0;
     slot->area_max = -1;
     slot->degree_min = 0;
@@ -931,6 +932,7 @@ static void dg_nuklear_sanitize_room_type_slot(dg_nuklear_room_type_ui_t *slot)
     slot->template_map_path[sizeof(slot->template_map_path) - 1u] = '\0';
     slot->template_required_opening_matches =
         dg_nuklear_clamp_int(slot->template_required_opening_matches, 0, INT_MAX);
+    slot->prefer_template_entrance_room = slot->prefer_template_entrance_room ? 1 : 0;
 
     slot->template_opening_query.side_mask &= DG_MAP_EDGE_MASK_ALL;
     slot->template_opening_query.role_mask &= DG_MAP_EDGE_OPENING_ROLE_MASK_ANY;
@@ -1622,6 +1624,7 @@ static void dg_nuklear_apply_room_type_slot_snapshot(
     slot->template_map_path[sizeof(slot->template_map_path) - 1u] = '\0';
     slot->template_opening_query = definition->template_opening_query;
     slot->template_required_opening_matches = definition->template_required_opening_matches;
+    slot->prefer_template_entrance_room = definition->prefer_template_entrance_room;
     slot->area_min = definition->constraints.area_min;
     slot->area_max = definition->constraints.area_max;
     slot->degree_min = definition->constraints.degree_min;
@@ -1966,6 +1969,7 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
                 hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.max_length);
                 hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.require_component);
                 hash = dg_nuklear_hash_i32(hash, slot->template_required_opening_matches);
+                hash = dg_nuklear_hash_i32(hash, slot->prefer_template_entrance_room);
                 hash = dg_nuklear_hash_i32(hash, slot->area_min);
                 hash = dg_nuklear_hash_i32(hash, slot->area_max);
                 hash = dg_nuklear_hash_i32(hash, slot->degree_min);
@@ -2090,6 +2094,7 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
                 definition->template_map_path[sizeof(definition->template_map_path) - 1u] = '\0';
                 definition->template_opening_query = slot->template_opening_query;
                 definition->template_required_opening_matches = slot->template_required_opening_matches;
+                definition->prefer_template_entrance_room = slot->prefer_template_entrance_room;
                 definition->constraints.area_min = slot->area_min;
                 definition->constraints.area_max = slot->area_max;
                 definition->constraints.degree_min = slot->degree_min;
@@ -4346,6 +4351,12 @@ static void dg_nuklear_draw_room_type_slot(
             INT_MAX,
             1,
             0.25f
+        );
+        nk_layout_row_dynamic(ctx, 24.0f, 1);
+        slot->prefer_template_entrance_room = nk_check_label(
+            ctx,
+            "Prefer For Template Entrance Patches",
+            slot->prefer_template_entrance_room
         );
 
         nk_layout_row_dynamic(ctx, 19.0f, 1);

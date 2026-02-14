@@ -199,6 +199,11 @@ static dg_status_t dg_validate_room_type_definition(const dg_room_type_definitio
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (definition->prefer_template_entrance_room != 0 &&
+        definition->prefer_template_entrance_room != 1) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     if (!dg_nonnegative_range_is_valid(
             definition->constraints.area_min,
             definition->constraints.area_max

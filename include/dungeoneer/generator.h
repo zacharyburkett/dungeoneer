@@ -293,6 +293,11 @@ typedef struct dg_room_type_definition {
      */
     dg_map_edge_opening_query_t template_opening_query;
     int template_required_opening_matches;
+    /*
+     * When non-zero, room-template generation treats this type as preferred
+     * for entrance-patch handling (room-like template entrance rooms).
+     */
+    int prefer_template_entrance_room;
     dg_room_type_constraints_t constraints;
     dg_room_type_preferences_t preferences;
 } dg_room_type_definition_t;
