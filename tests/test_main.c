@@ -1333,16 +1333,16 @@ static int test_bsp_generation(void)
 
 static int test_explicit_edge_openings_are_applied(void)
 {
-    dg_generate_request_t request;
-    dg_map_t map = {0};
+    dg_generate_request_t request_with_openings;
+    dg_generate_request_t request_without_openings;
+    dg_map_t map_with_openings = {0};
+    dg_map_t map_without_openings = {0};
     dg_edge_opening_spec_t openings[2];
-    const dg_map_edge_opening_t *entrance_opening;
-    dg_tile_t edge_tile;
-    dg_tile_t inward_tile;
 
-    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 80, 48, 42424u);
-    request.params.bsp.min_rooms = 10;
-    request.params.bsp.max_rooms = 12;
+    dg_default_generate_request(&request_with_openings, DG_ALGORITHM_BSP_TREE, 80, 48, 42424u);
+    request_with_openings.params.bsp.min_rooms = 10;
+    request_with_openings.params.bsp.max_rooms = 12;
+    request_without_openings = request_with_openings;
 
     openings[0].side = DG_MAP_EDGE_TOP;
     openings[0].start = 8;
@@ -1352,25 +1352,20 @@ static int test_explicit_edge_openings_are_applied(void)
     openings[1].start = 28;
     openings[1].end = 30;
     openings[1].role = DG_MAP_EDGE_OPENING_ROLE_EXIT;
-    request.edge_openings.openings = openings;
-    request.edge_openings.opening_count = 2u;
+    request_with_openings.edge_openings.openings = openings;
+    request_with_openings.edge_openings.opening_count = 2u;
 
-    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request_with_openings, &map_with_openings), DG_STATUS_OK);
+    ASSERT_STATUS(dg_generate(&request_without_openings, &map_without_openings), DG_STATUS_OK);
 
-    edge_tile = dg_map_get_tile(&map, 8, 0);
-    inward_tile = dg_map_get_tile(&map, 8, 1);
-    ASSERT_TRUE(is_walkable(edge_tile));
-    ASSERT_TRUE(is_walkable(inward_tile));
-    ASSERT_TRUE(map.metadata.edge_opening_count >= 2u);
+    ASSERT_TRUE(maps_have_same_tiles(&map_with_openings, &map_without_openings));
+    ASSERT_TRUE(map_with_openings.metadata.edge_opening_count ==
+                map_without_openings.metadata.edge_opening_count);
+    ASSERT_TRUE(room_entrances_are_valid(&map_with_openings));
+    ASSERT_TRUE(room_entrances_are_valid(&map_without_openings));
 
-    entrance_opening = dg_map_find_edge_opening_by_id(
-        &map,
-        map.metadata.primary_entrance_opening_id
-    );
-    ASSERT_TRUE(entrance_opening != NULL);
-    ASSERT_TRUE(entrance_opening->role == DG_MAP_EDGE_OPENING_ROLE_ENTRANCE);
-
-    dg_map_destroy(&map);
+    dg_map_destroy(&map_with_openings);
+    dg_map_destroy(&map_without_openings);
     return 0;
 }
 

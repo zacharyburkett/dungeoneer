@@ -1760,6 +1760,180 @@ static void dg_carve_low_cost_path(
     }
 }
 
+static bool dg_walkable_path_exists(
+    const dg_map_t *map,
+    dg_point_t start,
+    dg_point_t goal
+)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    size_t cell_count;
+    unsigned char *visited;
+    size_t *queue;
+    size_t head;
+    size_t tail;
+    size_t goal_index;
+    int width;
+
+    if (map == NULL || map->tiles == NULL) {
+        return false;
+    }
+    if (!dg_map_in_bounds(map, start.x, start.y) || !dg_map_in_bounds(map, goal.x, goal.y)) {
+        return false;
+    }
+    if (!dg_is_walkable_tile(dg_map_get_tile(map, start.x, start.y)) ||
+        !dg_is_walkable_tile(dg_map_get_tile(map, goal.x, goal.y))) {
+        return false;
+    }
+    if (start.x == goal.x && start.y == goal.y) {
+        return true;
+    }
+
+    cell_count = (size_t)map->width * (size_t)map->height;
+    visited = (unsigned char *)calloc(cell_count, sizeof(*visited));
+    queue = (size_t *)malloc(cell_count * sizeof(*queue));
+    if (visited == NULL || queue == NULL) {
+        free(queue);
+        free(visited);
+        return false;
+    }
+
+    width = map->width;
+    goal_index = dg_tile_index(map, goal.x, goal.y);
+    head = 0u;
+    tail = 0u;
+    queue[tail++] = dg_tile_index(map, start.x, start.y);
+    visited[queue[0]] = 1u;
+
+    while (head < tail) {
+        size_t index = queue[head++];
+        int x = (int)(index % (size_t)width);
+        int y = (int)(index / (size_t)width);
+        int d;
+
+        for (d = 0; d < 4; ++d) {
+            int nx = x + directions[d][0];
+            int ny = y + directions[d][1];
+            size_t nindex;
+
+            if (!dg_map_in_bounds(map, nx, ny)) {
+                continue;
+            }
+            if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+                continue;
+            }
+
+            nindex = dg_tile_index(map, nx, ny);
+            if (visited[nindex] != 0u) {
+                continue;
+            }
+
+            if (nindex == goal_index) {
+                free(queue);
+                free(visited);
+                return true;
+            }
+
+            visited[nindex] = 1u;
+            queue[tail++] = nindex;
+        }
+    }
+
+    free(queue);
+    free(visited);
+    return false;
+}
+
+static bool dg_walkable_reaches_base_tiles(
+    const dg_map_t *map,
+    dg_point_t start,
+    const dg_tile_t *base_tiles,
+    const unsigned char *exclude_mask
+)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    size_t cell_count;
+    unsigned char *visited;
+    size_t *queue;
+    size_t head;
+    size_t tail;
+    int width;
+
+    if (map == NULL || map->tiles == NULL || base_tiles == NULL) {
+        return false;
+    }
+    if (!dg_map_in_bounds(map, start.x, start.y)) {
+        return false;
+    }
+    if (!dg_is_walkable_tile(dg_map_get_tile(map, start.x, start.y))) {
+        return false;
+    }
+
+    cell_count = (size_t)map->width * (size_t)map->height;
+    visited = (unsigned char *)calloc(cell_count, sizeof(*visited));
+    queue = (size_t *)malloc(cell_count * sizeof(*queue));
+    if (visited == NULL || queue == NULL) {
+        free(queue);
+        free(visited);
+        return false;
+    }
+
+    width = map->width;
+    head = 0u;
+    tail = 0u;
+    queue[tail++] = dg_tile_index(map, start.x, start.y);
+    visited[queue[0]] = 1u;
+
+    while (head < tail) {
+        size_t index = queue[head++];
+        int x = (int)(index % (size_t)width);
+        int y = (int)(index / (size_t)width);
+        int d;
+
+        if (dg_is_walkable_tile(base_tiles[index]) &&
+            (exclude_mask == NULL || exclude_mask[index] == 0u)) {
+            free(queue);
+            free(visited);
+            return true;
+        }
+
+        for (d = 0; d < 4; ++d) {
+            int nx = x + directions[d][0];
+            int ny = y + directions[d][1];
+            size_t nindex;
+
+            if (!dg_map_in_bounds(map, nx, ny)) {
+                continue;
+            }
+            if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+                continue;
+            }
+
+            nindex = dg_tile_index(map, nx, ny);
+            if (visited[nindex] != 0u) {
+                continue;
+            }
+
+            visited[nindex] = 1u;
+            queue[tail++] = nindex;
+        }
+    }
+
+    free(queue);
+    free(visited);
+    return false;
+}
+
 static bool dg_find_nearest_walkable_in_tiles(
     const dg_map_t *map,
     const dg_tile_t *tiles,
@@ -1942,11 +2116,21 @@ static dg_status_t dg_enforce_template_opening_connectivity(
     }
 
     for (i = 1u; i < opening_count; ++i) {
-        dg_carve_low_cost_path(map, anchors[0], anchors[i]);
+        if (!dg_walkable_path_exists(map, anchors[0], anchors[i])) {
+            dg_carve_low_cost_path(map, anchors[0], anchors[i]);
+        }
     }
 
     for (i = 0u; i < opening_count; ++i) {
         dg_point_t target;
+        if (dg_walkable_reaches_base_tiles(
+                map,
+                anchors[i],
+                base_tiles,
+                use_room_like_entrance_rooms != 0 ? chamber_mask : NULL
+            )) {
+            continue;
+        }
         if (dg_find_nearest_walkable_in_tiles(
                 map,
                 base_tiles,
@@ -1954,7 +2138,9 @@ static dg_status_t dg_enforce_template_opening_connectivity(
                 use_room_like_entrance_rooms != 0 ? chamber_mask : NULL,
                 &target
             )) {
-            dg_carve_low_cost_path(map, anchors[i], target);
+            if (!dg_walkable_path_exists(map, anchors[i], target)) {
+                dg_carve_low_cost_path(map, anchors[i], target);
+            }
         }
     }
 
@@ -2268,7 +2454,6 @@ dg_status_t dg_apply_room_type_templates(
     dg_status_t status;
     bool has_any_templates;
     bool has_untyped_template;
-    bool has_preferred_entrance_type;
 
     if (request == NULL || map == NULL || map->tiles == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -2287,13 +2472,9 @@ dg_status_t dg_apply_room_type_templates(
 
     has_untyped_template = request->room_types.policy.untyped_template_map_path[0] != '\0';
     has_any_templates = false;
-    has_preferred_entrance_type = false;
     for (i = 0; i < request->room_types.definition_count; ++i) {
         if (request->room_types.definitions[i].template_map_path[0] != '\0') {
             has_any_templates = true;
-        }
-        if (request->room_types.definitions[i].prefer_template_entrance_room != 0) {
-            has_preferred_entrance_type = true;
         }
     }
     if (!has_any_templates && has_untyped_template) {
@@ -2594,12 +2775,7 @@ dg_status_t dg_apply_room_type_templates(
 
         use_room_like_entrance_rooms = 0;
         if (generated_template.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
-            if (has_preferred_entrance_type) {
-                use_room_like_entrance_rooms =
-                    (prefer_entrance_room_type != 0 || room->type_id == DG_ROOM_TYPE_UNASSIGNED);
-            } else {
-                use_room_like_entrance_rooms = 1;
-            }
+            use_room_like_entrance_rooms = (prefer_entrance_room_type != 0);
         }
         if (connectivity_opening_count > 0u && connectivity_openings != NULL) {
             status = dg_enforce_template_opening_connectivity(

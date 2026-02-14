@@ -122,12 +122,6 @@ static dg_status_t dg_generate_impl(
         }
     }
 
-    status = dg_apply_explicit_edge_openings(request, &generated);
-    if (status != DG_STATUS_OK) {
-        dg_map_destroy(&generated);
-        return status;
-    }
-
     if (dg_count_walkable_tiles(&generated) == 0) {
         dg_map_destroy(&generated);
         return DG_STATUS_GENERATION_FAILED;
@@ -145,12 +139,6 @@ static dg_status_t dg_generate_impl(
         dg_map_destroy(&generated);
         return status;
     }
-    status = dg_apply_explicit_edge_opening_roles(request, &generated);
-    if (status != DG_STATUS_OK) {
-        dg_map_destroy(&generated);
-        return status;
-    }
-
     status = dg_snapshot_generation_request(request, &generated);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);

@@ -872,15 +872,8 @@ static void dg_nuklear_sanitize_edge_opening_settings(dg_nuklear_app_t *app)
         return;
     }
 
-    app->edge_opening_count = dg_nuklear_clamp_int(
-        app->edge_opening_count,
-        0,
-        DG_NUKLEAR_MAX_EDGE_OPENINGS
-    );
-    for (i = 0; i < app->edge_opening_count; ++i) {
-        dg_nuklear_sanitize_edge_opening_slot(&app->edge_openings[i], app->width, app->height);
-    }
-    for (; i < DG_NUKLEAR_MAX_EDGE_OPENINGS; ++i) {
+    app->edge_opening_count = 0;
+    for (i = 0; i < DG_NUKLEAR_MAX_EDGE_OPENINGS; ++i) {
         dg_nuklear_default_edge_opening_slot(&app->edge_openings[i], i);
     }
 }
@@ -1929,15 +1922,6 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
         }
     }
 
-    hash = dg_nuklear_hash_i32(hash, app->edge_opening_count);
-    for (i = 0; i < app->edge_opening_count; ++i) {
-        const dg_nuklear_edge_opening_ui_t *opening = &app->edge_openings[i];
-        hash = dg_nuklear_hash_i32(hash, opening->side);
-        hash = dg_nuklear_hash_i32(hash, opening->start);
-        hash = dg_nuklear_hash_i32(hash, opening->end);
-        hash = dg_nuklear_hash_i32(hash, opening->role);
-    }
-
     room_types_active = dg_nuklear_algorithm_supports_room_types(
                             dg_nuklear_algorithm_from_index(app->algorithm_index)
                         ) &&
@@ -2010,7 +1994,6 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
 {
     dg_generate_request_t request;
     dg_room_type_definition_t room_type_definitions[DG_NUKLEAR_MAX_ROOM_TYPES];
-    dg_edge_opening_spec_t edge_opening_specs[DG_NUKLEAR_MAX_EDGE_OPENINGS];
     dg_map_t generated;
     uint64_t seed;
     dg_algorithm_t algorithm;
@@ -2057,14 +2040,8 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     request.process.enabled = app->process_enabled ? 1 : 0;
     request.process.methods = app->process_methods;
     request.process.method_count = (size_t)app->process_method_count;
-    for (i = 0; i < app->edge_opening_count; ++i) {
-        edge_opening_specs[i].side = (dg_map_edge_side_t)app->edge_openings[i].side;
-        edge_opening_specs[i].start = app->edge_openings[i].start;
-        edge_opening_specs[i].end = app->edge_openings[i].end;
-        edge_opening_specs[i].role = (dg_map_edge_opening_role_t)app->edge_openings[i].role;
-    }
-    request.edge_openings.openings = edge_opening_specs;
-    request.edge_openings.opening_count = (size_t)app->edge_opening_count;
+    request.edge_openings.openings = NULL;
+    request.edge_openings.opening_count = 0u;
 
     if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
         memcpy(
@@ -3099,145 +3076,11 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
 
 static void dg_nuklear_draw_edge_opening_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    static const char *side_labels[] = {"Top", "Right", "Bottom", "Left"};
-    static const char *role_labels[] = {"None", "Entrance", "Exit"};
-    int i;
-    int remove_index;
-
-    if (ctx == NULL || app == NULL) {
+    (void)ctx;
+    if (app == NULL) {
         return;
     }
-
     dg_nuklear_sanitize_edge_opening_settings(app);
-    remove_index = -1;
-
-    if (!nk_tree_push(ctx, NK_TREE_TAB, "Explicit Edge Openings", NK_MINIMIZED)) {
-        return;
-    }
-
-    nk_layout_row_dynamic(ctx, 18.0f, 1);
-    nk_label(
-        ctx,
-        "Carve explicit edge ranges (after layout + post-process) and assign optional roles.",
-        NK_TEXT_LEFT
-    );
-
-    nk_layout_row_dynamic(ctx, 30.0f, 3);
-    if (nk_button_label(ctx, "Add Opening")) {
-        if (app->edge_opening_count < DG_NUKLEAR_MAX_EDGE_OPENINGS) {
-            dg_nuklear_default_edge_opening_slot(
-                &app->edge_openings[app->edge_opening_count],
-                app->edge_opening_count
-            );
-            app->edge_opening_count += 1;
-            dg_nuklear_set_status(app, "Added edge opening %d.", app->edge_opening_count);
-        } else {
-            dg_nuklear_set_status(app, "Maximum edge opening count reached.");
-        }
-    }
-    if (nk_button_label(ctx, "Remove Last")) {
-        if (app->edge_opening_count > 0) {
-            app->edge_opening_count -= 1;
-            dg_nuklear_default_edge_opening_slot(
-                &app->edge_openings[app->edge_opening_count],
-                app->edge_opening_count
-            );
-            dg_nuklear_set_status(app, "Removed last edge opening.");
-        } else {
-            dg_nuklear_set_status(app, "No edge openings to remove.");
-        }
-    }
-    if (nk_button_label(ctx, "Clear")) {
-        app->edge_opening_count = 0;
-        dg_nuklear_sanitize_edge_opening_settings(app);
-        dg_nuklear_set_status(app, "Cleared explicit edge openings.");
-    }
-
-    if (app->edge_opening_count == 0) {
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        nk_label(ctx, "No explicit openings configured.", NK_TEXT_LEFT);
-    }
-
-    for (i = 0; i < app->edge_opening_count; ++i) {
-        dg_nuklear_edge_opening_ui_t *slot = &app->edge_openings[i];
-        int max_coord;
-        char title[64];
-
-        dg_nuklear_sanitize_edge_opening_slot(slot, app->width, app->height);
-        max_coord = (slot->side == (int)DG_MAP_EDGE_TOP || slot->side == (int)DG_MAP_EDGE_BOTTOM) ?
-            (app->width - 1) :
-            (app->height - 1);
-        if (max_coord < 0) {
-            max_coord = 0;
-        }
-
-        (void)snprintf(
-            title,
-            sizeof(title),
-            "Opening %d (%s)",
-            i + 1,
-            dg_nuklear_edge_side_label(slot->side)
-        );
-        if (!nk_tree_push_id(ctx, NK_TREE_TAB, title, NK_MINIMIZED, 6000 + i)) {
-            continue;
-        }
-
-        nk_layout_row_dynamic(ctx, 26.0f, 2);
-        nk_label(ctx, "Side", NK_TEXT_LEFT);
-        slot->side = nk_combo(
-            ctx,
-            side_labels,
-            4,
-            dg_nuklear_clamp_int(slot->side, 0, 3),
-            24,
-            nk_vec2(200.0f, 140.0f)
-        );
-
-        nk_layout_row_dynamic(ctx, 26.0f, 2);
-        nk_property_int(ctx, "Start", 0, &slot->start, max_coord, 1, 0.25f);
-        nk_property_int(ctx, "End", 0, &slot->end, max_coord, 1, 0.25f);
-
-        nk_layout_row_dynamic(ctx, 26.0f, 2);
-        nk_label(ctx, "Role", NK_TEXT_LEFT);
-        slot->role = nk_combo(
-            ctx,
-            role_labels,
-            3,
-            dg_nuklear_clamp_int(slot->role, 0, 2),
-            24,
-            nk_vec2(200.0f, 120.0f)
-        );
-
-        nk_layout_row_dynamic(ctx, 24.0f, 1);
-        nk_label(
-            ctx,
-            dg_nuklear_edge_role_label(slot->role),
-            NK_TEXT_LEFT
-        );
-
-        nk_layout_row_dynamic(ctx, 26.0f, 1);
-        if (nk_button_label(ctx, "Remove This")) {
-            remove_index = i;
-        }
-
-        dg_nuklear_sanitize_edge_opening_slot(slot, app->width, app->height);
-        nk_tree_pop(ctx);
-    }
-
-    if (remove_index >= 0 && remove_index < app->edge_opening_count) {
-        for (i = remove_index; i < app->edge_opening_count - 1; ++i) {
-            app->edge_openings[i] = app->edge_openings[i + 1];
-        }
-        app->edge_opening_count -= 1;
-        dg_nuklear_default_edge_opening_slot(
-            &app->edge_openings[app->edge_opening_count],
-            app->edge_opening_count
-        );
-        dg_nuklear_set_status(app, "Removed edge opening %d.", remove_index + 1);
-    }
-
-    dg_nuklear_sanitize_edge_opening_settings(app);
-    nk_tree_pop(ctx);
 }
 
 static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
