@@ -1091,6 +1091,195 @@ static void dg_release_template_request_buffers(
     free(process_methods);
 }
 
+static bool dg_div_ceil_positive_int(int value, int divisor, int *out_result)
+{
+    int64_t result;
+
+    if (out_result == NULL || value <= 0 || divisor <= 0) {
+        return false;
+    }
+
+    result = ((int64_t)value + (int64_t)divisor - 1) / (int64_t)divisor;
+    if (result <= 0 || result > INT_MAX) {
+        return false;
+    }
+
+    *out_result = (int)result;
+    return true;
+}
+
+static dg_status_t dg_compute_template_process_scale_factor(
+    const dg_generation_request_snapshot_t *snapshot,
+    int *out_factor
+)
+{
+    uint64_t factor;
+    size_t i;
+
+    if (snapshot == NULL || out_factor == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    factor = 1u;
+    if (snapshot->process.enabled == 0 || snapshot->process.method_count == 0u) {
+        *out_factor = 1;
+        return DG_STATUS_OK;
+    }
+
+    if (snapshot->process.methods == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0; i < snapshot->process.method_count; ++i) {
+        const dg_snapshot_process_method_t *method = &snapshot->process.methods[i];
+        if ((dg_process_method_type_t)method->type == DG_PROCESS_METHOD_SCALE) {
+            if (method->params.scale.factor < 1) {
+                return DG_STATUS_INVALID_ARGUMENT;
+            }
+            factor *= (uint64_t)method->params.scale.factor;
+            if (factor > (uint64_t)INT_MAX) {
+                return DG_STATUS_GENERATION_FAILED;
+            }
+        }
+    }
+
+    *out_factor = (int)factor;
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_compute_template_generation_dimensions(
+    const dg_generation_request_snapshot_t *snapshot,
+    int target_width,
+    int target_height,
+    int *out_width,
+    int *out_height
+)
+{
+    dg_status_t status;
+    int scale_factor;
+    int generation_width;
+    int generation_height;
+
+    if (snapshot == NULL || out_width == NULL || out_height == NULL ||
+        target_width <= 0 || target_height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = dg_compute_template_process_scale_factor(snapshot, &scale_factor);
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
+    if (!dg_div_ceil_positive_int(target_width, scale_factor, &generation_width) ||
+        !dg_div_ceil_positive_int(target_height, scale_factor, &generation_height)) {
+        return DG_STATUS_GENERATION_FAILED;
+    }
+
+    *out_width = generation_width;
+    *out_height = generation_height;
+    return DG_STATUS_OK;
+}
+
+static dg_status_t dg_scale_runtime_edge_openings_to_dimensions(
+    const dg_edge_opening_spec_t *source_openings,
+    size_t source_count,
+    int source_width,
+    int source_height,
+    int target_width,
+    int target_height,
+    dg_edge_opening_spec_t **out_openings
+)
+{
+    dg_edge_opening_spec_t *openings;
+    size_t i;
+
+    if (out_openings == NULL ||
+        source_width <= 0 || source_height <= 0 ||
+        target_width <= 0 || target_height <= 0) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_openings = NULL;
+    if (source_count == 0u) {
+        return DG_STATUS_OK;
+    }
+    if (source_openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+    if (source_count > (SIZE_MAX / sizeof(*openings))) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    openings = (dg_edge_opening_spec_t *)malloc(source_count * sizeof(*openings));
+    if (openings == NULL) {
+        return DG_STATUS_ALLOCATION_FAILED;
+    }
+
+    for (i = 0; i < source_count; ++i) {
+        const dg_edge_opening_spec_t *src = &source_openings[i];
+        int source_span;
+        int target_span;
+        int start;
+        int end;
+        int64_t scaled_start_num;
+        int64_t scaled_end_num;
+        int scaled_start;
+        int scaled_end;
+
+        openings[i].side = src->side;
+        openings[i].role = src->role;
+        if (src->side == DG_MAP_EDGE_TOP || src->side == DG_MAP_EDGE_BOTTOM) {
+            source_span = source_width;
+            target_span = target_width;
+        } else if (src->side == DG_MAP_EDGE_LEFT || src->side == DG_MAP_EDGE_RIGHT) {
+            source_span = source_height;
+            target_span = target_height;
+        } else {
+            free(openings);
+            return DG_STATUS_INVALID_ARGUMENT;
+        }
+
+        start = src->start;
+        end = src->end;
+        if (start < 0) {
+            start = 0;
+        }
+        if (start >= source_span) {
+            start = source_span - 1;
+        }
+        if (end < start) {
+            end = start;
+        }
+        if (end >= source_span) {
+            end = source_span - 1;
+        }
+
+        scaled_start_num = (int64_t)start * (int64_t)target_span;
+        scaled_end_num = (int64_t)(end + 1) * (int64_t)target_span - 1;
+        scaled_start = (int)(scaled_start_num / (int64_t)source_span);
+        scaled_end = (int)(scaled_end_num / (int64_t)source_span);
+
+        if (scaled_start < 0) {
+            scaled_start = 0;
+        }
+        if (scaled_start >= target_span) {
+            scaled_start = target_span - 1;
+        }
+        if (scaled_end < scaled_start) {
+            scaled_end = scaled_start;
+        }
+        if (scaled_end >= target_span) {
+            scaled_end = target_span - 1;
+        }
+
+        openings[i].start = scaled_start;
+        openings[i].end = scaled_end;
+    }
+
+    *out_openings = openings;
+    return DG_STATUS_OK;
+}
+
 static bool dg_point_in_rect_local(const dg_rect_t *rect, int x, int y)
 {
     return rect != NULL &&
@@ -1999,6 +2188,31 @@ static dg_status_t dg_build_template_request_from_snapshot(
     return DG_STATUS_OK;
 }
 
+static int dg_resample_coordinate_centered(int dst_index, int dst_span, int src_span)
+{
+    int64_t numerator;
+    int64_t denominator;
+    int source_index;
+
+    if (dst_span <= 0 || src_span <= 0) {
+        return 0;
+    }
+    if (dst_span == src_span) {
+        return dst_index;
+    }
+
+    numerator = ((int64_t)dst_index * 2 + 1) * (int64_t)src_span;
+    denominator = (int64_t)dst_span * 2;
+    source_index = (int)(numerator / denominator);
+    if (source_index < 0) {
+        source_index = 0;
+    }
+    if (source_index >= src_span) {
+        source_index = src_span - 1;
+    }
+    return source_index;
+}
+
 static dg_status_t dg_apply_template_to_room(
     dg_map_t *map,
     const dg_rect_t *room,
@@ -2018,14 +2232,12 @@ static dg_status_t dg_apply_template_to_room(
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if (template_map->width != room->width || template_map->height != room->height) {
-        return DG_STATUS_INVALID_ARGUMENT;
-    }
-
     for (local_y = 0; local_y < room->height; ++local_y) {
         for (local_x = 0; local_x < room->width; ++local_x) {
             int world_x;
             int world_y;
+            int source_x;
+            int source_y;
             dg_tile_t source_tile;
 
             world_x = room->x + local_x;
@@ -2033,7 +2245,9 @@ static dg_status_t dg_apply_template_to_room(
             if (!dg_map_in_bounds(map, world_x, world_y)) {
                 continue;
             }
-            source_tile = template_map->tiles[dg_tile_index(template_map, local_x, local_y)];
+            source_x = dg_resample_coordinate_centered(local_x, room->width, template_map->width);
+            source_y = dg_resample_coordinate_centered(local_y, room->height, template_map->height);
+            source_tile = template_map->tiles[dg_tile_index(template_map, source_x, source_y)];
             map->tiles[dg_tile_index(map, world_x, world_y)] =
                 dg_is_walkable_tile(source_tile) ? DG_TILE_FLOOR : DG_TILE_WALL;
         }
@@ -2160,10 +2374,16 @@ dg_status_t dg_apply_room_type_templates(
         dg_process_method_t *process_methods;
         dg_edge_opening_spec_t *edge_openings;
         dg_edge_opening_spec_t *room_openings;
+        dg_edge_opening_spec_t *connectivity_openings;
         size_t room_opening_count;
+        size_t connectivity_opening_count;
         dg_map_t generated_template;
-        int generated_width;
-        int generated_height;
+        int template_width;
+        int template_height;
+        int attempt_widths[2];
+        int attempt_heights[2];
+        int attempt_count;
+        int attempt_index;
         size_t opening_match_count;
         int use_room_like_entrance_rooms;
 
@@ -2196,8 +2416,6 @@ dg_status_t dg_apply_room_type_templates(
             prefer_entrance_room_type = definition->prefer_template_entrance_room;
         }
 
-        generated_width = room->bounds.width;
-        generated_height = room->bounds.height;
         room_openings = NULL;
         room_opening_count = 0u;
         status = dg_collect_room_entrance_openings(
@@ -2210,39 +2428,92 @@ dg_status_t dg_apply_room_type_templates(
             goto cleanup;
         }
 
-        template_request = (dg_generate_request_t){0};
-        process_methods = NULL;
-        edge_openings = NULL;
-        status = dg_build_template_request_from_snapshot(
+        status = dg_compute_template_generation_dimensions(
             &entry->map.metadata.generation_request,
-            generated_width,
-            generated_height,
-            entry->map.metadata.seed ^
-                ((uint64_t)(room->id + 1) * UINT64_C(11400714819323198485)),
-            &template_request,
-            &process_methods,
-            &edge_openings
+            room->bounds.width,
+            room->bounds.height,
+            &template_width,
+            &template_height
         );
         if (status != DG_STATUS_OK) {
             free(room_openings);
             goto cleanup;
         }
 
-        if (room_opening_count > 0u) {
-            free(edge_openings);
-            edge_openings = room_openings;
-            room_openings = NULL;
-            template_request.edge_openings.openings = edge_openings;
-            template_request.edge_openings.opening_count = room_opening_count;
-        } else {
-            free(room_openings);
-            room_openings = NULL;
+        attempt_widths[0] = template_width;
+        attempt_heights[0] = template_height;
+        attempt_count = 1;
+        if (template_width != room->bounds.width || template_height != room->bounds.height) {
+            attempt_widths[1] = room->bounds.width;
+            attempt_heights[1] = room->bounds.height;
+            attempt_count = 2;
         }
 
+        template_request = (dg_generate_request_t){0};
+        process_methods = NULL;
+        edge_openings = NULL;
         generated_template = (dg_map_t){0};
-        status = dg_generate_internal_allow_small(&template_request, &generated_template);
+
+        for (attempt_index = 0; attempt_index < attempt_count; ++attempt_index) {
+            status = dg_build_template_request_from_snapshot(
+                &entry->map.metadata.generation_request,
+                attempt_widths[attempt_index],
+                attempt_heights[attempt_index],
+                entry->map.metadata.seed ^
+                    ((uint64_t)(room->id + 1) * UINT64_C(11400714819323198485)),
+                &template_request,
+                &process_methods,
+                &edge_openings
+            );
+            if (status != DG_STATUS_OK) {
+                break;
+            }
+
+            if (room_opening_count > 0u) {
+                dg_edge_opening_spec_t *scaled_room_openings;
+
+                scaled_room_openings = NULL;
+                status = dg_scale_runtime_edge_openings_to_dimensions(
+                    room_openings,
+                    room_opening_count,
+                    room->bounds.width,
+                    room->bounds.height,
+                    template_request.width,
+                    template_request.height,
+                    &scaled_room_openings
+                );
+                if (status != DG_STATUS_OK) {
+                    dg_release_template_request_buffers(process_methods, edge_openings);
+                    process_methods = NULL;
+                    edge_openings = NULL;
+                    break;
+                }
+
+                free(edge_openings);
+                edge_openings = scaled_room_openings;
+                template_request.edge_openings.openings = edge_openings;
+                template_request.edge_openings.opening_count = room_opening_count;
+            }
+
+            status = dg_generate_internal_allow_small(&template_request, &generated_template);
+            if (status == DG_STATUS_OK) {
+                break;
+            }
+
+            dg_release_template_request_buffers(process_methods, edge_openings);
+            process_methods = NULL;
+            edge_openings = NULL;
+            dg_map_destroy(&generated_template);
+            generated_template = (dg_map_t){0};
+
+            if (status != DG_STATUS_GENERATION_FAILED || attempt_index + 1 >= attempt_count) {
+                break;
+            }
+        }
+
         if (status != DG_STATUS_OK) {
             dg_release_template_request_buffers(process_methods, edge_openings);
+            free(room_openings);
             goto cleanup;
         }
 
@@ -2256,9 +2527,49 @@ dg_status_t dg_apply_room_type_templates(
             if (opening_match_count < (size_t)required_opening_matches) {
                 dg_release_template_request_buffers(process_methods, edge_openings);
                 dg_map_destroy(&generated_template);
+                free(room_openings);
                 status = DG_STATUS_GENERATION_FAILED;
                 goto cleanup;
             }
+        }
+
+        connectivity_openings = NULL;
+        connectivity_opening_count = 0u;
+        if (room_opening_count > 0u) {
+            status = dg_scale_runtime_edge_openings_to_dimensions(
+                room_openings,
+                room_opening_count,
+                room->bounds.width,
+                room->bounds.height,
+                generated_template.width,
+                generated_template.height,
+                &connectivity_openings
+            );
+            if (status != DG_STATUS_OK) {
+                dg_release_template_request_buffers(process_methods, edge_openings);
+                dg_map_destroy(&generated_template);
+                free(room_openings);
+                goto cleanup;
+            }
+            connectivity_opening_count = room_opening_count;
+        } else if (template_request.edge_openings.opening_count > 0u &&
+                   template_request.edge_openings.openings != NULL) {
+            status = dg_scale_runtime_edge_openings_to_dimensions(
+                template_request.edge_openings.openings,
+                template_request.edge_openings.opening_count,
+                template_request.width,
+                template_request.height,
+                generated_template.width,
+                generated_template.height,
+                &connectivity_openings
+            );
+            if (status != DG_STATUS_OK) {
+                dg_release_template_request_buffers(process_methods, edge_openings);
+                dg_map_destroy(&generated_template);
+                free(room_openings);
+                goto cleanup;
+            }
+            connectivity_opening_count = template_request.edge_openings.opening_count;
         }
 
         use_room_like_entrance_rooms = 0;
@@ -2270,24 +2581,27 @@ dg_status_t dg_apply_room_type_templates(
                 use_room_like_entrance_rooms = 1;
             }
         }
-        if (template_request.edge_openings.opening_count > 0u &&
-            template_request.edge_openings.openings != NULL) {
+        if (connectivity_opening_count > 0u && connectivity_openings != NULL) {
             status = dg_enforce_template_opening_connectivity(
                 &generated_template,
-                template_request.edge_openings.openings,
-                template_request.edge_openings.opening_count,
+                connectivity_openings,
+                connectivity_opening_count,
                 use_room_like_entrance_rooms
             );
             if (status != DG_STATUS_OK) {
+                free(connectivity_openings);
                 dg_release_template_request_buffers(process_methods, edge_openings);
                 dg_map_destroy(&generated_template);
+                free(room_openings);
                 goto cleanup;
             }
         }
+        free(connectivity_openings);
 
         status = dg_apply_template_to_room(map, &room->bounds, &generated_template);
         dg_release_template_request_buffers(process_methods, edge_openings);
         dg_map_destroy(&generated_template);
+        free(room_openings);
         if (status != DG_STATUS_OK) {
             goto cleanup;
         }
