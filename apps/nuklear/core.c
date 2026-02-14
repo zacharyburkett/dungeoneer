@@ -975,6 +975,7 @@ static void dg_nuklear_reset_room_type_defaults(dg_nuklear_app_t *app)
     app->room_type_strict_mode = 0;
     app->room_type_allow_untyped = 1;
     app->room_type_default_type_id = 100;
+    app->room_type_untyped_template_map_path[0] = '\0';
 
     for (i = 0; i < DG_NUKLEAR_MAX_ROOM_TYPES; ++i) {
         dg_nuklear_default_room_type_slot(&app->room_type_slots[i], i);
@@ -996,6 +997,9 @@ static void dg_nuklear_sanitize_room_type_settings(dg_nuklear_app_t *app)
     app->room_type_strict_mode = app->room_type_strict_mode ? 1 : 0;
     app->room_type_allow_untyped = app->room_type_allow_untyped ? 1 : 0;
     app->room_type_default_type_id = dg_nuklear_clamp_int(app->room_type_default_type_id, 0, INT_MAX);
+    app->room_type_untyped_template_map_path[
+        sizeof(app->room_type_untyped_template_map_path) - 1u
+    ] = '\0';
 
     first_enabled_type_id = -1;
     has_default_enabled = false;
@@ -1789,6 +1793,14 @@ static bool dg_nuklear_apply_generation_request_snapshot(
     app->room_type_strict_mode = snapshot->room_types.policy.strict_mode ? 1 : 0;
     app->room_type_allow_untyped = snapshot->room_types.policy.allow_untyped_rooms ? 1 : 0;
     app->room_type_default_type_id = (int)snapshot->room_types.policy.default_type_id;
+    memcpy(
+        app->room_type_untyped_template_map_path,
+        snapshot->room_types.policy.untyped_template_map_path,
+        sizeof(app->room_type_untyped_template_map_path)
+    );
+    app->room_type_untyped_template_map_path[
+        sizeof(app->room_type_untyped_template_map_path) - 1u
+    ] = '\0';
 
     copy_count = snapshot->room_types.definition_count;
     if (copy_count > (size_t)DG_NUKLEAR_MAX_ROOM_TYPES) {
@@ -1923,45 +1935,50 @@ static uint64_t dg_nuklear_compute_live_config_hash(const dg_nuklear_app_t *app)
         hash = dg_nuklear_hash_i32(hash, opening->role);
     }
 
-    room_types_active = app->room_types_enabled &&
-                        dg_nuklear_algorithm_supports_room_types(
+    room_types_active = dg_nuklear_algorithm_supports_room_types(
                             dg_nuklear_algorithm_from_index(app->algorithm_index)
-                        );
+                        ) &&
+                        (app->room_types_enabled ||
+                         app->room_type_untyped_template_map_path[0] != '\0');
     hash = dg_nuklear_hash_i32(hash, room_types_active);
     if (room_types_active != 0) {
+        hash = dg_nuklear_hash_i32(hash, app->room_types_enabled ? 1 : 0);
         hash = dg_nuklear_hash_i32(hash, app->room_type_count);
         hash = dg_nuklear_hash_i32(hash, app->room_type_strict_mode);
         hash = dg_nuklear_hash_i32(hash, app->room_type_allow_untyped);
         hash = dg_nuklear_hash_i32(hash, app->room_type_default_type_id);
-        for (i = 0; i < app->room_type_count; ++i) {
-            const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
+        hash = dg_nuklear_hash_cstr(hash, app->room_type_untyped_template_map_path);
+        if (app->room_types_enabled != 0) {
+            for (i = 0; i < app->room_type_count; ++i) {
+                const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
 
-            hash = dg_nuklear_hash_i32(hash, slot->type_id);
-            hash = dg_nuklear_hash_i32(hash, slot->enabled);
-            hash = dg_nuklear_hash_i32(hash, slot->min_count);
-            hash = dg_nuklear_hash_i32(hash, slot->max_count);
-            hash = dg_nuklear_hash_i32(hash, slot->target_count);
-            hash = dg_nuklear_hash_cstr(hash, slot->template_map_path);
-            hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.side_mask);
-            hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.role_mask);
-            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_min);
-            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_max);
-            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.min_length);
-            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.max_length);
-            hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.require_component);
-            hash = dg_nuklear_hash_i32(hash, slot->template_required_opening_matches);
-            hash = dg_nuklear_hash_i32(hash, slot->area_min);
-            hash = dg_nuklear_hash_i32(hash, slot->area_max);
-            hash = dg_nuklear_hash_i32(hash, slot->degree_min);
-            hash = dg_nuklear_hash_i32(hash, slot->degree_max);
-            hash = dg_nuklear_hash_i32(hash, slot->border_distance_min);
-            hash = dg_nuklear_hash_i32(hash, slot->border_distance_max);
-            hash = dg_nuklear_hash_i32(hash, slot->graph_depth_min);
-            hash = dg_nuklear_hash_i32(hash, slot->graph_depth_max);
-            hash = dg_nuklear_hash_i32(hash, slot->weight);
-            hash = dg_nuklear_hash_i32(hash, slot->larger_room_bias);
-            hash = dg_nuklear_hash_i32(hash, slot->higher_degree_bias);
-            hash = dg_nuklear_hash_i32(hash, slot->border_distance_bias);
+                hash = dg_nuklear_hash_i32(hash, slot->type_id);
+                hash = dg_nuklear_hash_i32(hash, slot->enabled);
+                hash = dg_nuklear_hash_i32(hash, slot->min_count);
+                hash = dg_nuklear_hash_i32(hash, slot->max_count);
+                hash = dg_nuklear_hash_i32(hash, slot->target_count);
+                hash = dg_nuklear_hash_cstr(hash, slot->template_map_path);
+                hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.side_mask);
+                hash = dg_nuklear_hash_i32(hash, (int)slot->template_opening_query.role_mask);
+                hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_min);
+                hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.edge_coord_max);
+                hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.min_length);
+                hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.max_length);
+                hash = dg_nuklear_hash_i32(hash, slot->template_opening_query.require_component);
+                hash = dg_nuklear_hash_i32(hash, slot->template_required_opening_matches);
+                hash = dg_nuklear_hash_i32(hash, slot->area_min);
+                hash = dg_nuklear_hash_i32(hash, slot->area_max);
+                hash = dg_nuklear_hash_i32(hash, slot->degree_min);
+                hash = dg_nuklear_hash_i32(hash, slot->degree_max);
+                hash = dg_nuklear_hash_i32(hash, slot->border_distance_min);
+                hash = dg_nuklear_hash_i32(hash, slot->border_distance_max);
+                hash = dg_nuklear_hash_i32(hash, slot->graph_depth_min);
+                hash = dg_nuklear_hash_i32(hash, slot->graph_depth_max);
+                hash = dg_nuklear_hash_i32(hash, slot->weight);
+                hash = dg_nuklear_hash_i32(hash, slot->larger_room_bias);
+                hash = dg_nuklear_hash_i32(hash, slot->higher_degree_bias);
+                hash = dg_nuklear_hash_i32(hash, slot->border_distance_bias);
+            }
         }
     }
 
@@ -2045,43 +2062,54 @@ static void dg_nuklear_generate_map(dg_nuklear_app_t *app)
     request.edge_openings.openings = edge_opening_specs;
     request.edge_openings.opening_count = (size_t)app->edge_opening_count;
 
-    if (app->room_types_enabled && dg_nuklear_algorithm_supports_room_types(algorithm)) {
-        for (i = 0; i < app->room_type_count; ++i) {
-            const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
-            dg_room_type_definition_t *definition = &room_type_definitions[i];
+    if (dg_nuklear_algorithm_supports_room_types(algorithm)) {
+        memcpy(
+            request.room_types.policy.untyped_template_map_path,
+            app->room_type_untyped_template_map_path,
+            sizeof(request.room_types.policy.untyped_template_map_path)
+        );
+        request.room_types.policy.untyped_template_map_path[
+            sizeof(request.room_types.policy.untyped_template_map_path) - 1u
+        ] = '\0';
 
-            dg_default_room_type_definition(definition, (uint32_t)slot->type_id);
-            definition->enabled = slot->enabled ? 1 : 0;
-            definition->min_count = slot->min_count;
-            definition->max_count = slot->max_count;
-            definition->target_count = slot->target_count;
-            memcpy(
-                definition->template_map_path,
-                slot->template_map_path,
-                sizeof(definition->template_map_path)
-            );
-            definition->template_map_path[sizeof(definition->template_map_path) - 1u] = '\0';
-            definition->template_opening_query = slot->template_opening_query;
-            definition->template_required_opening_matches = slot->template_required_opening_matches;
-            definition->constraints.area_min = slot->area_min;
-            definition->constraints.area_max = slot->area_max;
-            definition->constraints.degree_min = slot->degree_min;
-            definition->constraints.degree_max = slot->degree_max;
-            definition->constraints.border_distance_min = slot->border_distance_min;
-            definition->constraints.border_distance_max = slot->border_distance_max;
-            definition->constraints.graph_depth_min = slot->graph_depth_min;
-            definition->constraints.graph_depth_max = slot->graph_depth_max;
-            definition->preferences.weight = slot->weight;
-            definition->preferences.larger_room_bias = slot->larger_room_bias;
-            definition->preferences.higher_degree_bias = slot->higher_degree_bias;
-            definition->preferences.border_distance_bias = slot->border_distance_bias;
+        if (app->room_types_enabled) {
+            for (i = 0; i < app->room_type_count; ++i) {
+                const dg_nuklear_room_type_ui_t *slot = &app->room_type_slots[i];
+                dg_room_type_definition_t *definition = &room_type_definitions[i];
+
+                dg_default_room_type_definition(definition, (uint32_t)slot->type_id);
+                definition->enabled = slot->enabled ? 1 : 0;
+                definition->min_count = slot->min_count;
+                definition->max_count = slot->max_count;
+                definition->target_count = slot->target_count;
+                memcpy(
+                    definition->template_map_path,
+                    slot->template_map_path,
+                    sizeof(definition->template_map_path)
+                );
+                definition->template_map_path[sizeof(definition->template_map_path) - 1u] = '\0';
+                definition->template_opening_query = slot->template_opening_query;
+                definition->template_required_opening_matches = slot->template_required_opening_matches;
+                definition->constraints.area_min = slot->area_min;
+                definition->constraints.area_max = slot->area_max;
+                definition->constraints.degree_min = slot->degree_min;
+                definition->constraints.degree_max = slot->degree_max;
+                definition->constraints.border_distance_min = slot->border_distance_min;
+                definition->constraints.border_distance_max = slot->border_distance_max;
+                definition->constraints.graph_depth_min = slot->graph_depth_min;
+                definition->constraints.graph_depth_max = slot->graph_depth_max;
+                definition->preferences.weight = slot->weight;
+                definition->preferences.larger_room_bias = slot->larger_room_bias;
+                definition->preferences.higher_degree_bias = slot->higher_degree_bias;
+                definition->preferences.border_distance_bias = slot->border_distance_bias;
+            }
+
+            request.room_types.definitions = room_type_definitions;
+            request.room_types.definition_count = (size_t)app->room_type_count;
+            request.room_types.policy.strict_mode = app->room_type_strict_mode ? 1 : 0;
+            request.room_types.policy.allow_untyped_rooms = app->room_type_allow_untyped ? 1 : 0;
+            request.room_types.policy.default_type_id = (uint32_t)app->room_type_default_type_id;
         }
-
-        request.room_types.definitions = room_type_definitions;
-        request.room_types.definition_count = (size_t)app->room_type_count;
-        request.room_types.policy.strict_mode = app->room_type_strict_mode ? 1 : 0;
-        request.room_types.policy.allow_untyped_rooms = app->room_type_allow_untyped ? 1 : 0;
-        request.room_types.policy.default_type_id = (uint32_t)app->room_type_default_type_id;
     }
 
     generated = (dg_map_t){0};
@@ -4540,6 +4568,16 @@ static void dg_nuklear_draw_room_type_settings(
             ctx,
             "Disabled: rooms stay untyped. Enable this to assign configurable type IDs."
         );
+        nk_layout_row_dynamic(ctx, 20.0f, 1);
+        nk_label(ctx, "Untyped Room Template Map (optional)", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 26.0f, 1);
+        (void)nk_edit_string_zero_terminated(
+            ctx,
+            NK_EDIT_FIELD,
+            app->room_type_untyped_template_map_path,
+            (int)sizeof(app->room_type_untyped_template_map_path),
+            nk_filter_default
+        );
         return;
     }
 
@@ -4595,6 +4633,17 @@ static void dg_nuklear_draw_room_type_settings(
         INT_MAX,
         1,
         0.25f
+    );
+
+    nk_layout_row_dynamic(ctx, 20.0f, 1);
+    nk_label(ctx, "Untyped Room Template Map (optional)", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 26.0f, 1);
+    (void)nk_edit_string_zero_terminated(
+        ctx,
+        NK_EDIT_FIELD,
+        app->room_type_untyped_template_map_path,
+        (int)sizeof(app->room_type_untyped_template_map_path),
+        nk_filter_default
     );
 
     nk_layout_row_dynamic(ctx, 36.0f, 1);

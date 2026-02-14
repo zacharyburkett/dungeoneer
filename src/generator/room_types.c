@@ -1023,18 +1023,6 @@ typedef struct dg_room_template_cache_entry {
 
 static int dg_room_template_application_depth = 0;
 
-static bool dg_room_template_point_in_rect(const dg_rect_t *rect, int x, int y)
-{
-    if (rect == NULL) {
-        return false;
-    }
-
-    return x >= rect->x &&
-           y >= rect->y &&
-           x < rect->x + rect->width &&
-           y < rect->y + rect->height;
-}
-
 static size_t dg_find_room_type_definition_index_by_type_id(
     const dg_generate_request_t *request,
     uint32_t type_id
@@ -1080,11 +1068,10 @@ static bool dg_template_map_is_nested(const dg_map_t *template_map)
 }
 
 static dg_status_t dg_validate_loaded_room_template(
-    const dg_room_type_definition_t *definition,
     const dg_map_t *template_map
 )
 {
-    if (definition == NULL || template_map == NULL || template_map->tiles == NULL) {
+    if (template_map == NULL || template_map->tiles == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
@@ -1328,61 +1315,12 @@ static dg_status_t dg_build_template_request_from_snapshot(
     return DG_STATUS_OK;
 }
 
-static bool dg_room_boundary_tile_touches_corridor(
-    const dg_map_t *map,
-    const dg_rect_t *room,
-    int x,
-    int y
-)
-{
-    static const int k_dirs[4][2] = {
-        {0, -1},
-        {1, 0},
-        {0, 1},
-        {-1, 0}
-    };
-    int d;
-
-    if (map == NULL || room == NULL || map->tiles == NULL) {
-        return false;
-    }
-
-    if (!dg_map_in_bounds(map, x, y)) {
-        return false;
-    }
-
-    for (d = 0; d < 4; ++d) {
-        int nx = x + k_dirs[d][0];
-        int ny = y + k_dirs[d][1];
-        dg_tile_t neighbor_tile;
-
-        if (!dg_map_in_bounds(map, nx, ny)) {
-            continue;
-        }
-
-        if (dg_room_template_point_in_rect(room, nx, ny)) {
-            continue;
-        }
-
-        neighbor_tile = dg_map_get_tile(map, nx, ny);
-        if (!dg_is_walkable_tile(neighbor_tile)) {
-            continue;
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
 static dg_status_t dg_apply_template_to_room(
     dg_map_t *map,
     const dg_rect_t *room,
     const dg_map_t *template_map
 )
 {
-    size_t room_area;
-    unsigned char *required_boundary_mask;
     int local_x;
     int local_y;
 
@@ -1396,114 +1334,27 @@ static dg_status_t dg_apply_template_to_room(
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
-    if ((size_t)room->width > (SIZE_MAX / (size_t)room->height)) {
-        return DG_STATUS_ALLOCATION_FAILED;
-    }
-    room_area = (size_t)room->width * (size_t)room->height;
-    required_boundary_mask = (unsigned char *)calloc(room_area, sizeof(unsigned char));
-    if (required_boundary_mask == NULL) {
-        return DG_STATUS_ALLOCATION_FAILED;
+    if (template_map->width != room->width || template_map->height != room->height) {
+        return DG_STATUS_INVALID_ARGUMENT;
     }
 
     for (local_y = 0; local_y < room->height; ++local_y) {
         for (local_x = 0; local_x < room->width; ++local_x) {
             int world_x;
             int world_y;
-            bool is_boundary;
-            size_t mask_index;
+            dg_tile_t source_tile;
 
             world_x = room->x + local_x;
             world_y = room->y + local_y;
-            is_boundary = (local_x == 0 || local_y == 0 ||
-                           local_x == room->width - 1 || local_y == room->height - 1);
-            if (!is_boundary) {
+            if (!dg_map_in_bounds(map, world_x, world_y)) {
                 continue;
             }
-
-            if (!dg_room_boundary_tile_touches_corridor(map, room, world_x, world_y)) {
-                continue;
-            }
-
-            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
-            required_boundary_mask[mask_index] = 1u;
-        }
-    }
-
-    for (local_y = 0; local_y < room->height; ++local_y) {
-        for (local_x = 0; local_x < room->width; ++local_x) {
-            int world_x;
-            int world_y;
-            int sample_x;
-            int sample_y;
-            size_t mask_index;
-            dg_tile_t sampled_tile;
-
-            world_x = room->x + local_x;
-            world_y = room->y + local_y;
-            sample_x = (local_x * template_map->width) / room->width;
-            sample_y = (local_y * template_map->height) / room->height;
-            if (sample_x >= template_map->width) {
-                sample_x = template_map->width - 1;
-            }
-            if (sample_y >= template_map->height) {
-                sample_y = template_map->height - 1;
-            }
-
-            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
-            if (required_boundary_mask[mask_index] != 0u) {
-                map->tiles[dg_tile_index(map, world_x, world_y)] = DG_TILE_FLOOR;
-                continue;
-            }
-
-            sampled_tile = dg_map_get_tile(template_map, sample_x, sample_y);
+            source_tile = template_map->tiles[dg_tile_index(template_map, local_x, local_y)];
             map->tiles[dg_tile_index(map, world_x, world_y)] =
-                dg_is_walkable_tile(sampled_tile) ? DG_TILE_FLOOR : DG_TILE_WALL;
+                dg_is_walkable_tile(source_tile) ? DG_TILE_FLOOR : DG_TILE_WALL;
         }
     }
 
-    for (local_y = 0; local_y < room->height; ++local_y) {
-        for (local_x = 0; local_x < room->width; ++local_x) {
-            int world_x;
-            int world_y;
-            int inward_x;
-            int inward_y;
-            size_t mask_index;
-
-            mask_index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
-            if (required_boundary_mask[mask_index] == 0u) {
-                continue;
-            }
-
-            world_x = room->x + local_x;
-            world_y = room->y + local_y;
-            inward_x = world_x;
-            inward_y = world_y;
-            if (local_x == 0) {
-                inward_x = world_x + 1;
-            } else if (local_x == room->width - 1) {
-                inward_x = world_x - 1;
-            } else if (local_y == 0) {
-                inward_y = world_y + 1;
-            } else if (local_y == room->height - 1) {
-                inward_y = world_y - 1;
-            }
-
-            if (dg_map_in_bounds(map, inward_x, inward_y) &&
-                dg_room_template_point_in_rect(room, inward_x, inward_y)) {
-                map->tiles[dg_tile_index(map, inward_x, inward_y)] = DG_TILE_FLOOR;
-            }
-        }
-    }
-
-    if (room->width >= 1 && room->height >= 1) {
-        int center_x = room->x + room->width / 2;
-        int center_y = room->y + room->height / 2;
-        if (dg_map_in_bounds(map, center_x, center_y)) {
-            map->tiles[dg_tile_index(map, center_x, center_y)] = DG_TILE_FLOOR;
-        }
-    }
-
-    free(required_boundary_mask);
     return DG_STATUS_OK;
 }
 
@@ -1513,9 +1364,12 @@ dg_status_t dg_apply_room_type_templates(
 )
 {
     dg_room_template_cache_entry_t *cache_entries;
+    size_t cache_count;
+    size_t untyped_cache_index;
     size_t i;
     dg_status_t status;
     bool has_any_templates;
+    bool has_untyped_template;
 
     if (request == NULL || map == NULL || map->tiles == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
@@ -1523,18 +1377,25 @@ dg_status_t dg_apply_room_type_templates(
 
     if (map->metadata.generation_class != DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
         map->metadata.rooms == NULL ||
-        map->metadata.room_count == 0 ||
-        request->room_types.definitions == NULL ||
-        request->room_types.definition_count == 0u) {
+        map->metadata.room_count == 0) {
         return DG_STATUS_OK;
     }
 
+    if (request->room_types.definition_count > 0u &&
+        request->room_types.definitions == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    has_untyped_template = request->room_types.policy.untyped_template_map_path[0] != '\0';
     has_any_templates = false;
     for (i = 0; i < request->room_types.definition_count; ++i) {
         if (request->room_types.definitions[i].template_map_path[0] != '\0') {
             has_any_templates = true;
             break;
         }
+    }
+    if (!has_any_templates && has_untyped_template) {
+        has_any_templates = true;
     }
     if (!has_any_templates) {
         return DG_STATUS_OK;
@@ -1546,13 +1407,15 @@ dg_status_t dg_apply_room_type_templates(
     dg_room_template_application_depth += 1;
     cache_entries = NULL;
     status = DG_STATUS_OK;
+    cache_count = request->room_types.definition_count + (has_untyped_template ? 1u : 0u);
+    untyped_cache_index = request->room_types.definition_count;
 
-    if (request->room_types.definition_count > (SIZE_MAX / sizeof(*cache_entries))) {
+    if (cache_count > (SIZE_MAX / sizeof(*cache_entries))) {
         status = DG_STATUS_ALLOCATION_FAILED;
         goto cleanup;
     }
     cache_entries = (dg_room_template_cache_entry_t *)calloc(
-        request->room_types.definition_count,
+        cache_count,
         sizeof(*cache_entries)
     );
     if (cache_entries == NULL) {
@@ -1576,7 +1439,23 @@ dg_status_t dg_apply_room_type_templates(
         }
         entry->loaded = 1;
 
-        status = dg_validate_loaded_room_template(definition, &entry->map);
+        status = dg_validate_loaded_room_template(&entry->map);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    if (has_untyped_template) {
+        dg_room_template_cache_entry_t *entry = &cache_entries[untyped_cache_index];
+        entry->has_template = 1;
+        entry->map = (dg_map_t){0};
+        status = dg_map_load_file(request->room_types.policy.untyped_template_map_path, &entry->map);
+        if (status != DG_STATUS_OK) {
+            goto cleanup;
+        }
+        entry->loaded = 1;
+
+        status = dg_validate_loaded_room_template(&entry->map);
         if (status != DG_STATUS_OK) {
             goto cleanup;
         }
@@ -1584,7 +1463,8 @@ dg_status_t dg_apply_room_type_templates(
 
     for (i = 0; i < map->metadata.room_count; ++i) {
         const dg_room_metadata_t *room = &map->metadata.rooms[i];
-        const dg_room_type_definition_t *definition;
+        const dg_map_edge_opening_query_t *opening_query;
+        int required_opening_matches;
         size_t definition_index;
         dg_room_template_cache_entry_t *entry;
         dg_generate_request_t template_request;
@@ -1596,20 +1476,32 @@ dg_status_t dg_apply_room_type_templates(
         size_t opening_match_count;
 
         if (room->type_id == DG_ROOM_TYPE_UNASSIGNED) {
-            continue;
+            if (!has_untyped_template) {
+                continue;
+            }
+            entry = &cache_entries[untyped_cache_index];
+            if (entry->has_template == 0 || entry->loaded == 0) {
+                continue;
+            }
+            opening_query = NULL;
+            required_opening_matches = 0;
+        } else {
+            const dg_room_type_definition_t *definition;
+            definition_index = dg_find_room_type_definition_index_by_type_id(request, room->type_id);
+            if (definition_index == SIZE_MAX) {
+                continue;
+            }
+
+            entry = &cache_entries[definition_index];
+            if (entry->has_template == 0 || entry->loaded == 0) {
+                continue;
+            }
+
+            definition = &request->room_types.definitions[definition_index];
+            opening_query = &definition->template_opening_query;
+            required_opening_matches = definition->template_required_opening_matches;
         }
 
-        definition_index = dg_find_room_type_definition_index_by_type_id(request, room->type_id);
-        if (definition_index == SIZE_MAX) {
-            continue;
-        }
-
-        entry = &cache_entries[definition_index];
-        if (entry->has_template == 0 || entry->loaded == 0) {
-            continue;
-        }
-
-        definition = &request->room_types.definitions[definition_index];
         generated_width = room->bounds.width;
         generated_height = room->bounds.height;
 
@@ -1637,14 +1529,14 @@ dg_status_t dg_apply_room_type_templates(
             goto cleanup;
         }
 
-        if (definition->template_required_opening_matches > 0) {
+        if (required_opening_matches > 0 && opening_query != NULL) {
             opening_match_count = dg_map_query_edge_openings(
                 &generated_template,
-                &definition->template_opening_query,
+                opening_query,
                 NULL,
                 0u
             );
-            if (opening_match_count < (size_t)definition->template_required_opening_matches) {
+            if (opening_match_count < (size_t)required_opening_matches) {
                 dg_map_destroy(&generated_template);
                 status = DG_STATUS_GENERATION_FAILED;
                 goto cleanup;
@@ -1663,7 +1555,7 @@ cleanup:
         dg_room_template_application_depth -= 1;
     }
     if (cache_entries != NULL) {
-        for (i = 0; i < request->room_types.definition_count; ++i) {
+        for (i = 0; i < cache_count; ++i) {
             if (cache_entries[i].loaded) {
                 dg_map_destroy(&cache_entries[i].map);
                 cache_entries[i].loaded = 0;

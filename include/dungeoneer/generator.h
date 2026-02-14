@@ -311,6 +311,11 @@ typedef struct dg_room_type_assignment_policy {
      */
     int allow_untyped_rooms;
     uint32_t default_type_id;
+    /*
+     * Optional template map path applied to rooms that remain untyped.
+     * Empty string disables untyped template assignment.
+     */
+    char untyped_template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
 } dg_room_type_assignment_policy_t;
 
 typedef struct dg_room_type_assignment_config {

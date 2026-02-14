@@ -417,6 +417,13 @@ static bool dg_snapshot_room_type_config_is_valid(
         return false;
     }
 
+    if (!dg_is_nul_terminated(
+            room_types->policy.untyped_template_map_path,
+            sizeof(room_types->policy.untyped_template_map_path)
+        )) {
+        return false;
+    }
+
     for (i = 0; i < room_types->definition_count; ++i) {
         const dg_snapshot_room_type_definition_t *definition = &room_types->definitions[i];
 
@@ -1009,6 +1016,15 @@ static dg_status_t dg_write_snapshot(FILE *file, const dg_generation_request_sna
         return status;
     }
 
+    status = dg_write_exact(
+        file,
+        snapshot->room_types.policy.untyped_template_map_path,
+        sizeof(snapshot->room_types.policy.untyped_template_map_path)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
     for (i = 0; i < snapshot->room_types.definition_count; ++i) {
         const dg_snapshot_room_type_definition_t *definition = &snapshot->room_types.definitions[i];
 
@@ -1588,6 +1604,15 @@ static dg_status_t dg_read_snapshot(FILE *file, dg_generation_request_snapshot_t
         return status;
     }
 
+    status = dg_read_exact(
+        file,
+        snapshot->room_types.policy.untyped_template_map_path,
+        sizeof(snapshot->room_types.policy.untyped_template_map_path)
+    );
+    if (status != DG_STATUS_OK) {
+        return status;
+    }
+
     status = dg_allocate_array(
         (void **)&snapshot->room_types.definitions,
         snapshot->room_types.definition_count,
@@ -2026,6 +2051,14 @@ static dg_status_t dg_build_request_from_snapshot(
     request.room_types.policy.strict_mode = snapshot->room_types.policy.strict_mode;
     request.room_types.policy.allow_untyped_rooms = snapshot->room_types.policy.allow_untyped_rooms;
     request.room_types.policy.default_type_id = snapshot->room_types.policy.default_type_id;
+    memcpy(
+        request.room_types.policy.untyped_template_map_path,
+        snapshot->room_types.policy.untyped_template_map_path,
+        sizeof(request.room_types.policy.untyped_template_map_path)
+    );
+    request.room_types.policy.untyped_template_map_path[
+        sizeof(request.room_types.policy.untyped_template_map_path) - 1u
+    ] = '\0';
 
     *out_request = request;
     *out_process_methods = process_methods;

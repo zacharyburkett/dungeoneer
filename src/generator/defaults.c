@@ -170,6 +170,7 @@ void dg_default_room_type_assignment_policy(dg_room_type_assignment_policy_t *po
     policy->strict_mode = 0;
     policy->allow_untyped_rooms = 1;
     policy->default_type_id = 0u;
+    policy->untyped_template_map_path[0] = '\0';
 }
 
 void dg_default_room_type_assignment_config(dg_room_type_assignment_config_t *config)

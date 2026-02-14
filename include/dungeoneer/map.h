@@ -247,6 +247,7 @@ typedef struct dg_snapshot_room_type_assignment_policy {
     int strict_mode;
     int allow_untyped_rooms;
     uint32_t default_type_id;
+    char untyped_template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
 } dg_snapshot_room_type_assignment_policy_t;
 
 typedef struct dg_snapshot_room_type_assignment_config {

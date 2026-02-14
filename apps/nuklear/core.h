@@ -101,6 +101,7 @@ typedef struct dg_nuklear_app {
     int room_type_strict_mode;
     int room_type_allow_untyped;
     int room_type_default_type_id;
+    char room_type_untyped_template_map_path[DG_ROOM_TEMPLATE_PATH_MAX];
     dg_nuklear_room_type_ui_t room_type_slots[DG_NUKLEAR_MAX_ROOM_TYPES];
     int edge_opening_count;
     dg_nuklear_edge_opening_ui_t edge_openings[DG_NUKLEAR_MAX_EDGE_OPENINGS];

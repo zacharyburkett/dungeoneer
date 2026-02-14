@@ -936,12 +936,21 @@ static dg_status_t dg_export_write_json_generation_request(
             "      \"policy\": {\n"
             "        \"strict_mode\": %d,\n"
             "        \"allow_untyped_rooms\": %d,\n"
-            "        \"default_type_id\": %u\n"
-            "      },\n",
+            "        \"default_type_id\": %u,\n"
+            "        \"untyped_template_map_path\": ",
             snapshot->room_types.policy.strict_mode,
             snapshot->room_types.policy.allow_untyped_rooms,
             (unsigned int)snapshot->room_types.policy.default_type_id
-        ) < 0 ||
+        ) < 0) {
+        return DG_STATUS_IO_ERROR;
+    }
+    if (dg_export_json_write_escaped(
+            file,
+            snapshot->room_types.policy.untyped_template_map_path
+        ) != DG_STATUS_OK) {
+        return DG_STATUS_IO_ERROR;
+    }
+    if (fprintf(file, "\n      },\n") < 0 ||
         fprintf(file, "      \"definitions\": [\n") < 0) {
         return DG_STATUS_IO_ERROR;
     }

@@ -265,6 +265,13 @@ static dg_status_t dg_validate_room_type_assignment_config(
         return DG_STATUS_INVALID_ARGUMENT;
     }
 
+    if (!dg_is_nul_terminated(
+            config->policy.untyped_template_map_path,
+            sizeof(config->policy.untyped_template_map_path)
+        )) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
     enabled_count = 0;
     has_default_type = false;
     for (i = 0; i < config->definition_count; ++i) {

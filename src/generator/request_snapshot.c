@@ -199,6 +199,14 @@ dg_status_t dg_snapshot_generation_request(
     snapshot.room_types.policy.strict_mode = request->room_types.policy.strict_mode;
     snapshot.room_types.policy.allow_untyped_rooms = request->room_types.policy.allow_untyped_rooms;
     snapshot.room_types.policy.default_type_id = request->room_types.policy.default_type_id;
+    memcpy(
+        snapshot.room_types.policy.untyped_template_map_path,
+        request->room_types.policy.untyped_template_map_path,
+        sizeof(snapshot.room_types.policy.untyped_template_map_path)
+    );
+    snapshot.room_types.policy.untyped_template_map_path[
+        sizeof(snapshot.room_types.policy.untyped_template_map_path) - 1u
+    ] = '\0';
 
     switch (request->algorithm) {
     case DG_ALGORITHM_BSP_TREE:
