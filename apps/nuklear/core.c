@@ -2845,6 +2845,16 @@ static void dg_nuklear_draw_metadata(struct nk_context *ctx, const dg_nuklear_ap
     );
     nk_label(ctx, line, NK_TEXT_LEFT);
 
+    if (app->map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
+        (void)snprintf(
+            line,
+            sizeof(line),
+            "room entrances: %llu",
+            (unsigned long long)app->map.metadata.room_entrance_count
+        );
+        nk_label(ctx, line, NK_TEXT_LEFT);
+    }
+
     (void)snprintf(line, sizeof(line), "room graph: avg degree=%.2f", average_room_degree);
     nk_label(ctx, line, NK_TEXT_LEFT);
 

@@ -37,6 +37,14 @@ typedef struct dg_corridor_metadata {
     int length;
 } dg_corridor_metadata_t;
 
+typedef struct dg_room_entrance_metadata {
+    int room_id;
+    dg_point_t room_tile;
+    dg_point_t corridor_tile;
+    int normal_x;
+    int normal_y;
+} dg_room_entrance_metadata_t;
+
 typedef struct dg_room_neighbor {
     int room_id;
     int corridor_index;
@@ -263,6 +271,10 @@ typedef struct dg_map_metadata {
     dg_corridor_metadata_t *corridors;
     size_t corridor_count;
     size_t corridor_capacity;
+
+    dg_room_entrance_metadata_t *room_entrances;
+    size_t room_entrance_count;
+    size_t room_entrance_capacity;
 
     /*
      * Room graph represented as adjacency spans into `room_neighbors`.

@@ -990,6 +990,9 @@ static dg_status_t dg_export_write_json_file(
     if (palette_count > 0u && palette_entries == NULL) {
         return DG_STATUS_INVALID_ARGUMENT;
     }
+    if (map->metadata.room_entrance_count > 0u && map->metadata.room_entrances == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
 
     snapshot = &map->metadata.generation_request;
     configured_type_count = snapshot->present == 1 ? snapshot->room_types.definition_count : 0u;
@@ -1143,7 +1146,8 @@ static dg_status_t dg_export_write_json_file(
             "    \"untyped_room_count\": %llu,\n"
             "    \"corridor_count\": %llu,\n"
             "    \"corridor_total_length\": %llu,\n"
-            "    \"entrance_exit_distance\": %d\n"
+            "    \"entrance_exit_distance\": %d,\n"
+            "    \"room_entrance_count\": %llu\n"
             "  },\n",
             (unsigned long long)map->metadata.seed,
             map->metadata.algorithm_id,
@@ -1161,7 +1165,8 @@ static dg_status_t dg_export_write_json_file(
             (unsigned long long)map->metadata.diagnostics.untyped_room_count,
             (unsigned long long)map->metadata.corridor_count,
             (unsigned long long)map->metadata.corridor_total_length,
-            map->metadata.entrance_exit_distance
+            map->metadata.entrance_exit_distance,
+            (unsigned long long)map->metadata.room_entrance_count
         ) < 0) {
         (void)fclose(file);
         return DG_STATUS_IO_ERROR;
@@ -1222,6 +1227,38 @@ static dg_status_t dg_export_write_json_file(
                 corridor->to_room_id,
                 corridor->width,
                 corridor->length,
+                comma
+            ) < 0) {
+            (void)fclose(file);
+            return DG_STATUS_IO_ERROR;
+        }
+    }
+
+    if (fprintf(file, "  ],\n  \"room_entrances\": [\n") < 0) {
+        (void)fclose(file);
+        return DG_STATUS_IO_ERROR;
+    }
+    for (i = 0; i < map->metadata.room_entrance_count; ++i) {
+        const dg_room_entrance_metadata_t *entrance = &map->metadata.room_entrances[i];
+        const char *comma = (i + 1u < map->metadata.room_entrance_count) ? "," : "";
+        if (fprintf(
+                file,
+                "    {\n"
+                "      \"room_id\": %d,\n"
+                "      \"room_x\": %d,\n"
+                "      \"room_y\": %d,\n"
+                "      \"corridor_x\": %d,\n"
+                "      \"corridor_y\": %d,\n"
+                "      \"normal_x\": %d,\n"
+                "      \"normal_y\": %d\n"
+                "    }%s\n",
+                entrance->room_id,
+                entrance->room_tile.x,
+                entrance->room_tile.y,
+                entrance->corridor_tile.x,
+                entrance->corridor_tile.y,
+                entrance->normal_x,
+                entrance->normal_y,
                 comma
             ) < 0) {
             (void)fclose(file);

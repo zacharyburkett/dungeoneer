@@ -19,6 +19,7 @@ dg_status_t dg_generate(const dg_generate_request_t *request, dg_map_t *out_map)
         out_map->tiles != NULL ||
         out_map->metadata.rooms != NULL ||
         out_map->metadata.corridors != NULL ||
+        out_map->metadata.room_entrances != NULL ||
         out_map->metadata.room_adjacency != NULL ||
         out_map->metadata.room_neighbors != NULL ||
         out_map->metadata.diagnostics.process_steps != NULL ||

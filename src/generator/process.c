@@ -456,59 +456,177 @@ static dg_status_t dg_scale_map(dg_map_t *map, int factor)
     return dg_scale_map_tiles(map, factor);
 }
 
+typedef struct dg_room_entrance_point {
+    dg_point_t point;
+    int inward_x;
+    int inward_y;
+} dg_room_entrance_point_t;
+
 static size_t dg_collect_room_entrances(
     const dg_map_t *map,
     const dg_rect_t *room,
-    dg_point_t *out_points,
+    dg_room_entrance_point_t *out_points,
     size_t out_capacity
 )
 {
     static const int k_dirs[4][2] = {
+        {0, -1},
         {1, 0},
-        {-1, 0},
         {0, 1},
-        {0, -1}
+        {-1, 0}
     };
     size_t count;
-    int y;
-    int x;
+    size_t room_area;
+    unsigned char *candidate_mask;
+    signed char *candidate_normal_x;
+    signed char *candidate_normal_y;
+    int *queue;
+    int center_x;
+    int center_y;
+    int local_x;
+    int local_y;
 
-    if (map == NULL || room == NULL || out_points == NULL) {
+    if (map == NULL || room == NULL || out_points == NULL ||
+        room->width <= 0 || room->height <= 0) {
+        return 0;
+    }
+    if ((size_t)room->width > (SIZE_MAX / (size_t)room->height)) {
+        return 0;
+    }
+    room_area = (size_t)room->width * (size_t)room->height;
+    if (room_area == 0u) {
         return 0;
     }
 
-    count = 0;
-    for (y = room->y; y < room->y + room->height; ++y) {
-        for (x = room->x; x < room->x + room->width; ++x) {
+    candidate_mask = (unsigned char *)calloc(room_area, sizeof(unsigned char));
+    candidate_normal_x = (signed char *)calloc(room_area, sizeof(signed char));
+    candidate_normal_y = (signed char *)calloc(room_area, sizeof(signed char));
+    queue = (int *)malloc(room_area * sizeof(int));
+    if (candidate_mask == NULL || candidate_normal_x == NULL || candidate_normal_y == NULL || queue == NULL) {
+        free(candidate_mask);
+        free(candidate_normal_x);
+        free(candidate_normal_y);
+        free(queue);
+        return 0;
+    }
+
+    for (local_y = 0; local_y < room->height; ++local_y) {
+        for (local_x = 0; local_x < room->width; ++local_x) {
+            int x = room->x + local_x;
+            int y = room->y + local_y;
             int d;
-            bool is_entrance;
 
             if (!dg_is_walkable_tile(dg_map_get_tile(map, x, y))) {
                 continue;
             }
 
-            is_entrance = false;
             for (d = 0; d < 4; ++d) {
                 int nx = x + k_dirs[d][0];
                 int ny = y + k_dirs[d][1];
-                bool neighbor_in_room = dg_point_in_rect(room, nx, ny);
+                size_t index;
 
-                if (neighbor_in_room || !dg_map_in_bounds(map, nx, ny)) {
+                if (!dg_map_in_bounds(map, nx, ny)) {
+                    continue;
+                }
+                if (dg_point_in_rect(room, nx, ny) || dg_point_in_any_room_bounds(map, nx, ny)) {
+                    continue;
+                }
+                if (!dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
                     continue;
                 }
 
-                if (dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
-                    is_entrance = true;
-                    break;
-                }
-            }
-
-            if (is_entrance && count < out_capacity) {
-                out_points[count++] = (dg_point_t){x, y};
+                index = (size_t)local_y * (size_t)room->width + (size_t)local_x;
+                candidate_mask[index] = 1u;
+                candidate_normal_x[index] = (signed char)k_dirs[d][0];
+                candidate_normal_y[index] = (signed char)k_dirs[d][1];
+                break;
             }
         }
     }
 
+    count = 0;
+    center_x = room->x + room->width / 2;
+    center_y = room->y + room->height / 2;
+    for (local_y = 0; local_y < room->height; ++local_y) {
+        for (local_x = 0; local_x < room->width; ++local_x) {
+            size_t seed = (size_t)local_y * (size_t)room->width + (size_t)local_x;
+
+            if (candidate_mask[seed] == 0u) {
+                continue;
+            }
+
+            {
+                int head;
+                int tail;
+                int best_x;
+                int best_y;
+                int best_metric;
+                int best_inward_x;
+                int best_inward_y;
+
+                candidate_mask[seed] = 0u;
+                head = 0;
+                tail = 0;
+                queue[tail++] = (int)seed;
+
+                best_x = room->x + local_x;
+                best_y = room->y + local_y;
+                best_metric = abs(best_x - center_x) + abs(best_y - center_y);
+                best_inward_x = -candidate_normal_x[seed];
+                best_inward_y = -candidate_normal_y[seed];
+
+                while (head < tail) {
+                    int node = queue[head++];
+                    int cx = node % room->width;
+                    int cy = node / room->width;
+                    int gx = room->x + cx;
+                    int gy = room->y + cy;
+                    int metric = abs(gx - center_x) + abs(gy - center_y);
+                    int d;
+
+                    if (metric < best_metric ||
+                        (metric == best_metric &&
+                         (gy < best_y || (gy == best_y && gx < best_x)))) {
+                        best_x = gx;
+                        best_y = gy;
+                        best_metric = metric;
+                        best_inward_x = -candidate_normal_x[(size_t)node];
+                        best_inward_y = -candidate_normal_y[(size_t)node];
+                    }
+
+                    for (d = 0; d < 4; ++d) {
+                        int nx = cx + k_dirs[d][0];
+                        int ny = cy + k_dirs[d][1];
+                        size_t neighbor;
+
+                        if (nx < 0 || ny < 0 || nx >= room->width || ny >= room->height) {
+                            continue;
+                        }
+
+                        neighbor = (size_t)ny * (size_t)room->width + (size_t)nx;
+                        if (candidate_mask[neighbor] == 0u) {
+                            continue;
+                        }
+
+                        candidate_mask[neighbor] = 0u;
+                        queue[tail++] = (int)neighbor;
+                    }
+                }
+
+                if (count < out_capacity) {
+                    out_points[count].point = (dg_point_t){best_x, best_y};
+                    out_points[count].inward_x = best_inward_x;
+                    out_points[count].inward_y = best_inward_y;
+                    count += 1u;
+                }
+            }
+        }
+    }
+
+    free(candidate_mask);
+    free(candidate_normal_x);
+    free(candidate_normal_y);
+    free(queue);
     return count;
 }
 
@@ -923,7 +1041,7 @@ static void dg_apply_room_keep_mask(
     dg_map_t *map,
     const dg_rect_t *room,
     const unsigned char *keep_mask,
-    const dg_point_t *entrances,
+    const dg_room_entrance_point_t *entrances,
     size_t entrance_count
 )
 {
@@ -985,12 +1103,38 @@ static void dg_apply_room_keep_mask(
     map->tiles[dg_tile_index(map, anchor.x, anchor.y)] = DG_TILE_FLOOR;
 
     for (i = 0; i < entrance_count; ++i) {
+        int depth;
         int sx;
         int sy;
 
-        map->tiles[dg_tile_index(map, entrances[i].x, entrances[i].y)] = DG_TILE_FLOOR;
-        sx = entrances[i].x;
-        sy = entrances[i].y;
+        map->tiles[dg_tile_index(map, entrances[i].point.x, entrances[i].point.y)] = DG_TILE_FLOOR;
+        depth = dg_min_int(2, dg_max_int(1, dg_min_int(room->width, room->height) / 2));
+        for (x = 1; x <= depth; ++x) {
+            int tx = entrances[i].point.x + entrances[i].inward_x * x;
+            int ty = entrances[i].point.y + entrances[i].inward_y * x;
+
+            if (!dg_point_in_rect(room, tx, ty)) {
+                break;
+            }
+            map->tiles[dg_tile_index(map, tx, ty)] = DG_TILE_FLOOR;
+
+            if (x == 1) {
+                int lateral_x = entrances[i].inward_x != 0 ? 0 : 1;
+                int lateral_y = entrances[i].inward_y != 0 ? 0 : 1;
+                int side;
+
+                for (side = -1; side <= 1; side += 2) {
+                    int sx_lateral = tx + lateral_x * side;
+                    int sy_lateral = ty + lateral_y * side;
+                    if (dg_point_in_rect(room, sx_lateral, sy_lateral)) {
+                        map->tiles[dg_tile_index(map, sx_lateral, sy_lateral)] = DG_TILE_FLOOR;
+                    }
+                }
+            }
+        }
+
+        sx = entrances[i].point.x;
+        sy = entrances[i].point.y;
         while (sx != anchor.x) {
             sx += (anchor.x > sx) ? 1 : -1;
             if (dg_point_in_rect(room, sx, sy)) {
@@ -1016,7 +1160,7 @@ static dg_status_t dg_carve_room_with_shape_mode(
 {
     size_t room_area;
     unsigned char *keep_mask;
-    dg_point_t *entrances;
+    dg_room_entrance_point_t *entrances;
     size_t entrance_count;
     dg_status_t status;
 
@@ -1036,7 +1180,7 @@ static dg_status_t dg_carve_room_with_shape_mode(
     }
 
     keep_mask = (unsigned char *)calloc(room_area, sizeof(unsigned char));
-    entrances = (dg_point_t *)malloc(room_area * sizeof(dg_point_t));
+    entrances = (dg_room_entrance_point_t *)malloc(room_area * sizeof(*entrances));
     if (keep_mask == NULL || entrances == NULL) {
         free(keep_mask);
         free(entrances);

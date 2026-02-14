@@ -46,6 +46,23 @@ static size_t count_walkable_tiles(const dg_map_t *map)
     return count;
 }
 
+static size_t count_door_tiles(const dg_map_t *map)
+{
+    size_t i;
+    size_t count;
+    size_t cell_count;
+
+    count = 0;
+    cell_count = (size_t)map->width * (size_t)map->height;
+    for (i = 0; i < cell_count; ++i) {
+        if (map->tiles[i] == DG_TILE_DOOR) {
+            count += 1;
+        }
+    }
+
+    return count;
+}
+
 static bool maps_have_same_tiles(const dg_map_t *a, const dg_map_t *b)
 {
     size_t cell_count;
@@ -345,6 +362,7 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
         a->metadata.generation_class != b->metadata.generation_class ||
         a->metadata.room_count != b->metadata.room_count ||
         a->metadata.corridor_count != b->metadata.corridor_count ||
+        a->metadata.room_entrance_count != b->metadata.room_entrance_count ||
         a->metadata.room_adjacency_count != b->metadata.room_adjacency_count ||
         a->metadata.room_neighbor_count != b->metadata.room_neighbor_count ||
         a->metadata.walkable_tile_count != b->metadata.walkable_tile_count ||
@@ -378,6 +396,8 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
     if ((a->metadata.room_count > 0 && (a->metadata.rooms == NULL || b->metadata.rooms == NULL)) ||
         (a->metadata.corridor_count > 0 &&
          (a->metadata.corridors == NULL || b->metadata.corridors == NULL)) ||
+        (a->metadata.room_entrance_count > 0 &&
+         (a->metadata.room_entrances == NULL || b->metadata.room_entrances == NULL)) ||
         (a->metadata.room_adjacency_count > 0 &&
          (a->metadata.room_adjacency == NULL || b->metadata.room_adjacency == NULL)) ||
         (a->metadata.room_neighbor_count > 0 &&
@@ -413,6 +433,20 @@ static bool maps_have_same_metadata(const dg_map_t *a, const dg_map_t *b)
             ca->to_room_id != cb->to_room_id ||
             ca->width != cb->width ||
             ca->length != cb->length) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < a->metadata.room_entrance_count; ++i) {
+        const dg_room_entrance_metadata_t *ea = &a->metadata.room_entrances[i];
+        const dg_room_entrance_metadata_t *eb = &b->metadata.room_entrances[i];
+        if (ea->room_id != eb->room_id ||
+            ea->room_tile.x != eb->room_tile.x ||
+            ea->room_tile.y != eb->room_tile.y ||
+            ea->corridor_tile.x != eb->corridor_tile.x ||
+            ea->corridor_tile.y != eb->corridor_tile.y ||
+            ea->normal_x != eb->normal_x ||
+            ea->normal_y != eb->normal_y) {
             return false;
         }
     }
@@ -658,6 +692,95 @@ static bool point_is_inside_any_room(const dg_map_t *map, int x, int y)
     }
 
     return false;
+}
+
+static bool room_entrances_are_valid(const dg_map_t *map)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    size_t i;
+
+    if (map == NULL) {
+        return false;
+    }
+
+    if (map->metadata.room_entrance_count == 0) {
+        return map->metadata.generation_class != DG_MAP_GENERATION_CLASS_ROOM_LIKE ||
+               map->metadata.room_count == 0;
+    }
+    if (map->metadata.room_entrances == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_entrance_count; ++i) {
+        const dg_room_entrance_metadata_t *entrance = &map->metadata.room_entrances[i];
+        const dg_rect_t *room;
+        bool has_interior_neighbor;
+        int d;
+
+        if (entrance->room_id < 0 || (size_t)entrance->room_id >= map->metadata.room_count) {
+            return false;
+        }
+        room = &map->metadata.rooms[entrance->room_id].bounds;
+
+        if (!dg_map_in_bounds(map, entrance->room_tile.x, entrance->room_tile.y) ||
+            !dg_map_in_bounds(map, entrance->corridor_tile.x, entrance->corridor_tile.y)) {
+            return false;
+        }
+        if (!point_is_inside_any_room(map, entrance->room_tile.x, entrance->room_tile.y)) {
+            return false;
+        }
+        if (!is_walkable(dg_map_get_tile(map, entrance->room_tile.x, entrance->room_tile.y))) {
+            return false;
+        }
+        if (dg_map_get_tile(map, entrance->room_tile.x, entrance->room_tile.y) != DG_TILE_DOOR) {
+            return false;
+        }
+        if (point_is_inside_any_room(map, entrance->corridor_tile.x, entrance->corridor_tile.y)) {
+            return false;
+        }
+        if (!is_walkable(dg_map_get_tile(map, entrance->corridor_tile.x, entrance->corridor_tile.y))) {
+            return false;
+        }
+        if (entrance->corridor_tile.x != entrance->room_tile.x + entrance->normal_x ||
+            entrance->corridor_tile.y != entrance->room_tile.y + entrance->normal_y) {
+            return false;
+        }
+        if (abs(entrance->normal_x) + abs(entrance->normal_y) != 1) {
+            return false;
+        }
+
+        has_interior_neighbor = false;
+        for (d = 0; d < 4; ++d) {
+            int nx = entrance->room_tile.x + directions[d][0];
+            int ny = entrance->room_tile.y + directions[d][1];
+
+            if (!dg_map_in_bounds(map, nx, ny)) {
+                continue;
+            }
+            if (!is_walkable(dg_map_get_tile(map, nx, ny))) {
+                continue;
+            }
+            if (nx == entrance->corridor_tile.x && ny == entrance->corridor_tile.y) {
+                continue;
+            }
+            if (nx >= room->x && ny >= room->y &&
+                nx < room->x + room->width && ny < room->y + room->height) {
+                has_interior_neighbor = true;
+                break;
+            }
+        }
+
+        if (!has_interior_neighbor) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static size_t count_non_room_dead_ends(const dg_map_t *map)
@@ -1844,6 +1967,8 @@ static int test_post_process_scaling(void)
     dg_map_t scaled_map = {0};
     dg_process_method_t scaled_methods[1];
     int factor;
+    size_t base_doors;
+    size_t scaled_doors;
 
     dg_default_generate_request(&base_request, DG_ALGORITHM_BSP_TREE, 72, 42, 123456u);
     base_request.params.bsp.min_rooms = 8;
@@ -1875,6 +2000,10 @@ static int test_post_process_scaling(void)
     );
     ASSERT_TRUE(scaled_map.metadata.rooms[0].bounds.width == base_map.metadata.rooms[0].bounds.width * factor);
     ASSERT_TRUE(scaled_map.metadata.rooms[0].bounds.height == base_map.metadata.rooms[0].bounds.height * factor);
+    base_doors = count_door_tiles(&base_map);
+    scaled_doors = count_door_tiles(&scaled_map);
+    ASSERT_TRUE(base_doors > 0);
+    ASSERT_TRUE(scaled_doors > base_doors);
 
     dg_map_destroy(&base_map);
     dg_map_destroy(&scaled_map);
@@ -1966,6 +2095,57 @@ static int test_post_process_room_shape_changes_layout(void)
     }
 
     dg_map_destroy(&rectangular_map);
+    return 0;
+}
+
+static int test_room_entrances_preserved_with_room_shape(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_process_method_t methods[1];
+    size_t *entrances_per_room;
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_BSP_TREE, 88, 52, 606060u);
+    request.params.bsp.min_rooms = 10;
+    request.params.bsp.max_rooms = 10;
+    request.params.bsp.room_min_size = 5;
+    request.params.bsp.room_max_size = 11;
+
+    dg_default_process_method(&methods[0], DG_PROCESS_METHOD_ROOM_SHAPE);
+    methods[0].params.room_shape.mode = DG_ROOM_SHAPE_ORGANIC;
+    methods[0].params.room_shape.organicity = 85;
+    request.process.methods = methods;
+    request.process.method_count = 1;
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+    ASSERT_TRUE(map.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE);
+    ASSERT_TRUE(map.metadata.room_count > 0);
+    ASSERT_TRUE(map.metadata.corridor_count > 0);
+    ASSERT_TRUE(map.metadata.room_entrance_count > 0);
+    ASSERT_TRUE(room_entrances_are_valid(&map));
+
+    entrances_per_room = (size_t *)calloc(map.metadata.room_count, sizeof(size_t));
+    ASSERT_TRUE(entrances_per_room != NULL);
+
+    for (i = 0; i < map.metadata.room_entrance_count; ++i) {
+        int room_id = map.metadata.room_entrances[i].room_id;
+        ASSERT_TRUE(room_id >= 0);
+        ASSERT_TRUE((size_t)room_id < map.metadata.room_count);
+        entrances_per_room[room_id] += 1u;
+    }
+
+    if (map.metadata.room_adjacency_count == map.metadata.room_count &&
+        map.metadata.room_adjacency != NULL) {
+        for (i = 0; i < map.metadata.room_count; ++i) {
+            if (map.metadata.room_adjacency[i].count > 0u) {
+                ASSERT_TRUE(entrances_per_room[i] > 0u);
+            }
+        }
+    }
+
+    free(entrances_per_room);
+    dg_map_destroy(&map);
     return 0;
 }
 
@@ -3662,6 +3842,7 @@ int main(void)
         {"post_process_scaling", test_post_process_scaling},
         {"post_process_disabled_bypasses_pipeline", test_post_process_disabled_bypasses_pipeline},
         {"post_process_room_shape_changes_layout", test_post_process_room_shape_changes_layout},
+        {"room_entrances_preserved_with_room_shape", test_room_entrances_preserved_with_room_shape},
         {"post_process_room_shape_no_effect_on_cave_layout",
          test_post_process_room_shape_no_effect_on_cave_layout},
         {"post_process_path_smoothing_changes_layout", test_post_process_path_smoothing_changes_layout},

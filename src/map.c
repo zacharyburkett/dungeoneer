@@ -73,6 +73,9 @@ dg_status_t dg_map_init(dg_map_t *map, int width, int height, dg_tile_t initial_
     map->metadata.corridors = NULL;
     map->metadata.corridor_count = 0;
     map->metadata.corridor_capacity = 0;
+    map->metadata.room_entrances = NULL;
+    map->metadata.room_entrance_count = 0;
+    map->metadata.room_entrance_capacity = 0;
     map->metadata.room_adjacency = NULL;
     map->metadata.room_adjacency_count = 0;
     map->metadata.room_neighbors = NULL;
@@ -173,6 +176,7 @@ void dg_map_clear_metadata(dg_map_t *map)
 
     free(map->metadata.rooms);
     free(map->metadata.corridors);
+    free(map->metadata.room_entrances);
     free(map->metadata.room_adjacency);
     free(map->metadata.room_neighbors);
     dg_map_clear_generation_diagnostics(&map->metadata.diagnostics);
@@ -183,6 +187,9 @@ void dg_map_clear_metadata(dg_map_t *map)
     map->metadata.corridors = NULL;
     map->metadata.corridor_count = 0;
     map->metadata.corridor_capacity = 0;
+    map->metadata.room_entrances = NULL;
+    map->metadata.room_entrance_count = 0;
+    map->metadata.room_entrance_capacity = 0;
     map->metadata.room_adjacency = NULL;
     map->metadata.room_adjacency_count = 0;
     map->metadata.room_neighbors = NULL;
