@@ -108,16 +108,18 @@ static dg_status_t dg_generate_impl(
         return status;
     }
 
-    status = dg_apply_room_type_templates(request, &generated);
+    status = dg_apply_post_processes(request, &generated, &rng);
     if (status != DG_STATUS_OK) {
         dg_map_destroy(&generated);
         return status;
     }
 
-    status = dg_apply_post_processes(request, &generated, &rng);
-    if (status != DG_STATUS_OK) {
-        dg_map_destroy(&generated);
-        return status;
+    if (request->process.enabled != 0) {
+        status = dg_apply_room_type_templates(request, &generated);
+        if (status != DG_STATUS_OK) {
+            dg_map_destroy(&generated);
+            return status;
+        }
     }
 
     dg_paint_outer_walls(&generated);
