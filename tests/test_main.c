@@ -3571,6 +3571,7 @@ static int test_room_type_template_map_application_with_scale_process(void)
     ASSERT_TRUE(count_rooms_with_type_id(&map, 551u) > 0u);
     ASSERT_TRUE(count_wall_tiles_inside_rooms(&map) > 0u);
     ASSERT_TRUE(room_entrances_are_valid(&map));
+    ASSERT_TRUE(connected_rooms_have_at_least_one_entrance(&map));
 
     dg_map_destroy(&map);
     (void)remove(template_path);

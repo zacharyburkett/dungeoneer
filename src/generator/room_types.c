@@ -2380,9 +2380,9 @@ dg_status_t dg_apply_room_type_templates(
         dg_map_t generated_template;
         int template_width;
         int template_height;
-        int attempt_widths[2];
-        int attempt_heights[2];
-        int attempt_count;
+        int template_scale_factor;
+        int attempt_width;
+        int attempt_height;
         int attempt_index;
         size_t opening_match_count;
         int use_room_like_entrance_rooms;
@@ -2440,13 +2440,13 @@ dg_status_t dg_apply_room_type_templates(
             goto cleanup;
         }
 
-        attempt_widths[0] = template_width;
-        attempt_heights[0] = template_height;
-        attempt_count = 1;
-        if (template_width != room->bounds.width || template_height != room->bounds.height) {
-            attempt_widths[1] = room->bounds.width;
-            attempt_heights[1] = room->bounds.height;
-            attempt_count = 2;
+        status = dg_compute_template_process_scale_factor(
+            &entry->map.metadata.generation_request,
+            &template_scale_factor
+        );
+        if (status != DG_STATUS_OK) {
+            free(room_openings);
+            goto cleanup;
         }
 
         template_request = (dg_generate_request_t){0};
@@ -2454,13 +2454,33 @@ dg_status_t dg_apply_room_type_templates(
         edge_openings = NULL;
         generated_template = (dg_map_t){0};
 
-        for (attempt_index = 0; attempt_index < attempt_count; ++attempt_index) {
+        for (attempt_index = 0; attempt_index < 4; ++attempt_index) {
+            attempt_width = template_width + attempt_index;
+            attempt_height = template_height + attempt_index;
+            if (attempt_width > room->bounds.width) {
+                attempt_width = room->bounds.width;
+            }
+            if (attempt_height > room->bounds.height) {
+                attempt_height = room->bounds.height;
+            }
+            if (template_scale_factor > 1) {
+                int max_attempt_width = dg_max_int(1, room->bounds.width - 1);
+                int max_attempt_height = dg_max_int(1, room->bounds.height - 1);
+                if (attempt_width > max_attempt_width) {
+                    attempt_width = max_attempt_width;
+                }
+                if (attempt_height > max_attempt_height) {
+                    attempt_height = max_attempt_height;
+                }
+            }
+
             status = dg_build_template_request_from_snapshot(
                 &entry->map.metadata.generation_request,
-                attempt_widths[attempt_index],
-                attempt_heights[attempt_index],
+                attempt_width,
+                attempt_height,
                 entry->map.metadata.seed ^
-                    ((uint64_t)(room->id + 1) * UINT64_C(11400714819323198485)),
+                    ((uint64_t)(room->id + 1) * UINT64_C(11400714819323198485)) ^
+                    ((uint64_t)(attempt_index + 1) * UINT64_C(14029467366897019727)),
                 &template_request,
                 &process_methods,
                 &edge_openings
@@ -2506,7 +2526,7 @@ dg_status_t dg_apply_room_type_templates(
             dg_map_destroy(&generated_template);
             generated_template = (dg_map_t){0};
 
-            if (status != DG_STATUS_GENERATION_FAILED || attempt_index + 1 >= attempt_count) {
+            if (status != DG_STATUS_GENERATION_FAILED || attempt_index + 1 >= 4) {
                 break;
             }
         }
