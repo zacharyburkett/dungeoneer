@@ -70,7 +70,9 @@ typedef struct dg_nuklear_app {
     int preview_show_grid;
     float layout_side_left_ratio;
     float layout_side_map_ratio;
+    float layout_side_global_ratio;
     float layout_stacked_controls_ratio;
+    float layout_stacked_global_ratio;
     float layout_stacked_metadata_ratio;
     int layout_active_splitter;
     int layout_hover_splitter;

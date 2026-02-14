@@ -2938,7 +2938,7 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
     dg_nuklear_draw_subsection_heading(
         ctx,
         "Layout Setup",
-        "Pick generation family, choose an algorithm, and iterate with size and seed."
+        "Pick generation family, choose an algorithm, and adjust map size."
     );
 
     nk_layout_row_dynamic(ctx, 19.0f, 1);
@@ -3021,24 +3021,6 @@ static void dg_nuklear_draw_generation_settings(struct nk_context *ctx, dg_nukle
     nk_layout_row_dynamic(ctx, 30.0f, 2);
     nk_property_int(ctx, "Map Width", 8, &app->width, 512, 1, 0.25f);
     nk_property_int(ctx, "Map Height", 8, &app->height, 512, 1, 0.25f);
-
-    nk_layout_row_dynamic(ctx, 19.0f, 1);
-    nk_label(ctx, "Seed", NK_TEXT_LEFT);
-
-    {
-        const float seed_cols[] = {0.70f, 0.30f};
-        nk_layout_row(ctx, NK_DYNAMIC, 30.0f, 2, seed_cols);
-    }
-    (void)nk_edit_string_zero_terminated(
-        ctx,
-        NK_EDIT_FIELD,
-        app->seed_text,
-        (int)sizeof(app->seed_text),
-        nk_filter_decimal
-    );
-    if (nk_button_label(ctx, "Randomize")) {
-        dg_nuklear_randomize_seed(app);
-    }
 }
 
 static void dg_nuklear_draw_bsp_settings(struct nk_context *ctx, dg_nuklear_app_t *app)
@@ -4291,15 +4273,35 @@ static void dg_nuklear_draw_room_type_settings(
     }
 }
 
-static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *app)
+static void dg_nuklear_draw_global_options(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
-    dg_nuklear_draw_subsection_heading(
-        ctx,
-        "File Path",
-        "Save and load generation configs (.dgmap), or export a standalone PNG + JSON."
-    );
+    if (ctx == NULL || app == NULL) {
+        return;
+    }
 
-    nk_layout_row_dynamic(ctx, 30.0f, 1);
+    nk_layout_row_dynamic(ctx, 17.0f, 1);
+    nk_label(ctx, "Seed", NK_TEXT_LEFT);
+
+    {
+        const float seed_cols[] = {0.72f, 0.28f};
+        nk_layout_row(ctx, NK_DYNAMIC, 28.0f, 2, seed_cols);
+    }
+    (void)nk_edit_string_zero_terminated(
+        ctx,
+        NK_EDIT_FIELD,
+        app->seed_text,
+        (int)sizeof(app->seed_text),
+        nk_filter_decimal
+    );
+    if (nk_button_label(ctx, "Randomize")) {
+        dg_nuklear_randomize_seed(app);
+    }
+
+    nk_layout_row_dynamic(ctx, 4.0f, 1);
+    nk_spacing(ctx, 1);
+    nk_layout_row_dynamic(ctx, 17.0f, 1);
+    nk_label(ctx, "Config File", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 28.0f, 1);
     (void)nk_edit_string_zero_terminated(
         ctx,
         NK_EDIT_FIELD,
@@ -4308,7 +4310,7 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
         nk_filter_default
     );
 
-    nk_layout_row_dynamic(ctx, 32.0f, 2);
+    nk_layout_row_dynamic(ctx, 30.0f, 2);
     if (nk_button_label(ctx, "Save Config")) {
         dg_nuklear_save_map(app);
     }
@@ -4316,7 +4318,7 @@ static void dg_nuklear_draw_save_load(struct nk_context *ctx, dg_nuklear_app_t *
         dg_nuklear_load_map(app);
     }
 
-    nk_layout_row_dynamic(ctx, 34.0f, 1);
+    nk_layout_row_dynamic(ctx, 30.0f, 1);
     if (nk_button_label(ctx, "Export PNG + JSON")) {
         dg_nuklear_export_map_png_json(app);
     }
@@ -4392,7 +4394,6 @@ static bool dg_nuklear_workflow_tab_button(
 static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *app)
 {
     dg_algorithm_t algorithm;
-    char context_line[192];
 
     if (ctx == NULL || app == NULL) {
         return;
@@ -4404,17 +4405,8 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
         DG_NUKLEAR_WORKFLOW_PROCESS
     );
     algorithm = dg_nuklear_algorithm_from_index(app->algorithm_index);
-
-    (void)snprintf(
-        context_line,
-        sizeof(context_line),
-        "Current: %s (%s)",
-        dg_nuklear_algorithm_display_name(algorithm),
-        app->generation_class_index == 0 ? "Room-like" : "Cave-like"
-    );
-
-    nk_layout_row_dynamic(ctx, 18.0f, 1);
-    nk_label(ctx, context_line, NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 4.0f, 1);
+    nk_spacing(ctx, 1);
 
     nk_layout_row_dynamic(ctx, 34.0f, 3);
     if (dg_nuklear_workflow_tab_button(
@@ -4484,11 +4476,6 @@ static void dg_nuklear_draw_controls(struct nk_context *ctx, dg_nuklear_app_t *a
 
     dg_nuklear_maybe_auto_generate(app);
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Save / Load", NK_MINIMIZED)) {
-        dg_nuklear_draw_save_load(ctx, app);
-        nk_tree_pop(ctx);
-    }
-
     nk_layout_row_dynamic(ctx, 18.0f, 1);
     nk_label(ctx, "Status", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 56.0f, 1);
@@ -4522,7 +4509,9 @@ void dg_nuklear_app_init(dg_nuklear_app_t *app)
     dg_nuklear_sync_generation_class_with_algorithm(app);
     app->layout_side_left_ratio = 0.30f;
     app->layout_side_map_ratio = 0.74f;
+    app->layout_side_global_ratio = 0.28f;
     app->layout_stacked_controls_ratio = 0.52f;
+    app->layout_stacked_global_ratio = 0.30f;
     app->layout_stacked_metadata_ratio = 0.21f;
     app->layout_active_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
     app->layout_hover_splitter = DG_NUKLEAR_LAYOUT_SPLITTER_NONE;
@@ -4553,6 +4542,8 @@ void dg_nuklear_app_draw(
     float left_width;
     float right_x;
     float right_width;
+    float config_height;
+    float global_height;
     float controls_height;
     float map_height;
     float metadata_height;
@@ -4560,6 +4551,11 @@ void dg_nuklear_app_draw(
     float total_height;
     float min_controls_width;
     float min_right_width;
+    float min_config_height;
+    float min_global_height;
+    float left_content_height;
+    float global_max;
+    float global_content_height;
     float min_map_height;
     float min_metadata_height;
     float min_controls_height;
@@ -4568,6 +4564,7 @@ void dg_nuklear_app_draw(
     struct nk_rect stacked_top_splitter_rect;
     struct nk_rect stacked_bottom_splitter_rect;
     struct nk_rect controls_rect;
+    struct nk_rect global_rect;
     struct nk_rect map_rect;
     struct nk_rect metadata_rect;
 
@@ -4603,6 +4600,7 @@ void dg_nuklear_app_draw(
     side_horizontal_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
     stacked_top_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
     stacked_bottom_splitter_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
+    global_rect = nk_rect(0.0f, 0.0f, 0.0f, 0.0f);
 
     min_controls_width = 280.0f;
     min_right_width = 240.0f;
@@ -4616,9 +4614,11 @@ void dg_nuklear_app_draw(
         min_right_width *= width_scale;
     }
 
+    min_config_height = 140.0f;
+    min_global_height = 120.0f;
     min_map_height = 120.0f;
     min_metadata_height = 120.0f;
-    min_controls_height = 140.0f;
+    min_controls_height = min_config_height + min_global_height;
     if (min_map_height + min_metadata_height > total_height - splitter_size) {
         float height_scale;
         height_scale = (total_height - splitter_size) / (min_map_height + min_metadata_height);
@@ -4628,9 +4628,9 @@ void dg_nuklear_app_draw(
         min_map_height *= height_scale;
         min_metadata_height *= height_scale;
     }
-    if (min_map_height + min_metadata_height + min_controls_height > total_height - splitter_size * 2.0f) {
+    if (min_map_height + min_metadata_height + min_controls_height > total_height - splitter_size * 3.0f) {
         float stacked_scale;
-        stacked_scale = (total_height - splitter_size * 2.0f) /
+        stacked_scale = (total_height - splitter_size * 3.0f) /
             (min_map_height + min_metadata_height + min_controls_height);
         if (stacked_scale < 0.20f) {
             stacked_scale = 0.20f;
@@ -4645,7 +4645,7 @@ void dg_nuklear_app_draw(
         float controls_max;
         float metadata_max;
 
-        content_height = (float)screen_height - margin * 4.0f;
+        content_height = (float)screen_height - margin * 5.0f;
         if (content_height < 1.0f) {
             content_height = 1.0f;
         }
@@ -4705,30 +4705,52 @@ void dg_nuklear_app_draw(
             app->layout_stacked_metadata_ratio = metadata_height / content_height;
         }
 
+        global_content_height = controls_height;
+        if (global_content_height < min_config_height + min_global_height) {
+            global_content_height = min_config_height + min_global_height;
+        }
+        global_height = app->layout_stacked_global_ratio * global_content_height;
+        global_max = global_content_height - min_config_height;
+        if (global_max < min_global_height) {
+            global_max = min_global_height;
+        }
+        global_height = dg_nuklear_clamp_float(global_height, min_global_height, global_max);
+        config_height = global_content_height - global_height;
+        if (global_content_height > 1.0f) {
+            app->layout_stacked_global_ratio = global_height / global_content_height;
+        }
+
         controls_rect = nk_rect(
             margin,
             margin,
             total_width,
-            controls_height
+            config_height
+        );
+
+        global_rect = nk_rect(
+            margin,
+            margin * 2.0f + config_height,
+            total_width,
+            global_height
         );
 
         map_rect = nk_rect(
             margin,
-            margin * 2.0f + controls_height,
+            margin * 3.0f + config_height + global_height,
             total_width,
             map_height
         );
 
         metadata_rect = nk_rect(
             margin,
-            margin * 3.0f + controls_height + map_height,
+            margin * 4.0f + config_height + global_height + map_height,
             total_width,
             metadata_height
         );
 
         stacked_top_splitter_rect = nk_rect(
             margin,
-            controls_rect.y + controls_rect.h,
+            global_rect.y + global_rect.h,
             total_width,
             splitter_size
         );
@@ -4803,11 +4825,32 @@ void dg_nuklear_app_draw(
         app->layout_side_left_ratio = left_width / content_width;
         app->layout_side_map_ratio = map_height / content_height;
 
+        left_content_height = content_height;
+        if (left_content_height < min_config_height + min_global_height) {
+            left_content_height = min_config_height + min_global_height;
+        }
+        global_height = app->layout_side_global_ratio * left_content_height;
+        global_max = left_content_height - min_config_height;
+        if (global_max < min_global_height) {
+            global_max = min_global_height;
+        }
+        global_height = dg_nuklear_clamp_float(global_height, min_global_height, global_max);
+        config_height = left_content_height - global_height;
+        if (left_content_height > 1.0f) {
+            app->layout_side_global_ratio = global_height / left_content_height;
+        }
+
         controls_rect = nk_rect(
             margin,
             margin,
             left_width,
-            total_height
+            config_height
+        );
+        global_rect = nk_rect(
+            margin,
+            margin * 2.0f + config_height,
+            left_width,
+            global_height
         );
         map_rect = nk_rect(right_x, margin, right_width, map_height);
         metadata_rect = nk_rect(
@@ -4865,6 +4908,16 @@ void dg_nuklear_app_draw(
             NK_WINDOW_BORDER | NK_WINDOW_TITLE
         )) {
         dg_nuklear_draw_controls(ctx, app);
+    }
+    nk_end(ctx);
+
+    if (nk_begin(
+            ctx,
+            "File",
+            global_rect,
+            NK_WINDOW_BORDER | NK_WINDOW_TITLE
+        )) {
+        dg_nuklear_draw_global_options(ctx, app);
     }
     nk_end(ctx);
 
