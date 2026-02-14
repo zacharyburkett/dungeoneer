@@ -1992,19 +1992,234 @@ static bool dg_find_nearest_walkable_in_tiles(
     return true;
 }
 
-static void dg_carve_room_like_entrance_chamber(
+static bool dg_detect_rooms_and_mazes_room_parity(
+    const dg_map_t *map,
+    int *out_parity_x,
+    int *out_parity_y
+)
+{
+    size_t i;
+
+    if (map == NULL || out_parity_x == NULL || out_parity_y == NULL ||
+        map->metadata.algorithm_id != (int)DG_ALGORITHM_ROOMS_AND_MAZES ||
+        map->metadata.rooms == NULL ||
+        map->metadata.room_count == 0u) {
+        return false;
+    }
+
+    for (i = 0u; i < map->metadata.room_count; ++i) {
+        const dg_rect_t *bounds = &map->metadata.rooms[i].bounds;
+        if (bounds->width > 0 && bounds->height > 0) {
+            *out_parity_x = bounds->x & 1;
+            *out_parity_y = bounds->y & 1;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void dg_align_room_like_span_for_parity(
+    int *start,
+    int *end,
+    int min_coord,
+    int max_coord,
+    int parity
+)
+{
+    if (start == NULL || end == NULL || min_coord > max_coord) {
+        return;
+    }
+
+    if ((*start & 1) != parity) {
+        if (*start > min_coord) {
+            *start -= 1;
+        } else if (*end < max_coord) {
+            *end += 1;
+        }
+    }
+
+    if (((*end - *start + 1) & 1) == 0) {
+        if (*end < max_coord) {
+            *end += 1;
+        } else if (*start > min_coord) {
+            *start -= 1;
+        }
+    }
+}
+
+static bool dg_build_room_like_entrance_rect(
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *opening,
+    int depth,
+    int parity_enabled,
+    int parity_x,
+    int parity_y,
+    dg_rect_t *out_rect
+)
+{
+    int span;
+    int start;
+    int end;
+    int max_depth;
+    dg_rect_t rect;
+
+    if (map == NULL || opening == NULL || out_rect == NULL ||
+        map->width <= 0 || map->height <= 0) {
+        return false;
+    }
+
+    if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+        span = map->width;
+        max_depth = map->height;
+    } else if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
+        span = map->height;
+        max_depth = map->width;
+    } else {
+        return false;
+    }
+    if (span <= 0 || max_depth <= 0) {
+        return false;
+    }
+
+    start = dg_clamp_int(opening->start, 0, span - 1);
+    end = dg_clamp_int(opening->end, 0, span - 1);
+    if (end < start) {
+        end = start;
+    }
+
+    if (parity_enabled != 0) {
+        if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+            dg_align_room_like_span_for_parity(&start, &end, 0, span - 1, parity_x);
+        } else {
+            dg_align_room_like_span_for_parity(&start, &end, 0, span - 1, parity_y);
+        }
+    }
+
+    depth = dg_clamp_int(depth, 1, max_depth);
+    if (parity_enabled != 0 && (depth & 1) == 0) {
+        if (depth < max_depth) {
+            depth += 1;
+        } else if (depth > 1) {
+            depth -= 1;
+        }
+    }
+
+    rect = (dg_rect_t){0, 0, 1, 1};
+    if (opening->side == DG_MAP_EDGE_TOP) {
+        rect.x = start;
+        rect.y = 0;
+        rect.width = (end - start) + 1;
+        rect.height = depth;
+    } else if (opening->side == DG_MAP_EDGE_BOTTOM) {
+        rect.x = start;
+        rect.width = (end - start) + 1;
+        rect.height = depth;
+        rect.y = map->height - rect.height;
+    } else if (opening->side == DG_MAP_EDGE_LEFT) {
+        rect.x = 0;
+        rect.y = start;
+        rect.width = depth;
+        rect.height = (end - start) + 1;
+    } else {
+        rect.y = start;
+        rect.width = depth;
+        rect.height = (end - start) + 1;
+        rect.x = map->width - rect.width;
+    }
+
+    if (rect.width <= 0 || rect.height <= 0 ||
+        rect.x < 0 || rect.y < 0 ||
+        rect.x + rect.width > map->width ||
+        rect.y + rect.height > map->height) {
+        return false;
+    }
+
+    *out_rect = rect;
+    return true;
+}
+
+static bool dg_room_like_rect_touches_walkable(const dg_map_t *map, const dg_rect_t *rect)
+{
+    static const int directions[4][2] = {
+        {1, 0},
+        {-1, 0},
+        {0, 1},
+        {0, -1}
+    };
+    int y;
+    int x;
+    int d;
+
+    if (map == NULL || map->tiles == NULL || rect == NULL) {
+        return false;
+    }
+
+    for (y = rect->y; y < rect->y + rect->height; ++y) {
+        for (x = rect->x; x < rect->x + rect->width; ++x) {
+            if (!dg_map_in_bounds(map, x, y)) {
+                continue;
+            }
+            if (dg_is_walkable_tile(dg_map_get_tile(map, x, y))) {
+                return true;
+            }
+            for (d = 0; d < 4; ++d) {
+                int nx = x + directions[d][0];
+                int ny = y + directions[d][1];
+                if (!dg_map_in_bounds(map, nx, ny)) {
+                    continue;
+                }
+                if (dg_point_in_rect_local(rect, nx, ny)) {
+                    continue;
+                }
+                if (dg_is_walkable_tile(dg_map_get_tile(map, nx, ny))) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+static void dg_paint_room_like_rect(dg_map_t *map, const dg_rect_t *rect)
+{
+    int y;
+    int x;
+
+    if (map == NULL || map->tiles == NULL || rect == NULL) {
+        return;
+    }
+
+    for (y = rect->y; y < rect->y + rect->height; ++y) {
+        for (x = rect->x; x < rect->x + rect->width; ++x) {
+            if (dg_map_in_bounds(map, x, y)) {
+                (void)dg_map_set_tile(map, x, y, DG_TILE_FLOOR);
+            }
+        }
+    }
+}
+
+static void dg_place_room_like_entrance_room(
     dg_map_t *map,
     const dg_edge_opening_spec_t *opening,
-    unsigned char *out_chamber_mask
+    int parity_enabled,
+    int parity_x,
+    int parity_y
 )
 {
     int span;
     int start;
     int end;
     int length;
+    int base_depth;
+    int max_depth;
+    int step;
     int depth;
-    int x;
-    int y;
+    dg_rect_t fallback_rect;
+    dg_rect_t chosen_rect;
+    bool has_fallback;
+    bool found_connected;
 
     if (map == NULL || map->tiles == NULL || opening == NULL) {
         return;
@@ -2012,10 +2227,14 @@ static void dg_carve_room_like_entrance_chamber(
 
     if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
         span = map->width;
-    } else {
+        max_depth = map->height;
+    } else if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
         span = map->height;
+        max_depth = map->width;
+    } else {
+        return;
     }
-    if (span <= 0) {
+    if (span <= 0 || max_depth <= 0) {
         return;
     }
 
@@ -2026,50 +2245,64 @@ static void dg_carve_room_like_entrance_chamber(
     }
 
     length = (end - start) + 1;
-    depth = dg_clamp_int(length, 2, 6);
-    if (opening->side == DG_MAP_EDGE_TOP) {
-        for (y = 0; y < map->height && y < depth; ++y) {
-            for (x = start; x <= end; ++x) {
-                size_t index = dg_tile_index(map, x, y);
-                map->tiles[index] = DG_TILE_FLOOR;
-                if (out_chamber_mask != NULL) {
-                    out_chamber_mask[index] = 1u;
-                }
-            }
-        }
-    } else if (opening->side == DG_MAP_EDGE_BOTTOM) {
-        int min_y = dg_max_int(0, map->height - depth);
-        for (y = min_y; y < map->height; ++y) {
-            for (x = start; x <= end; ++x) {
-                size_t index = dg_tile_index(map, x, y);
-                map->tiles[index] = DG_TILE_FLOOR;
-                if (out_chamber_mask != NULL) {
-                    out_chamber_mask[index] = 1u;
-                }
-            }
-        }
-    } else if (opening->side == DG_MAP_EDGE_LEFT) {
-        for (y = start; y <= end; ++y) {
-            for (x = 0; x < map->width && x < depth; ++x) {
-                size_t index = dg_tile_index(map, x, y);
-                map->tiles[index] = DG_TILE_FLOOR;
-                if (out_chamber_mask != NULL) {
-                    out_chamber_mask[index] = 1u;
-                }
-            }
-        }
-    } else if (opening->side == DG_MAP_EDGE_RIGHT) {
-        int min_x = dg_max_int(0, map->width - depth);
-        for (y = start; y <= end; ++y) {
-            for (x = min_x; x < map->width; ++x) {
-                size_t index = dg_tile_index(map, x, y);
-                map->tiles[index] = DG_TILE_FLOOR;
-                if (out_chamber_mask != NULL) {
-                    out_chamber_mask[index] = 1u;
-                }
-            }
+    base_depth = dg_clamp_int(length, 2, 8);
+    max_depth = dg_min_int(max_depth, dg_max_int(base_depth, 12));
+    if (base_depth > max_depth) {
+        base_depth = max_depth;
+    }
+
+    if (parity_enabled != 0 && (base_depth & 1) == 0) {
+        if (base_depth < max_depth) {
+            base_depth += 1;
+        } else if (base_depth > 1) {
+            base_depth -= 1;
         }
     }
+
+    step = (parity_enabled != 0) ? 2 : 1;
+    if (step < 1) {
+        step = 1;
+    }
+
+    has_fallback = false;
+    found_connected = false;
+    chosen_rect = (dg_rect_t){0, 0, 1, 1};
+    fallback_rect = chosen_rect;
+
+    for (depth = base_depth; depth <= max_depth; depth += step) {
+        dg_rect_t rect;
+
+        if (!dg_build_room_like_entrance_rect(
+                map,
+                opening,
+                depth,
+                parity_enabled,
+                parity_x,
+                parity_y,
+                &rect
+            )) {
+            continue;
+        }
+
+        if (!has_fallback) {
+            fallback_rect = rect;
+            has_fallback = true;
+        }
+        if (dg_room_like_rect_touches_walkable(map, &rect)) {
+            chosen_rect = rect;
+            found_connected = true;
+            break;
+        }
+    }
+
+    if (!has_fallback) {
+        return;
+    }
+    if (!found_connected) {
+        chosen_rect = fallback_rect;
+    }
+
+    dg_paint_room_like_rect(map, &chosen_rect);
 }
 
 static dg_status_t dg_enforce_template_opening_connectivity(
@@ -2081,7 +2314,6 @@ static dg_status_t dg_enforce_template_opening_connectivity(
 {
     size_t cell_count;
     dg_tile_t *base_tiles;
-    unsigned char *chamber_mask;
     dg_point_t *anchors;
     size_t i;
 
@@ -2092,16 +2324,27 @@ static dg_status_t dg_enforce_template_opening_connectivity(
         return DG_STATUS_OK;
     }
 
+    if (use_room_like_entrance_rooms != 0) {
+        int parity_x = 0;
+        int parity_y = 0;
+        int parity_enabled = dg_detect_rooms_and_mazes_room_parity(map, &parity_x, &parity_y) ? 1 : 0;
+
+        for (i = 0u; i < opening_count; ++i) {
+            dg_place_room_like_entrance_room(
+                map,
+                &openings[i],
+                parity_enabled,
+                parity_x,
+                parity_y
+            );
+        }
+        return DG_STATUS_OK;
+    }
+
     cell_count = (size_t)map->width * (size_t)map->height;
     base_tiles = (dg_tile_t *)malloc(cell_count * sizeof(*base_tiles));
     anchors = (dg_point_t *)malloc(opening_count * sizeof(*anchors));
-    chamber_mask = NULL;
-    if (use_room_like_entrance_rooms != 0) {
-        chamber_mask = (unsigned char *)calloc(cell_count, sizeof(*chamber_mask));
-    }
-    if (base_tiles == NULL || anchors == NULL ||
-        (use_room_like_entrance_rooms != 0 && chamber_mask == NULL)) {
-        free(chamber_mask);
+    if (base_tiles == NULL || anchors == NULL) {
         free(anchors);
         free(base_tiles);
         return DG_STATUS_ALLOCATION_FAILED;
@@ -2110,9 +2353,6 @@ static dg_status_t dg_enforce_template_opening_connectivity(
     memcpy(base_tiles, map->tiles, cell_count * sizeof(*base_tiles));
     for (i = 0u; i < opening_count; ++i) {
         dg_apply_edge_opening_patch_and_anchor(map, &openings[i], &anchors[i]);
-        if (use_room_like_entrance_rooms != 0) {
-            dg_carve_room_like_entrance_chamber(map, &openings[i], chamber_mask);
-        }
     }
 
     for (i = 1u; i < opening_count; ++i) {
@@ -2127,7 +2367,7 @@ static dg_status_t dg_enforce_template_opening_connectivity(
                 map,
                 anchors[i],
                 base_tiles,
-                use_room_like_entrance_rooms != 0 ? chamber_mask : NULL
+                NULL
             )) {
             continue;
         }
@@ -2135,7 +2375,7 @@ static dg_status_t dg_enforce_template_opening_connectivity(
                 map,
                 base_tiles,
                 anchors[i],
-                use_room_like_entrance_rooms != 0 ? chamber_mask : NULL,
+                NULL,
                 &target
             )) {
             if (!dg_walkable_path_exists(map, anchors[i], target)) {
@@ -2144,7 +2384,6 @@ static dg_status_t dg_enforce_template_opening_connectivity(
         }
     }
 
-    free(chamber_mask);
     free(anchors);
     free(base_tiles);
     return DG_STATUS_OK;
@@ -2549,7 +2788,6 @@ dg_status_t dg_apply_room_type_templates(
         const dg_map_edge_opening_query_t *opening_query;
         int required_opening_matches;
         size_t definition_index;
-        int prefer_entrance_room_type;
         dg_room_template_cache_entry_t *entry;
         dg_generate_request_t template_request;
         dg_process_method_t *process_methods;
@@ -2578,7 +2816,6 @@ dg_status_t dg_apply_room_type_templates(
             }
             opening_query = NULL;
             required_opening_matches = 0;
-            prefer_entrance_room_type = 0;
         } else {
             const dg_room_type_definition_t *definition;
             definition_index = dg_find_room_type_definition_index_by_type_id(request, room->type_id);
@@ -2594,7 +2831,6 @@ dg_status_t dg_apply_room_type_templates(
             definition = &request->room_types.definitions[definition_index];
             opening_query = &definition->template_opening_query;
             required_opening_matches = definition->template_required_opening_matches;
-            prefer_entrance_room_type = definition->prefer_template_entrance_room;
         }
 
         room_openings = NULL;
@@ -2775,7 +3011,7 @@ dg_status_t dg_apply_room_type_templates(
 
         use_room_like_entrance_rooms = 0;
         if (generated_template.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
-            use_room_like_entrance_rooms = (prefer_entrance_room_type != 0);
+            use_room_like_entrance_rooms = 1;
         }
         if (connectivity_opening_count > 0u && connectivity_openings != NULL) {
             status = dg_enforce_template_opening_connectivity(
