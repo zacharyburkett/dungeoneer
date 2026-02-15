@@ -700,6 +700,173 @@ static bool rooms_have_min_wall_separation(const dg_map_t *map)
     return true;
 }
 
+static bool room_covers_edge_opening_patch(
+    const dg_map_t *map,
+    const dg_room_metadata_t *room,
+    const dg_edge_opening_spec_t *opening
+)
+{
+    int start;
+    int end;
+    int room_end_x;
+    int room_end_y;
+
+    if (map == NULL || room == NULL || opening == NULL) {
+        return false;
+    }
+
+    room_end_x = room->bounds.x + room->bounds.width - 1;
+    room_end_y = room->bounds.y + room->bounds.height - 1;
+
+    if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+        start = opening->start;
+        end = opening->end;
+        if (start < 0) {
+            start = 0;
+        }
+        if (start >= map->width) {
+            start = map->width - 1;
+        }
+        if (end < 0) {
+            end = 0;
+        }
+        if (end >= map->width) {
+            end = map->width - 1;
+        }
+        if (end < start) {
+            end = start;
+        }
+
+        if (room->bounds.x > start || room_end_x < end) {
+            return false;
+        }
+        if (opening->side == DG_MAP_EDGE_TOP) {
+            return room->bounds.y == 0;
+        }
+        return room->bounds.y + room->bounds.height == map->height;
+    }
+
+    if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
+        start = opening->start;
+        end = opening->end;
+        if (start < 0) {
+            start = 0;
+        }
+        if (start >= map->height) {
+            start = map->height - 1;
+        }
+        if (end < 0) {
+            end = 0;
+        }
+        if (end >= map->height) {
+            end = map->height - 1;
+        }
+        if (end < start) {
+            end = start;
+        }
+
+        if (room->bounds.y > start || room_end_y < end) {
+            return false;
+        }
+        if (opening->side == DG_MAP_EDGE_LEFT) {
+            return room->bounds.x == 0;
+        }
+        return room->bounds.x + room->bounds.width == map->width;
+    }
+
+    return false;
+}
+
+static bool map_has_room_covering_edge_opening(
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *opening
+)
+{
+    size_t i;
+
+    if (map == NULL || map->metadata.rooms == NULL || opening == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < map->metadata.room_count; ++i) {
+        if (room_covers_edge_opening_patch(map, &map->metadata.rooms[i], opening)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool edge_opening_patch_is_walkable(
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *opening
+)
+{
+    int start;
+    int end;
+    int coord;
+
+    if (map == NULL || map->tiles == NULL || opening == NULL) {
+        return false;
+    }
+
+    if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+        int y = (opening->side == DG_MAP_EDGE_TOP) ? 0 : map->height - 1;
+        start = opening->start;
+        end = opening->end;
+        if (start < 0) {
+            start = 0;
+        }
+        if (start >= map->width) {
+            start = map->width - 1;
+        }
+        if (end < 0) {
+            end = 0;
+        }
+        if (end >= map->width) {
+            end = map->width - 1;
+        }
+        if (end < start) {
+            end = start;
+        }
+        for (coord = start; coord <= end; ++coord) {
+            if (!is_walkable(map->tiles[(size_t)y * (size_t)map->width + (size_t)coord])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
+        int x = (opening->side == DG_MAP_EDGE_LEFT) ? 0 : map->width - 1;
+        start = opening->start;
+        end = opening->end;
+        if (start < 0) {
+            start = 0;
+        }
+        if (start >= map->height) {
+            start = map->height - 1;
+        }
+        if (end < 0) {
+            end = 0;
+        }
+        if (end >= map->height) {
+            end = map->height - 1;
+        }
+        if (end < start) {
+            end = start;
+        }
+        for (coord = start; coord <= end; ++coord) {
+            if (!is_walkable(map->tiles[(size_t)coord * (size_t)map->width + (size_t)x])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
 static bool corridors_have_unique_room_pairs(const dg_map_t *map)
 {
     size_t i;
@@ -2002,6 +2169,38 @@ static int test_rooms_and_mazes_generation(void)
         ASSERT_TRUE(room->role == DG_ROOM_ROLE_NONE);
         ASSERT_TRUE(room->type_id == DG_ROOM_TYPE_UNASSIGNED);
         ASSERT_TRUE(room->flags == DG_ROOM_FLAG_NONE);
+    }
+
+    dg_map_destroy(&map);
+    return 0;
+}
+
+static int test_rooms_and_mazes_edge_openings_place_entrance_rooms_first(void)
+{
+    dg_generate_request_t request;
+    dg_map_t map = {0};
+    dg_edge_opening_spec_t openings[3];
+    size_t i;
+
+    dg_default_generate_request(&request, DG_ALGORITHM_ROOMS_AND_MAZES, 84, 48, 30031u);
+    request.params.rooms_and_mazes.min_rooms = 8;
+    request.params.rooms_and_mazes.max_rooms = 12;
+    request.params.rooms_and_mazes.room_min_size = 5;
+    request.params.rooms_and_mazes.room_max_size = 11;
+    request.params.rooms_and_mazes.dead_end_prune_steps = 0;
+
+    openings[0] = (dg_edge_opening_spec_t){DG_MAP_EDGE_TOP, 8, 12, DG_MAP_EDGE_OPENING_ROLE_ENTRANCE};
+    openings[1] = (dg_edge_opening_spec_t){DG_MAP_EDGE_LEFT, 18, 22, DG_MAP_EDGE_OPENING_ROLE_NONE};
+    openings[2] = (dg_edge_opening_spec_t){DG_MAP_EDGE_RIGHT, 26, 30, DG_MAP_EDGE_OPENING_ROLE_EXIT};
+    request.edge_openings.openings = openings;
+    request.edge_openings.opening_count = sizeof(openings) / sizeof(openings[0]);
+
+    ASSERT_STATUS(dg_generate(&request, &map), DG_STATUS_OK);
+
+    ASSERT_TRUE(rooms_have_min_wall_separation(&map));
+    for (i = 0; i < request.edge_openings.opening_count; ++i) {
+        ASSERT_TRUE(edge_opening_patch_is_walkable(&map, &openings[i]));
+        ASSERT_TRUE(map_has_room_covering_edge_opening(&map, &openings[i]));
     }
 
     dg_map_destroy(&map);
@@ -4296,6 +4495,8 @@ int main(void)
         {"simplex_noise_determinism", test_simplex_noise_determinism},
         {"simplex_noise_threshold_affects_layout", test_simplex_noise_threshold_affects_layout},
         {"rooms_and_mazes_generation", test_rooms_and_mazes_generation},
+        {"rooms_and_mazes_edge_openings_place_entrance_rooms_first",
+         test_rooms_and_mazes_edge_openings_place_entrance_rooms_first},
         {"rooms_and_mazes_determinism", test_rooms_and_mazes_determinism},
         {"rooms_and_mazes_pruning_control", test_rooms_and_mazes_pruning_control},
         {"rooms_and_mazes_wiggle_affects_layout", test_rooms_and_mazes_wiggle_affects_layout},

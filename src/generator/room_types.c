@@ -3013,6 +3013,15 @@ dg_status_t dg_apply_room_type_templates(
         if (generated_template.metadata.generation_class == DG_MAP_GENERATION_CLASS_ROOM_LIKE) {
             use_room_like_entrance_rooms = 1;
         }
+        /*
+         * Rooms-and-mazes template generation handles entrance room placement
+         * during generation, before random room placement, so no post-pass
+         * room painting should happen here.
+         */
+        if (generated_template.metadata.algorithm_id == (int)DG_ALGORITHM_ROOMS_AND_MAZES) {
+            use_room_like_entrance_rooms = 0;
+            connectivity_opening_count = 0u;
+        }
         if (connectivity_opening_count > 0u && connectivity_openings != NULL) {
             status = dg_enforce_template_opening_connectivity(
                 &generated_template,

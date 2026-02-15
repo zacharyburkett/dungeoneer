@@ -234,19 +234,347 @@ static bool dg_room_overlaps_existing(const dg_map_t *map, const dg_rect_t *cand
     return false;
 }
 
+static bool dg_find_preferred_coordinate_in_range(
+    int min_value,
+    int max_value,
+    int preferred,
+    int enforce_parity,
+    int parity,
+    int *out_value
+)
+{
+    int value;
+    int best_value;
+    int best_distance;
+    bool found;
+
+    if (out_value == NULL || min_value > max_value) {
+        return false;
+    }
+
+    if (preferred < min_value) {
+        preferred = min_value;
+    }
+    if (preferred > max_value) {
+        preferred = max_value;
+    }
+
+    found = false;
+    best_value = min_value;
+    best_distance = INT32_MAX;
+    for (value = min_value; value <= max_value; ++value) {
+        int distance;
+
+        if (enforce_parity != 0 && ((value & 1) != parity)) {
+            continue;
+        }
+
+        distance = abs(value - preferred);
+        if (!found || distance < best_distance) {
+            found = true;
+            best_distance = distance;
+            best_value = value;
+            if (distance == 0) {
+                break;
+            }
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    *out_value = best_value;
+    return true;
+}
+
+static bool dg_build_entrance_room_from_opening(
+    const dg_rooms_and_mazes_config_t *config,
+    const dg_map_t *map,
+    const dg_edge_opening_spec_t *opening,
+    int depth,
+    int enforce_parity,
+    int grid_parity_x,
+    int grid_parity_y,
+    dg_rect_t *out_room
+)
+{
+    int start;
+    int end;
+    int opening_span;
+    int min_required;
+    dg_rect_t room;
+
+    if (config == NULL || map == NULL || opening == NULL || out_room == NULL ||
+        map->width <= 0 || map->height <= 0 || depth <= 0) {
+        return false;
+    }
+
+    room = (dg_rect_t){0, 0, 1, 1};
+
+    if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+        int width;
+        int max_width;
+        int x_min;
+        int x_max;
+        int preferred_x;
+
+        start = dg_clamp_int(opening->start, 0, map->width - 1);
+        end = dg_clamp_int(opening->end, 0, map->width - 1);
+        if (end < start) {
+            end = start;
+        }
+        opening_span = end - start + 1;
+        min_required = dg_max_int(1, config->room_min_size);
+        min_required = dg_max_int(min_required, opening_span);
+        max_width = dg_min_int(map->width, dg_max_int(config->room_max_size, min_required));
+        if (min_required > max_width) {
+            return false;
+        }
+
+        room.height = depth;
+        room.y = (opening->side == DG_MAP_EDGE_TOP) ? 0 : (map->height - room.height);
+        if (room.y < 0) {
+            return false;
+        }
+        if (enforce_parity != 0 &&
+            opening->side == DG_MAP_EDGE_BOTTOM &&
+            ((room.y & 1) != grid_parity_y)) {
+            return false;
+        }
+
+        for (width = min_required; width <= max_width; ++width) {
+            if (enforce_parity != 0 && (width & 1) == 0) {
+                continue;
+            }
+
+            x_min = dg_max_int(0, end - width + 1);
+            x_max = dg_min_int(start, map->width - width);
+            if (x_min > x_max) {
+                continue;
+            }
+
+            preferred_x = start - (width - opening_span) / 2;
+            if (!dg_find_preferred_coordinate_in_range(
+                    x_min,
+                    x_max,
+                    preferred_x,
+                    enforce_parity,
+                    grid_parity_x,
+                    &room.x
+                )) {
+                continue;
+            }
+
+            room.width = width;
+            *out_room = room;
+            return true;
+        }
+        return false;
+    } else if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
+        int height;
+        int max_height;
+        int y_min;
+        int y_max;
+        int preferred_y;
+
+        start = dg_clamp_int(opening->start, 0, map->height - 1);
+        end = dg_clamp_int(opening->end, 0, map->height - 1);
+        if (end < start) {
+            end = start;
+        }
+        opening_span = end - start + 1;
+        min_required = dg_max_int(1, config->room_min_size);
+        min_required = dg_max_int(min_required, opening_span);
+        max_height = dg_min_int(map->height, dg_max_int(config->room_max_size, min_required));
+        if (min_required > max_height) {
+            return false;
+        }
+
+        room.width = depth;
+        room.x = (opening->side == DG_MAP_EDGE_LEFT) ? 0 : (map->width - room.width);
+        if (room.x < 0) {
+            return false;
+        }
+        if (enforce_parity != 0 &&
+            opening->side == DG_MAP_EDGE_RIGHT &&
+            ((room.x & 1) != grid_parity_x)) {
+            return false;
+        }
+
+        for (height = min_required; height <= max_height; ++height) {
+            if (enforce_parity != 0 && (height & 1) == 0) {
+                continue;
+            }
+
+            y_min = dg_max_int(0, end - height + 1);
+            y_max = dg_min_int(start, map->height - height);
+            if (y_min > y_max) {
+                continue;
+            }
+
+            preferred_y = start - (height - opening_span) / 2;
+            if (!dg_find_preferred_coordinate_in_range(
+                    y_min,
+                    y_max,
+                    preferred_y,
+                    enforce_parity,
+                    grid_parity_y,
+                    &room.y
+                )) {
+                continue;
+            }
+
+            room.height = height;
+            *out_room = room;
+            return true;
+        }
+        return false;
+    } else {
+        return false;
+    }
+
+    return false;
+}
+
+static dg_status_t dg_place_entrance_room_for_opening(
+    const dg_rooms_and_mazes_config_t *config,
+    dg_map_t *map,
+    const dg_edge_opening_spec_t *opening,
+    int grid_parity_x,
+    int grid_parity_y,
+    int *regions
+)
+{
+    int depth_limit;
+    int base_depth;
+    int max_depth;
+    int pass;
+
+    if (config == NULL || map == NULL || map->tiles == NULL ||
+        opening == NULL || regions == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (opening->side == DG_MAP_EDGE_TOP || opening->side == DG_MAP_EDGE_BOTTOM) {
+        depth_limit = map->height;
+    } else if (opening->side == DG_MAP_EDGE_LEFT || opening->side == DG_MAP_EDGE_RIGHT) {
+        depth_limit = map->width;
+    } else {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (depth_limit <= 0) {
+        return DG_STATUS_GENERATION_FAILED;
+    }
+
+    base_depth = dg_clamp_int(config->room_min_size, 1, depth_limit);
+    max_depth = dg_min_int(depth_limit, dg_max_int(config->room_max_size, base_depth));
+    if (max_depth < base_depth) {
+        max_depth = base_depth;
+    }
+
+    for (pass = 0; pass < 2; ++pass) {
+        int enforce_parity = (pass == 0) ? 1 : 0;
+        int step = 1;
+        int depth = base_depth;
+
+        for (; depth <= max_depth; depth += step) {
+            dg_rect_t room;
+            int room_id;
+            dg_status_t status;
+
+            if (!dg_build_entrance_room_from_opening(
+                    config,
+                    map,
+                    opening,
+                    depth,
+                    enforce_parity,
+                    grid_parity_x,
+                    grid_parity_y,
+                    &room
+                )) {
+                continue;
+            }
+
+            if (dg_room_overlaps_existing(map, &room)) {
+                continue;
+            }
+
+            status = dg_map_add_room(map, &room, DG_ROOM_FLAG_NONE);
+            if (status != DG_STATUS_OK) {
+                return status;
+            }
+
+            room_id = (int)map->metadata.room_count - 1;
+            dg_carve_room_with_region(map, &room, regions, room_id + 1);
+            return DG_STATUS_OK;
+        }
+    }
+
+    return DG_STATUS_GENERATION_FAILED;
+}
+
+static dg_status_t dg_place_entrance_rooms_from_openings(
+    const dg_generate_request_t *request,
+    const dg_rooms_and_mazes_config_t *config,
+    dg_map_t *map,
+    int grid_parity_x,
+    int grid_parity_y,
+    int *regions,
+    int *out_placed_count
+)
+{
+    size_t i;
+    int placed_count;
+
+    if (request == NULL || config == NULL || map == NULL || regions == NULL ||
+        out_placed_count == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_placed_count = 0;
+    if (request->edge_openings.opening_count == 0u) {
+        return DG_STATUS_OK;
+    }
+    if (request->edge_openings.openings == NULL) {
+        return DG_STATUS_INVALID_ARGUMENT;
+    }
+
+    placed_count = 0;
+    for (i = 0u; i < request->edge_openings.opening_count; ++i) {
+        dg_status_t status = dg_place_entrance_room_for_opening(
+            config,
+            map,
+            &request->edge_openings.openings[i],
+            grid_parity_x,
+            grid_parity_y,
+            regions
+        );
+        if (status != DG_STATUS_OK) {
+            return status;
+        }
+        placed_count += 1;
+    }
+
+    *out_placed_count = placed_count;
+    return DG_STATUS_OK;
+}
+
 static dg_status_t dg_place_random_rooms(
     const dg_rooms_and_mazes_config_t *config,
     dg_map_t *map,
     dg_rng_t *rng,
     int grid_parity_x,
     int grid_parity_y,
+    int target_rooms,
     int *regions,
     int *out_next_region_id
 )
 {
     int max_room_width;
     int max_room_height;
-    int target_rooms;
+    int rooms_remaining;
     size_t placement_attempt;
     size_t placement_attempt_limit;
 
@@ -257,6 +585,7 @@ static dg_status_t dg_place_random_rooms(
         rng == NULL ||
         (grid_parity_x != 0 && grid_parity_x != 1) ||
         (grid_parity_y != 0 && grid_parity_y != 1) ||
+        target_rooms < 0 ||
         regions == NULL ||
         out_next_region_id == NULL
     ) {
@@ -269,8 +598,14 @@ static dg_status_t dg_place_random_rooms(
         return DG_STATUS_GENERATION_FAILED;
     }
 
-    target_rooms = dg_rng_range(rng, config->min_rooms, config->max_rooms);
+    if (target_rooms < (int)map->metadata.room_count) {
+        target_rooms = (int)map->metadata.room_count;
+    }
+    rooms_remaining = target_rooms - (int)map->metadata.room_count;
     placement_attempt_limit = (size_t)target_rooms * 128u + 256u;
+    if (rooms_remaining > 0) {
+        placement_attempt_limit = (size_t)rooms_remaining * 128u + 256u;
+    }
     for (placement_attempt = 0; placement_attempt < placement_attempt_limit; ++placement_attempt) {
         dg_rect_t room;
         int max_x;
@@ -1485,6 +1820,8 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     int next_region_id;
     int grid_parity_x;
     int grid_parity_y;
+    int target_rooms;
+    int entrance_room_count;
     dg_status_t status;
 
     if (request == NULL || map == NULL || rng == NULL) {
@@ -1500,6 +1837,7 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     config = &request->params.rooms_and_mazes;
     grid_parity_x = dg_rng_range(rng, 0, 1);
     grid_parity_y = dg_rng_range(rng, 0, 1);
+    target_rooms = dg_rng_range(rng, config->min_rooms, config->max_rooms);
     cell_count = (size_t)map->width * (size_t)map->height;
     regions = (int *)malloc(cell_count * sizeof(int));
     if (regions == NULL) {
@@ -1507,12 +1845,31 @@ dg_status_t dg_generate_rooms_and_mazes_impl(
     }
     memset(regions, 0xFF, cell_count * sizeof(int));
 
+    entrance_room_count = 0;
+    status = dg_place_entrance_rooms_from_openings(
+        request,
+        config,
+        map,
+        grid_parity_x,
+        grid_parity_y,
+        regions,
+        &entrance_room_count
+    );
+    if (status != DG_STATUS_OK) {
+        free(regions);
+        return status;
+    }
+    if (target_rooms < entrance_room_count) {
+        target_rooms = entrance_room_count;
+    }
+
     status = dg_place_random_rooms(
         config,
         map,
         rng,
         grid_parity_x,
         grid_parity_y,
+        target_rooms,
         regions,
         &next_region_id
     );
